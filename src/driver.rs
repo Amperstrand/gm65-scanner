@@ -7,9 +7,6 @@ extern crate alloc;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::buffer::ScanBuffer;
-use crate::protocol::{HEADER, FOOTER, CMD_SET_PARAM, CMD_GET_PARAM, Register, BaudRate, calculate_crc};
-
 pub const MAX_SCAN_SIZE: usize = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +19,7 @@ pub enum ScannerModel {
 
 impl fmt::Display for ScannerModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             ScannerModel::Gm65 => write!(f, "GM65"),
             ScannerModel::M3Y => write!(f, "M3Y"),
             ScannerModel::Generic => write!(f, "Generic"),
@@ -39,28 +37,29 @@ pub enum ScanMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScannerState {
-    Uninitialized
-    Detecting
-    Configuring
-    Ready
-    Scanning
-    ScanComplete
+    Uninitialized,
+    Detecting,
+    Configuring,
+    Ready,
+    Scanning,
+    ScanComplete,
     Error(ScannerError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScannerError {
-    NotDetected
-    Timeout
-    InvalidResponse
-    BufferOverflow
-    ConfigFailed
-    NotInitialized
+    NotDetected,
+    Timeout,
+    InvalidResponse,
+    BufferOverflow,
+    ConfigFailed,
+    NotInitialized,
     UartError,
 }
 
 impl fmt::Display for ScannerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             ScannerError::NotDetected => write!(f, "Scanner not detected"),
             ScannerError::Timeout => write!(f, "Communication timeout"),
             ScannerError::InvalidResponse => write!(f, "Invalid response"),
@@ -100,6 +99,7 @@ pub struct ScannerStatus {
     pub last_scan_len: Option<usize>,
 }
 
+#[allow(async_fn_in_trait)]
 pub trait ScannerDriver {
     async fn init(&mut self) -> Result<ScannerModel, ScannerError>;
     
@@ -115,4 +115,3 @@ pub trait ScannerDriver {
     
     fn data_ready(&self) -> bool;
 }
-

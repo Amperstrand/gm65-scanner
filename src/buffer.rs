@@ -4,8 +4,6 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-
 pub const MAX_SCAN_SIZE: usize = 2048;
 
 pub struct ScanBuffer {
@@ -78,5 +76,4 @@ impl Default for ScanBuffer {
     fn default() -> Self {
         Self::new()
     }
-}
 }

@@ -36,5 +36,5 @@ pub mod protocol;
 
 pub use buffer::ScanBuffer;
 pub use decoder::{decode_payload, classify_payload, PayloadType};
-pub use driver::{Gm65Scanner, ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerDriver};
+pub use driver::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerDriver};
 pub use protocol::{calculate_crc, commands, BaudRate as Gm65BaudRate, Gm65CommandBuilder, Gm65Response, Register};

@@ -8,10 +8,11 @@ repository = "https://github.com/Amperstrand/gm65-scanner"
 keywords = ["qr", "barcode", "scanner", "gm65", "m3y", "uart", "embedded", "no-std"]
 categories = ["embedded", "hardware-support", "no-std"]
 readme = "README.md"
+exclude = ["/examples", "/.github"]
 
 [features]
 default = []
-embedded-hal = ["embedded-hal", "embedded-hal-async"]
+embedded-hal = ["dep:embedded-hal", "dep:embedded-hal-async"]
 std = []
 
 [dependencies]

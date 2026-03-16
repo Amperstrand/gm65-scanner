@@ -4,7 +4,6 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -24,6 +23,7 @@ pub enum PayloadType {
 
 impl fmt::Display for PayloadType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             PayloadType::CashuV4 => write!(f, "Cashu V4 Token"),
             PayloadType::CashuV3 => write!(f, "Cashu V3 Token"),
             PayloadType::UrFragment => write!(f, "UR Fragment"),
@@ -75,11 +75,6 @@ impl DecodedPayload {
 
 impl fmt::Display for DecodedPayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} ({} bytes)",
-            self.payload_type,
-            self.raw.len()
-        )
+        write!(f, "{} ({} bytes)", self.payload_type, self.raw.len())
     }
 }
