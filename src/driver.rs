@@ -12,6 +12,14 @@
 //! - Commands end with `AB CD` (sentinel, not a checksum)
 //! - Responses are `02 00 00 01 [value] 33 31` (7 bytes, no `7E 00` header)
 //! - Register addresses differ from datasheet (see protocol.rs)
+//!
+//! # Sync vs Async
+//!
+//! Two traits are provided:
+//! - `ScannerDriverSync` — blocking, for polling main loops (no allocator needed for trait methods)
+//! - `ScannerDriver` — async, for executor-based firmware (embassy, etc.)
+//!
+//! `Gm65Scanner<UART>` implements both when the `embedded-hal` feature is enabled.
 
 extern crate alloc;
 
@@ -110,11 +118,25 @@ pub struct ScannerStatus {
     pub last_scan_len: Option<usize>,
 }
 
+pub trait ScannerDriverSync {
+    fn init(&mut self) -> Result<ScannerModel, ScannerError>;
+    fn ping(&mut self) -> bool;
+    fn trigger_scan(&mut self) -> Result<(), ScannerError>;
+    fn read_scan(&mut self) -> Option<Vec<u8>>;
+    fn state(&self) -> ScannerState;
+    fn status(&self) -> ScannerStatus;
+    fn data_ready(&self) -> bool;
+}
+
 pub trait ScannerDriver {
-    async fn init(&mut self) -> Result<ScannerModel, ScannerError>;
-    async fn ping(&mut self) -> bool;
-    async fn trigger_scan(&mut self) -> Result<(), ScannerError>;
-    async fn read_scan(&mut self) -> Option<Vec<u8>>;
+    fn init(
+        &mut self,
+    ) -> impl core::future::Future<Output = Result<ScannerModel, ScannerError>> + Send;
+    fn ping(&mut self) -> impl core::future::Future<Output = bool> + Send;
+    fn trigger_scan(
+        &mut self,
+    ) -> impl core::future::Future<Output = Result<(), ScannerError>> + Send;
+    fn read_scan(&mut self) -> impl core::future::Future<Output = Option<Vec<u8>>> + Send;
     fn state(&self) -> ScannerState;
     fn status(&self) -> ScannerStatus;
     fn data_ready(&self) -> bool;
