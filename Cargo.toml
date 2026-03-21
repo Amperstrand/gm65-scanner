@@ -30,6 +30,7 @@ linked_list_allocator = "0.10"
 critical-section = "1.2"
 usb-device = "0.3"
 usbd-serial = "0.2"
+usbd-hid = "0.10"
 bitflags = "2.6"
 
 # BSP - pinned to working commit

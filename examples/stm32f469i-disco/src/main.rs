@@ -23,14 +23,18 @@ use stm32f469i_disc::{
 use hal::otg_fs::UsbBus;
 use hal::serial::Serial6;
 use usb_device::prelude::*;
+use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+use usbd_hid::hid_class::HIDClass;
 
 use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings, ScannerState};
 
 mod cdc;
 mod display;
+mod hid;
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
+use hid::{BarcodeScannerReport, KeyboardWedgeState, HID_KBD_POLL_MS, HID_POS_POLL_MS};
 
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
 
@@ -130,9 +134,11 @@ fn main() -> ! {
     let usb_bus = UsbBus::new(usb_periph, EP_MEMORY.take());
 
     let serial = usbd_serial::SerialPort::new(&usb_bus);
+    let mut hid_keyboard = HIDClass::new_ep_in(&usb_bus, KeyboardReport::desc(), HID_KBD_POLL_MS);
+    let mut hid_pos = HIDClass::new_ep_in(&usb_bus, BarcodeScannerReport::desc(), HID_POS_POLL_MS);
 
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .device_class(usbd_serial::USB_CLASS_CDC)
+        .composite_with_iads()
         .strings(&[StringDescriptors::default()
             .manufacturer("gm65-scanner")
             .product("QR Barcode Scanner")
@@ -213,9 +219,11 @@ fn main() -> ! {
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
     let mut auto_scan: bool = scanner_connected;
+    let mut kbd_state = KeyboardWedgeState::default();
+    let mut pos_pending: Option<[u8; 32]> = None;
 
     loop {
-        if usb_dev.poll(&mut [cdc_port.serial_mut()]) {
+        if usb_dev.poll(&mut [cdc_port.serial_mut(), &mut hid_keyboard, &mut hid_pos]) {
             if let Some(frame) = cdc_port.receive_frame() {
                 if frame.command == Command::SetSettings || frame.command == Command::ScannerTrigger
                 {
@@ -256,8 +264,22 @@ fn main() -> ! {
                 buf[..copy_len].copy_from_slice(&data[..copy_len]);
                 last_scan_data = Some(buf);
                 last_scan_len = copy_len;
+                kbd_state.start(&buf[..copy_len]);
+                {
+                    let mut pos_data = [0u8; 32];
+                    let pos_len = copy_len.min(32);
+                    pos_data[..pos_len].copy_from_slice(&buf[..pos_len]);
+                    pos_pending = Some(pos_data);
+                }
                 break;
             }
+        }
+
+        kbd_state.send_next(&mut hid_keyboard);
+
+        if let Some(data) = pos_pending.take() {
+            let report = BarcodeScannerReport { barcode_data: data };
+            let _ = hid_pos.push_input(&report);
         }
     }
 }
