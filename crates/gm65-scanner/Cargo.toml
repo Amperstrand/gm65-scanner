@@ -1,0 +1,31 @@
+[package]
+name = "gm65-scanner"
+version = "0.1.0"
+edition = "2021"
+description = "UART driver for GM65/M3Y QR barcode scanner modules"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Amperstrand/gm65-scanner"
+keywords = ["qr", "barcode", "scanner", "gm65", "m3y", "uart", "embedded", "no-std"]
+categories = ["embedded", "hardware-support", "no-std"]
+readme = "README.md"
+exclude = ["/examples", "/.github"]
+
+[features]
+default = []
+embedded-hal = ["dep:embedded-hal-02", "dep:nb"]
+embedded-hal-async = ["dep:embedded-hal-async", "embedded-hal", "dep:embedded-hal"]
+std = []
+defmt = ["dep:defmt"]
+
+[dependencies]
+embedded-hal = { version = "1.0", optional = true }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2", features = ["unproven"], optional = true }
+embedded-hal-async = { version = "1.0", optional = true }
+nb = { version = "1.1", optional = true }
+defmt = { version = "1.0", optional = true }
+
+[dev-dependencies]
+embedded-hal-mock = "0.10"
+
+[package.metadata.docs.rs]
+all-features = true

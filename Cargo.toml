@@ -1,31 +1,40 @@
-[package]
-name = "gm65-scanner"
+[workspace]
+resolver = "2"
+members = [
+    "crates/gm65-scanner",
+    "examples/stm32f469i-disco",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "UART driver for GM65/M3Y QR barcode scanner modules"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Amperstrand/gm65-scanner"
-keywords = ["qr", "barcode", "scanner", "gm65", "m3y", "uart", "embedded", "no-std"]
-categories = ["embedded", "hardware-support", "no-std"]
-readme = "README.md"
-exclude = ["/examples", "/.github"]
 
-[features]
-default = []
-embedded-hal = ["dep:embedded-hal-02", "dep:nb"]
-embedded-hal-async = ["dep:embedded-hal-async", "embedded-hal", "dep:embedded-hal"]
-std = []
-defmt = ["dep:defmt"]
+[workspace.dependencies]
+gm65-scanner = { path = "crates/gm65-scanner" }
 
-[dependencies]
-embedded-hal = { version = "1.0", optional = true }
-embedded-hal-02 = { package = "embedded-hal", version = "0.2", features = ["unproven"], optional = true }
-embedded-hal-async = { version = "1.0", optional = true }
-nb = { version = "1.1", optional = true }
-defmt = { version = "1.0", optional = true }
+# Embedded
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+defmt = "1.0"
+defmt-rtt = "1.0"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+embedded-hal = "1.0"
+embedded-hal-02 = { package = "embedded-hal", version = "0.2", features = ["unproven"] }
+embedded-graphics = "0.8"
+heapless = "0.8"
+nb = "1.1"
+static_cell = "2.1"
+linked_list_allocator = "0.10"
+critical-section = "1.2"
+usb-device = "0.3"
+usbd-serial = "0.2"
 
-[dev-dependencies]
-embedded-hal-mock = "0.10"
+# BSP - pinned to working commit
+stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "fa6dc86" }
 
-[package.metadata.docs.rs]
-all-features = true
+[profile.release]
+debug = true
+lto = true
+opt-level = "s"
