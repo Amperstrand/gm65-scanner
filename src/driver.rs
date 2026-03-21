@@ -29,6 +29,7 @@ use core::fmt;
 pub const MAX_SCAN_SIZE: usize = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerModel {
     Gm65,
     M3Y,
@@ -48,6 +49,7 @@ impl fmt::Display for ScannerModel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScanMode {
     Continuous,
     CommandTriggered,
@@ -55,6 +57,7 @@ pub enum ScanMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerState {
     Uninitialized,
     Detecting,
@@ -66,6 +69,7 @@ pub enum ScannerState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerError {
     NotDetected,
     Timeout,

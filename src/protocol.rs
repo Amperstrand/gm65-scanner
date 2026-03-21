@@ -42,6 +42,7 @@ pub const CMD_GET_PARAM: u8 = 0x07;
 pub const CMD_SAVE: u8 = 0x09;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Register {
     SerialOutput = 0x000D,
     Settings = 0x0000,
@@ -65,6 +66,7 @@ impl Register {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BaudRate {
     Bps9600 = 0x00,
     Bps19200 = 0x01,
