@@ -183,7 +183,6 @@ impl Gm65Response {
 
 pub mod commands {
     use super::*;
-    use alloc::vec;
 
     pub fn factory_reset() -> Vec<u8> {
         build_factory_reset().to_vec()
@@ -231,8 +230,8 @@ mod tests {
         let cmd = build_get_setting(Register::SerialOutput.address_bytes());
         assert_eq!(&cmd[..2], &[0x7E, 0x00]);
         assert_eq!(cmd[2], 0x07);
-        assert_eq!(cmd[5], 0x06);
         assert_eq!(cmd[4], 0x00);
+        assert_eq!(cmd[5], 0x0D);
         assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
     }
 
@@ -242,7 +241,7 @@ mod tests {
         assert_eq!(&cmd[..2], &[0x7E, 0x00]);
         assert_eq!(cmd[2], 0x08);
         assert_eq!(cmd[3], 0x02);
-        assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
+        assert_eq!(&cmd[8..], &[0xAB, 0xCD]);
     }
 
     #[test]
