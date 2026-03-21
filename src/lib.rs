@@ -1,12 +1,17 @@
 //! GM65/M3Y QR Scanner Driver
 //!
-//! A no_std compatible driver for GM65 and M3Y QR barcode scanner modules.
+//! A `no_std` compatible driver for GM65 and M3Y QR barcode scanner modules.
 //! These scanners communicate via UART and handle QR decoding internally.
+//!
+//! # Protocol
+//!
+//! This driver uses the real GM65 protocol as reverse-engineered from the
+//! specter-diy project, NOT the protocol described in the GM65 datasheet
+//! (which is incorrect). See `protocol.rs` for details.
 //!
 //! # Features
 //!
 //! - `embedded-hal` - Enable embedded-hal trait implementations
-//! - `embedded-hal-async` - Enable async embedded-hal support
 //! - `std` - Enable standard library support
 //!
 //! # Example
@@ -21,7 +26,7 @@
 //!     ..Default::default()
 //! };
 //!
-//! let mut scanner = Gm65Scanner::new(uart, Some(trigger_pin), config);
+//! let mut scanner = Gm65Scanner::new(uart, config);
 //! ```
 
 #![no_std]
@@ -35,6 +40,11 @@ pub mod driver;
 pub mod protocol;
 
 pub use buffer::ScanBuffer;
-pub use decoder::{decode_payload, classify_payload, PayloadType};
-pub use driver::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerDriver};
-pub use protocol::{calculate_crc, commands, BaudRate as Gm65BaudRate, Gm65CommandBuilder, Gm65Response, Register};
+pub use decoder::{classify_payload, decode_payload, DecodedPayload, PayloadType};
+pub use driver::{
+    ScanMode, ScannerConfig, ScannerDriver, ScannerError, ScannerModel, ScannerState, ScannerStatus,
+};
+pub use protocol::{
+    build_factory_reset, build_get_setting, build_save_settings, build_set_setting,
+    build_trigger_scan, commands, BaudRate as Gm65BaudRate, Register,
+};

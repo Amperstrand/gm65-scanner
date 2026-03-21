@@ -1,28 +1,60 @@
-//! GM65/M3Y Scanner Protocol
+//! GM65 Scanner Protocol
 //!
-//! Low-level command and response handling for GM65 scanner modules.
+//! Command and response handling for GM65 QR scanner modules.
+//! Protocol reverse-engineered from specter-diy's qr.py:
+//! https://github.com/cryptoadvance/specter-diy/blob/master/src/hosts/qr.py
+//!
+//! # Protocol Format
+//!
+//! All commands follow this structure:
+//! `[7E 00] [type:1] [len:1] [addr_lo] [addr_hi] [value:N] [AB CD]`
+//!
+//! - Header: `7E 00` (2 bytes)
+//! - Type: `07` (get) or `08` (set) or `09` (save)
+//! - Length: number of bytes following this field (addr + value)
+//! - Address: 2-byte register address (little-endian from specter-diy)
+//! - Value: data bytes
+//! - Suffix: `AB CD` (sentinel, NOT a real checksum)
+//!
+//! # Response Format
+//!
+//! Responses are 7 bytes: `02 00 00 01 [value_byte] 33 31`
+//!
+//! - Bytes 0-3: prefix `02 00 00 01` (success indicator)
+//! - Byte 4: the register value (for get_setting responses)
+//! - Bytes 5-6: `33 31` (constant suffix)
+//!
+//! **CRITICAL**: Responses do NOT start with `7E 00` and do NOT end with `0x55`.
+//! The datasheet protocol description is misleading/incorrect.
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 
 pub const HEADER: [u8; 2] = [0x7E, 0x00];
-pub const FOOTER: u8 = 0x55;
+pub const CRC_NO_CHECKSUM: [u8; 2] = [0xAB, 0xCD];
+
+const SUCCESS_PREFIX: [u8; 4] = [0x02, 0x00, 0x00, 0x01];
+const SUCCESS_LEN: usize = 7;
 
 pub const CMD_SET_PARAM: u8 = 0x08;
 pub const CMD_GET_PARAM: u8 = 0x07;
-pub const CMD_QUERY_VERSION: u8 = 0x01;
-pub const CMD_TRIGGER_SCAN: u8 = 0x04;
+pub const CMD_SAVE: u8 = 0x09;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Register {
-    SerialOutput = 0x0000,
+    SerialOutput = 0x000D,
+    Settings = 0x0000,
     BaudRate = 0x002A,
+    ScanEnable = 0x0002,
+    Timeout = 0x0006,
+    ScanInterval = 0x0005,
+    SameBarcodeDelay = 0x0013,
+    Version = 0x00E2,
     RawMode = 0x00BC,
+    BarType = 0x002C,
+    QrEnable = 0x003F,
     FactoryReset = 0x00D9,
-    ScanMode = 0x0001,
-    QrOnly = 0x0002,
-    ScanInterval = 0x0003,
 }
 
 impl Register {
@@ -61,140 +93,191 @@ pub fn calculate_crc(data: &[u8]) -> u8 {
     data.iter().fold(0, |acc, &b| acc ^ b)
 }
 
-pub struct Gm65CommandBuilder {
-    cmd_type: u8,
-    register: Register,
-    value: Vec<u8>,
+pub fn build_get_setting(addr: [u8; 2]) -> [u8; 9] {
+    [
+        HEADER[0],
+        HEADER[1],
+        CMD_GET_PARAM,
+        0x01,
+        addr[0],
+        addr[1],
+        0x01,
+        CRC_NO_CHECKSUM[0],
+        CRC_NO_CHECKSUM[1],
+    ]
 }
 
-impl Gm65CommandBuilder {
-    pub fn set(register: Register) -> Self {
-        Self {
-            cmd_type: CMD_SET_PARAM,
-            register,
-            value: Vec::new(),
-        }
-    }
+pub fn build_set_setting(addr: [u8; 2], value: u8) -> [u8; 9] {
+    [
+        HEADER[0],
+        HEADER[1],
+        CMD_SET_PARAM,
+        0x01,
+        addr[0],
+        addr[1],
+        value,
+        CRC_NO_CHECKSUM[0],
+        CRC_NO_CHECKSUM[1],
+    ]
+}
 
-    pub fn get(register: Register) -> Self {
-        Self {
-            cmd_type: CMD_GET_PARAM,
-            register,
-            value: Vec::new(),
-        }
-    }
+pub fn build_set_setting_2byte(addr: [u8; 2], value: [u8; 2]) -> [u8; 10] {
+    [
+        HEADER[0],
+        HEADER[1],
+        CMD_SET_PARAM,
+        0x02,
+        addr[0],
+        addr[1],
+        value[0],
+        value[1],
+        CRC_NO_CHECKSUM[0],
+        CRC_NO_CHECKSUM[1],
+    ]
+}
 
-    pub fn with_value(mut self, value: u8) -> Self {
-        self.value.push(value);
-        self
-    }
+pub fn build_save_settings() -> [u8; 9] {
+    [0x7E, 0x00, 0x09, 0x01, 0x00, 0x00, 0x00, 0xDE, 0xC8]
+}
 
-    pub fn with_values(mut self, values: &[u8]) -> Self {
-        self.value.extend_from_slice(values);
-        self
-    }
+pub fn build_factory_reset() -> [u8; 9] {
+    [0x7E, 0x00, 0x08, 0x01, 0x00, 0xD9, 0x55, 0xAB, 0xCD]
+}
 
-    pub fn build(self) -> Vec<u8> {
-        let addr = self.register.address_bytes();
-        let payload_len = 2 + self.value.len();
-
-        let mut cmd = Vec::with_capacity(8 + self.value.len());
-        cmd.extend_from_slice(&HEADER);
-        cmd.push(self.cmd_type);
-        cmd.push(payload_len as u8);
-        cmd.extend_from_slice(&addr);
-        cmd.extend_from_slice(&self.value);
-
-        let crc = calculate_crc(&cmd[2..]);
-        cmd.push(crc);
-        cmd.push(FOOTER);
-
-        cmd
-    }
+pub fn build_trigger_scan() -> [u8; 9] {
+    build_set_setting(Register::ScanEnable.address_bytes(), 0x01)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gm65Response {
-    Ack,
-    Nack(u8),
-    Version { major: u8, minor: u8 },
-    ParamValue(Vec<u8>),
+    SuccessWithValue(u8),
+    Success,
     Invalid,
 }
 
 impl Gm65Response {
-    pub fn parse(data: &[u8]) -> Self {
-        if data.len() < 6 {
+    pub fn parse_get_response(data: &[u8]) -> Self {
+        if data.len() != SUCCESS_LEN {
             return Gm65Response::Invalid;
         }
-
-        if data[0] != HEADER[0] || data[1] != HEADER[1] {
+        if data[0..4] != SUCCESS_PREFIX {
             return Gm65Response::Invalid;
         }
+        Gm65Response::SuccessWithValue(data[4])
+    }
 
-        if data[data.len() - 1] != FOOTER {
+    pub fn parse_set_response(data: &[u8]) -> Self {
+        if data.len() != SUCCESS_LEN {
             return Gm65Response::Invalid;
         }
-
-        let expected_crc = calculate_crc(&data[2..data.len() - 2]);
-        if data[data.len() - 2] != expected_crc {
+        if data[0..4] != SUCCESS_PREFIX {
             return Gm65Response::Invalid;
         }
+        Gm65Response::Success
+    }
 
-        let status = data[3];
-        match status {
-            0x00 => Gm65Response::Ack,
-            0xEE => Gm65Response::Nack(data.get(4).copied().unwrap_or(0)),
-            _ => {
-                if data.len() > 5 {
-                    Gm65Response::ParamValue(data[4..data.len() - 2].to_vec())
-                } else {
-                    Gm65Response::Invalid
-                }
-            }
-        }
+    pub fn is_success(&self) -> bool {
+        !matches!(self, Gm65Response::Invalid)
     }
 }
 
 pub mod commands {
     use super::*;
-    use alloc::vec::Vec;
+    use alloc::vec;
 
     pub fn factory_reset() -> Vec<u8> {
-        Gm65CommandBuilder::set(Register::FactoryReset)
-            .with_value(0x00)
-            .build()
+        build_factory_reset().to_vec()
+    }
+
+    pub fn save_settings() -> Vec<u8> {
+        build_save_settings().to_vec()
     }
 
     pub fn enable_serial_output() -> Vec<u8> {
-        Gm65CommandBuilder::set(Register::SerialOutput)
-            .with_value(0x01)
-            .build()
+        build_set_setting(Register::SerialOutput.address_bytes(), 0xA0).to_vec()
     }
 
     pub fn set_baud_rate(rate: BaudRate) -> Vec<u8> {
-        Gm65CommandBuilder::set(Register::BaudRate)
-            .with_value(rate.value())
-            .build()
+        build_set_setting_2byte(Register::BaudRate.address_bytes(), [rate.value(), 0x00]).to_vec()
     }
 
     pub fn enable_raw_mode() -> Vec<u8> {
-        Gm65CommandBuilder::set(Register::RawMode)
-            .with_value(0x08)
-            .build()
+        build_set_setting(Register::RawMode.address_bytes(), 0x08).to_vec()
     }
 
     pub fn set_qr_only() -> Vec<u8> {
-        Gm65CommandBuilder::set(Register::QrOnly)
-            .with_value(0x01)
-            .build()
-    }
-
-    pub fn query_version() -> Vec<u8> {
-        alloc::vec![0x7E, 0x00, 0x01, 0x00, 0x01, 0x01, 0x55]
+        build_set_setting(Register::QrEnable.address_bytes(), 0x01).to_vec()
     }
 
     pub fn trigger_scan() -> Vec<u8> {
-        alloc::vec![0x7E, 0x00, 0x04, 0x00, 0x04, 0x00, 0x55]
+        build_trigger_scan().to_vec()
+    }
+
+    pub fn get_setting(addr: [u8; 2]) -> Vec<u8> {
+        build_get_setting(addr).to_vec()
+    }
+
+    pub fn set_setting(addr: [u8; 2], value: u8) -> Vec<u8> {
+        build_set_setting(addr, value).to_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_setting_serial_addr() {
+        let cmd = build_get_setting(Register::SerialOutput.address_bytes());
+        assert_eq!(&cmd[..2], &[0x7E, 0x00]);
+        assert_eq!(cmd[2], 0x07);
+        assert_eq!(cmd[5], 0x06);
+        assert_eq!(cmd[4], 0x00);
+        assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_set_setting_baud_115200() {
+        let cmd = build_set_setting_2byte(Register::BaudRate.address_bytes(), [0x1A, 0x00]);
+        assert_eq!(&cmd[..2], &[0x7E, 0x00]);
+        assert_eq!(cmd[2], 0x08);
+        assert_eq!(cmd[3], 0x02);
+        assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_save_settings() {
+        let cmd = build_save_settings();
+        assert_eq!(&cmd[..2], &[0x7E, 0x00]);
+        assert_eq!(cmd[2], 0x09);
+        assert_eq!(&cmd[7..], &[0xDE, 0xC8]);
+    }
+
+    #[test]
+    fn test_parse_success_response() {
+        let resp = [0x02, 0x00, 0x00, 0x01, 0x87, 0x33, 0x31];
+        let parsed = Gm65Response::parse_get_response(&resp);
+        assert!(parsed.is_success());
+        assert_eq!(parsed, Gm65Response::SuccessWithValue(0x87));
+    }
+
+    #[test]
+    fn test_parse_invalid_response_wrong_len() {
+        let resp = [0x02, 0x00, 0x00, 0x01];
+        let parsed = Gm65Response::parse_get_response(&resp);
+        assert_eq!(parsed, Gm65Response::Invalid);
+    }
+
+    #[test]
+    fn test_register_addresses_match_specter_diy() {
+        assert_eq!(Register::SerialOutput.address_bytes(), [0x00, 0x0D]);
+        assert_eq!(Register::BaudRate.address_bytes(), [0x00, 0x2A]);
+        assert_eq!(Register::RawMode.address_bytes(), [0x00, 0xBC]);
+        assert_eq!(Register::FactoryReset.address_bytes(), [0x00, 0xD9]);
+        assert_eq!(Register::Version.address_bytes(), [0x00, 0xE2]);
+        assert_eq!(Register::ScanInterval.address_bytes(), [0x00, 0x05]);
+        assert_eq!(Register::SameBarcodeDelay.address_bytes(), [0x00, 0x13]);
+        assert_eq!(Register::BarType.address_bytes(), [0x00, 0x2C]);
+        assert_eq!(Register::QrEnable.address_bytes(), [0x00, 0x3F]);
     }
 }

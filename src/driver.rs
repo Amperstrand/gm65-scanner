@@ -1,11 +1,25 @@
 //! GM65 Scanner Driver
 //!
-//! Hardware driver for GM65/M3Y QR scanner modules.
+//! Hardware driver for GM65/M3Y QR scanner modules connected via UART.
+//! Protocol modeled after specter-diy's qr.py:
+//! https://github.com/cryptoadvance/specter-diy/blob/master/src/hosts/qr.py
+//!
+//! # Key Differences from the Datasheet
+//!
+//! The GM65 datasheet protocol description is incorrect/misleading. The real
+//! protocol (as used by specter-diy, which ships working hardware) is:
+//!
+//! - Commands end with `AB CD` (sentinel, not a checksum)
+//! - Responses are `02 00 00 01 [value] 33 31` (7 bytes, no `7E 00` header)
+//! - Register addresses differ from datasheet (see protocol.rs)
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 use core::fmt;
+
+use crate::buffer::ScanBuffer;
+use crate::protocol;
 
 pub const MAX_SCAN_SIZE: usize = 2048;
 
@@ -99,19 +113,12 @@ pub struct ScannerStatus {
     pub last_scan_len: Option<usize>,
 }
 
-#[allow(async_fn_in_trait)]
 pub trait ScannerDriver {
-    async fn init(&mut self) -> Result<ScannerModel, ScannerError>;
-    
-    async fn ping(&mut self) -> bool;
-    
-    async fn trigger_scan(&mut self) -> Result<(), ScannerError>;
-    
-    async fn read_scan(&mut self) -> Option<Vec<u8>>;
-    
+    fn init(&mut self) -> Result<ScannerModel, ScannerError>;
+    fn ping(&mut self) -> bool;
+    fn trigger_scan(&mut self) -> Result<(), ScannerError>;
+    fn read_scan(&mut self) -> Option<Vec<u8>>;
     fn state(&self) -> ScannerState;
-    
     fn status(&self) -> ScannerStatus;
-    
     fn data_ready(&self) -> bool;
 }

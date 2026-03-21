@@ -1,8 +1,6 @@
 //! Scan buffer for QR scanner data
 //!
-//! Handles buffering and incoming UART data and detecting EOL-terminated payloads.
-
-extern crate alloc;
+//! Handles buffering incoming UART data and detecting EOL-terminated payloads.
 
 pub const MAX_SCAN_SIZE: usize = 2048;
 
@@ -51,10 +49,7 @@ impl ScanBuffer {
         if self.len >= 2 && self.data[self.len - 2] == b'\r' && self.data[self.len - 1] == b'\n' {
             return true;
         }
-        if self.data[self.len - 1] == b'\r' {
-            return true;
-        }
-        if self.data[self.len - 1] == b'\n' {
+        if self.data[self.len - 1] == b'\r' || self.data[self.len - 1] == b'\n' {
             return true;
         }
         false
@@ -62,10 +57,10 @@ impl ScanBuffer {
 
     pub fn data_without_eol(&self) -> &[u8] {
         let mut end = self.len;
-        if end > 0 && self.data[end - 1] == b'\r' {
+        if end > 0 && self.data[end - 1] == b'\n' {
             end -= 1;
         }
-        if end > 0 && self.data[end - 1] == b'\n' {
+        if end > 0 && self.data[end - 1] == b'\r' {
             end -= 1;
         }
         &self.data[..end]
