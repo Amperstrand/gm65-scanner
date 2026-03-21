@@ -219,6 +219,10 @@ pub mod commands {
     pub fn set_setting(addr: [u8; 2], value: u8) -> Vec<u8> {
         build_set_setting(addr, value).to_vec()
     }
+
+    pub fn query_version() -> Vec<u8> {
+        build_get_setting(Register::Version.address_bytes()).to_vec()
+    }
 }
 
 #[cfg(test)]

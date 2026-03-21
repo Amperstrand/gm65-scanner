@@ -46,5 +46,5 @@ pub use driver::{
 };
 pub use protocol::{
     build_factory_reset, build_get_setting, build_save_settings, build_set_setting,
-    build_trigger_scan, commands, BaudRate as Gm65BaudRate, Register,
+    build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register,
 };

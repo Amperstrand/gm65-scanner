@@ -111,10 +111,10 @@ pub struct ScannerStatus {
 }
 
 pub trait ScannerDriver {
-    fn init(&mut self) -> Result<ScannerModel, ScannerError>;
-    fn ping(&mut self) -> bool;
-    fn trigger_scan(&mut self) -> Result<(), ScannerError>;
-    fn read_scan(&mut self) -> Option<Vec<u8>>;
+    async fn init(&mut self) -> Result<ScannerModel, ScannerError>;
+    async fn ping(&mut self) -> bool;
+    async fn trigger_scan(&mut self) -> Result<(), ScannerError>;
+    async fn read_scan(&mut self) -> Option<Vec<u8>>;
     fn state(&self) -> ScannerState;
     fn status(&self) -> ScannerStatus;
     fn data_ready(&self) -> bool;
