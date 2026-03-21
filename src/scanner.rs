@@ -76,6 +76,45 @@ where
     UART: embedded_hal_02::serial::Write<u8, Error = WErr>
         + embedded_hal_02::serial::Read<u8, Error = RErr>,
 {
+    /// Read one byte from UART if available. Returns None if no data.
+    /// Does not block.
+    pub fn poll_uart(&mut self) -> Option<u8> {
+        match self.uart.read() {
+            Ok(b) => Some(b),
+            Err(nb::Error::WouldBlock) => None,
+            Err(_) => None,
+        }
+    }
+
+    /// Non-blocking: try to read one byte into the scan buffer.
+    /// Returns Some(data) if a complete scan was received, None otherwise.
+    pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
+        if !self.initialized {
+            return None;
+        }
+        match self.poll_uart() {
+            Some(b) => {
+                if !self.buffer.push(b) {
+                    self.state = ScannerState::Error(ScannerError::BufferOverflow);
+                    return None;
+                }
+                if self.buffer.has_eol() {
+                    let data = self.buffer.data_without_eol();
+                    if data.is_empty() {
+                        self.buffer.clear();
+                        return None;
+                    }
+                    self.last_scan_len = Some(data.len());
+                    self.state = ScannerState::ScanComplete;
+                    let result = data.to_vec();
+                    self.buffer.clear();
+                    return Some(result);
+                }
+                None
+            }
+            None => None,
+        }
+    }
     fn uart_write_all(&mut self, data: &[u8]) -> Result<(), ()> {
         for &byte in data {
             let mut attempts = 0u32;
