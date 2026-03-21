@@ -85,7 +85,6 @@ impl fmt::Display for DecodedPayload {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParsedUrFragment {
     pub ur_type: String,
     pub index: u32,
