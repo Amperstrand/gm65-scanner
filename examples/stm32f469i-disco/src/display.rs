@@ -6,7 +6,7 @@ use embedded_graphics::{
 };
 use stm32f469i_disc::hal::ltdc::LtdcFramebuffer;
 
-use gm65_scanner::{DecodedPayload, PayloadType};
+use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings};
 
 pub const HEIGHT: u32 = 480;
 
@@ -81,6 +81,137 @@ pub fn render_error(fb: &mut LtdcFramebuffer<u16>, message: &str) {
     )
     .draw(fb)
     .ok();
+}
+
+pub fn render_scanner_settings(fb: &mut LtdcFramebuffer<u16>, settings: ScannerSettings) {
+    fb.clear(Rgb565::BLACK).ok();
+
+    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
+    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_YELLOW);
+    let on_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_GREEN);
+    let off_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_RED);
+    let val_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+
+    Text::with_text_style(
+        "Scanner Settings",
+        Point::new(400, 30),
+        title_style,
+        TextStyleBuilder::new().alignment(Alignment::Center).build(),
+    )
+    .draw(fb)
+    .ok();
+
+    let mut y = 80i32;
+    let x_label = 20;
+    let x_value = 200;
+
+    draw_toggle(
+        fb,
+        x_label,
+        x_value,
+        y,
+        "Sound",
+        settings.contains(ScannerSettings::SOUND),
+        &label_style,
+        &on_style,
+        &off_style,
+    );
+    y += 35;
+    draw_toggle(
+        fb,
+        x_label,
+        x_value,
+        y,
+        "Aim/Laser",
+        settings.contains(ScannerSettings::AIM),
+        &label_style,
+        &on_style,
+        &off_style,
+    );
+    y += 35;
+    draw_toggle(
+        fb,
+        x_label,
+        x_value,
+        y,
+        "Light",
+        settings.contains(ScannerSettings::LIGHT),
+        &label_style,
+        &on_style,
+        &off_style,
+    );
+    y += 35;
+    draw_toggle(
+        fb,
+        x_label,
+        x_value,
+        y,
+        "Continuous",
+        settings.contains(ScannerSettings::CONTINUOUS),
+        &label_style,
+        &on_style,
+        &off_style,
+    );
+    y += 35;
+    draw_toggle(
+        fb,
+        x_label,
+        x_value,
+        y,
+        "Command",
+        settings.contains(ScannerSettings::COMMAND),
+        &label_style,
+        &on_style,
+        &off_style,
+    );
+    y += 50;
+
+    Text::new("Mode:", Point::new(x_label, y), label_style)
+        .draw(fb)
+        .ok();
+    let mode_str = if settings.contains(ScannerSettings::CONTINUOUS) {
+        "CONTINUOUS (auto-scan)"
+    } else if settings.contains(ScannerSettings::COMMAND) {
+        "COMMAND (trigger needed)"
+    } else {
+        "MANUAL (button)"
+    };
+    Text::new(mode_str, Point::new(x_value, y), on_style)
+        .draw(fb)
+        .ok();
+    y += 35;
+
+    Text::new("Raw:", Point::new(x_label, y), label_style)
+        .draw(fb)
+        .ok();
+    let mut hex = heapless::String::<8>::new();
+    let _ = hex.push_str("0x");
+    let _ = hex.push_str(&format_byte(settings.bits()));
+    Text::new(&hex, Point::new(x_value, y), val_style)
+        .draw(fb)
+        .ok();
+}
+
+fn draw_toggle(
+    fb: &mut LtdcFramebuffer<u16>,
+    x_label: i32,
+    x_value: i32,
+    y: i32,
+    name: &str,
+    enabled: bool,
+    label_style: &MonoTextStyle<'_, Rgb565>,
+    on_style: &MonoTextStyle<'_, Rgb565>,
+    off_style: &MonoTextStyle<'_, Rgb565>,
+) {
+    Text::new(name, Point::new(x_label, y), *label_style)
+        .draw(fb)
+        .ok();
+    let (text, style) = if enabled {
+        ("ON", *on_style)
+    } else {
+        ("OFF", *off_style)
+    };
+    Text::new(text, Point::new(x_value, y), style).draw(fb).ok();
 }
 
 pub fn render_scan_result(fb: &mut LtdcFramebuffer<u16>, data: &[u8]) {
@@ -236,6 +367,14 @@ fn format_u32_len(len: usize) -> heapless::String<16> {
         }
     }
     let _ = s.push_str(" bytes");
+    s
+}
+
+fn format_byte(b: u8) -> heapless::String<4> {
+    let mut s = heapless::String::new();
+    let hex = b"0123456789ABCDEF";
+    let _ = s.push(hex[(b >> 4) as usize] as char);
+    let _ = s.push(hex[(b & 0x0F) as usize] as char);
     s
 }
 

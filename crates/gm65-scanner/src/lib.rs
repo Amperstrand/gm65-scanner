@@ -65,3 +65,5 @@ pub use protocol::{
 };
 #[cfg(feature = "embedded-hal")]
 pub use scanner::Gm65Scanner;
+#[cfg(feature = "embedded-hal")]
+pub use scanner::ScannerSettings;

@@ -24,7 +24,7 @@ use hal::otg_fs::UsbBus;
 use hal::serial::Serial6;
 use usb_device::prelude::*;
 
-use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerState};
+use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings, ScannerState};
 
 mod cdc;
 mod display;
@@ -147,7 +147,6 @@ fn main() -> ! {
     let mut scanner: Option<Gm65Scanner<Serial6>> = None;
     let mut scanner_usart = Some(dp.USART6);
     let mut scanner_pins = Some((scanner_tx, scanner_rx));
-    let mut probe_baud: u32 = 9600;
 
     for &baud in &baud_rates {
         let (usart, pins) = match (scanner_usart.take(), scanner_pins.take()) {
@@ -159,7 +158,6 @@ fn main() -> ! {
         defmt::info!("Probing scanner at {} bps...", baud);
         if s.ping() {
             defmt::info!("Scanner found at {} bps", baud);
-            probe_baud = baud;
             scanner = Some(s);
             break;
         }
@@ -195,21 +193,6 @@ fn main() -> ! {
                 ScannerModel::Generic => "Generic",
                 ScannerModel::Unknown => "Unknown",
             };
-            if probe_baud != 115200 {
-                defmt::info!("Re-initializing UART at 115200 bps...");
-                let (raw_usart, raw_pins) = scanner.release().release();
-                let tx_pin: hal::gpio::Pin<'G', 14> = raw_pins.0.unwrap().try_into().ok().unwrap();
-                let rx_pin: hal::gpio::Pin<'G', 9> = raw_pins.1.unwrap().try_into().ok().unwrap();
-                let uart = raw_usart
-                    .serial((tx_pin, rx_pin), 115200.bps(), &mut rcc)
-                    .unwrap();
-                scanner = Gm65Scanner::with_default_config(uart);
-                if scanner.ping() {
-                    defmt::info!("UART re-init at 115200 bps confirmed");
-                } else {
-                    defmt::warn!("UART re-init at 115200 bps failed");
-                }
-            }
         }
         Err(e) => defmt::warn!("QR scanner init failed: {}", e),
     }
@@ -217,14 +200,33 @@ fn main() -> ! {
     defmt::info!("USB initialized, entering main loop");
 
     let scanner_connected = scanner.state() == ScannerState::Ready;
-    display::render_home(&mut fb, scanner_connected, model_str);
+    if scanner_connected {
+        if let Some(settings) = scanner.get_scanner_settings() {
+            display::render_scanner_settings(&mut fb, settings);
+        } else {
+            display::render_home(&mut fb, true, model_str);
+        }
+    } else {
+        display::render_home(&mut fb, false, model_str);
+    }
 
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
+    let mut auto_scan: bool = scanner_connected;
 
     loop {
         if usb_dev.poll(&mut [cdc_port.serial_mut()]) {
             if let Some(frame) = cdc_port.receive_frame() {
+                if frame.command == Command::SetSettings || frame.command == Command::ScannerTrigger
+                {
+                    auto_scan = false;
+                }
+                if frame.command == Command::ScannerTrigger {
+                    last_scan_data = None;
+                    last_scan_len = 0;
+                }
+                let was_auto = auto_scan;
+                auto_scan = false;
                 let response = handle_command(
                     frame.command,
                     frame.payload(),
@@ -233,12 +235,15 @@ fn main() -> ! {
                     &mut last_scan_data,
                     &mut last_scan_len,
                 );
-                if frame.command == Command::ScannerTrigger {
-                    last_scan_data = None;
-                    last_scan_len = 0;
-                }
                 cdc_port.send_response(&response);
+                if was_auto {
+                    auto_scan = true;
+                }
             }
+        }
+
+        if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
+            let _ = scanner.trigger_scan();
         }
 
         for _ in 0..256 {
@@ -259,7 +264,7 @@ fn main() -> ! {
 
 fn handle_command(
     command: Command,
-    _payload: &[u8],
+    payload: &[u8],
     fb: &mut LtdcFramebuffer<u16>,
     scanner: &mut Gm65Scanner<Serial6>,
     last_scan_data: &mut Option<[u8; MAX_PAYLOAD_SIZE - 1]>,
@@ -269,11 +274,14 @@ fn handle_command(
         Command::ScannerStatus => handle_scanner_status(scanner),
         Command::ScannerTrigger => handle_scanner_trigger(scanner, fb),
         Command::ScannerData => handle_scanner_data(fb, last_scan_data, last_scan_len),
+        Command::GetSettings => handle_get_settings(scanner, fb),
+        Command::SetSettings => handle_set_settings(scanner, payload, fb),
     }
 }
 
 fn handle_scanner_status(scanner: &mut Gm65Scanner<Serial6>) -> Response {
     defmt::info!("SCANNER_STATUS");
+    scanner.stop_scan();
     let status = scanner.status();
     let mut payload = [0u8; MAX_PAYLOAD_SIZE];
     let mut offset = 0;
@@ -344,5 +352,57 @@ fn handle_scanner_data(
             defmt::info!("No scan data available");
             Response::new(Status::NoScanData)
         }
+    }
+}
+
+fn handle_get_settings(
+    scanner: &mut Gm65Scanner<Serial6>,
+    fb: &mut LtdcFramebuffer<u16>,
+) -> Response {
+    defmt::info!("GET_SETTINGS");
+    scanner.stop_scan();
+    match scanner.get_scanner_settings() {
+        Some(settings) => {
+            display::render_scanner_settings(fb, settings);
+            Response::with_payload(Status::Ok, &[settings.bits()])
+                .unwrap_or_else(|| Response::new(Status::Error))
+        }
+        None => {
+            display::render_error(fb, "Failed to read settings");
+            Response::new(Status::Error)
+        }
+    }
+}
+
+fn handle_set_settings(
+    scanner: &mut Gm65Scanner<Serial6>,
+    payload: &[u8],
+    fb: &mut LtdcFramebuffer<u16>,
+) -> Response {
+    defmt::info!("SET_SETTINGS");
+    scanner.stop_scan();
+    if payload.is_empty() {
+        return Response::new(Status::InvalidPayload);
+    }
+    let raw = payload[0];
+    match ScannerSettings::from_bits(raw) {
+        Some(settings) => {
+            defmt::info!("Setting scanner to 0x{:02x}", raw);
+            if scanner.set_scanner_settings(settings) {
+                if let Some(readback) = scanner.get_scanner_settings() {
+                    display::render_scanner_settings(fb, readback);
+                    Response::with_payload(Status::Ok, &[readback.bits()])
+                        .unwrap_or_else(|| Response::new(Status::Error))
+                } else {
+                    display::render_scanner_settings(fb, settings);
+                    Response::with_payload(Status::Ok, &[raw])
+                        .unwrap_or_else(|| Response::new(Status::Error))
+                }
+            } else {
+                display::render_error(fb, "Set failed");
+                Response::new(Status::Error)
+            }
+        }
+        None => Response::new(Status::InvalidPayload),
     }
 }

@@ -124,6 +124,7 @@ pub trait ScannerDriverSync {
     fn init(&mut self) -> Result<ScannerModel, ScannerError>;
     fn ping(&mut self) -> bool;
     fn trigger_scan(&mut self) -> Result<(), ScannerError>;
+    fn stop_scan(&mut self) -> bool;
     fn read_scan(&mut self) -> Option<Vec<u8>>;
     fn state(&self) -> ScannerState;
     fn status(&self) -> ScannerStatus;
@@ -138,6 +139,7 @@ pub trait ScannerDriver {
     fn trigger_scan(
         &mut self,
     ) -> impl core::future::Future<Output = Result<(), ScannerError>> + Send;
+    fn stop_scan(&mut self) -> impl core::future::Future<Output = bool> + Send;
     fn read_scan(&mut self) -> impl core::future::Future<Output = Option<Vec<u8>>> + Send;
     fn state(&self) -> ScannerState;
     fn status(&self) -> ScannerStatus;

@@ -13,12 +13,31 @@ use crate::driver::{
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
 
-const BAUD_RATE_115200: [u8; 2] = [0x1A, 0x00];
 const SCAN_INTERVAL_MS: u8 = 0x01;
 const SAME_BARCODE_DELAY: u8 = 0x85;
 const CMD_MODE: u8 = 0xD1;
 const VERSION_NEEDS_RAW: u8 = 0x69;
 const RAW_MODE_VALUE: u8 = 0x08;
+
+bitflags::bitflags! {
+    #[derive(Clone, Copy)]
+    pub struct ScannerSettings: u8 {
+        const ALWAYS_ON  = 1 << 7;
+        const SOUND      = 1 << 6;
+        const UNKNOWN_5  = 1 << 5;
+        const AIM        = 1 << 4;
+        const UNKNOWN_3  = 1 << 3;
+        const LIGHT      = 1 << 2;
+        const CONTINUOUS = 1 << 1;
+        const COMMAND    = 1 << 0;
+    }
+}
+
+impl Default for ScannerSettings {
+    fn default() -> Self {
+        Self::ALWAYS_ON | Self::SOUND | Self::AIM | Self::COMMAND
+    }
+}
 
 pub struct Gm65Scanner<UART> {
     uart: UART,
@@ -30,7 +49,11 @@ pub struct Gm65Scanner<UART> {
     last_scan_len: Option<usize>,
 }
 
-impl<UART> Gm65Scanner<UART> {
+impl<UART, WErr, RErr> Gm65Scanner<UART>
+where
+    UART: embedded_hal_02::serial::Write<u8, Error = WErr>
+        + embedded_hal_02::serial::Read<u8, Error = RErr>,
+{
     pub fn new(uart: UART, config: ScannerConfig) -> Self {
         Self {
             uart,
@@ -54,6 +77,15 @@ impl<UART> Gm65Scanner<UART> {
     pub fn into_parts(self) -> (UART, ScannerState, bool, ScannerModel) {
         (self.uart, self.state, self.initialized, self.detected_model)
     }
+
+    pub fn get_scanner_settings(&mut self) -> Option<ScannerSettings> {
+        self.get_setting(Register::Settings)
+            .and_then(|v| ScannerSettings::from_bits(v))
+    }
+
+    pub fn set_scanner_settings(&mut self, settings: ScannerSettings) -> bool {
+        self.set_setting(Register::Settings, settings.bits())
+    }
 }
 
 impl<UART, WErr, RErr> Gm65Scanner<UART>
@@ -72,6 +104,9 @@ where
     pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
         if !self.initialized {
             return None;
+        }
+        if self.state == ScannerState::ScanComplete {
+            self.state = ScannerState::Ready;
         }
         match self.poll_uart() {
             Some(b) => {
@@ -118,6 +153,7 @@ where
     }
 
     fn send_command(&mut self, cmd: &[u8]) -> Option<Gm65Response> {
+        self.drain_uart();
         if self.uart_write_all(cmd).is_err() {
             return None;
         }
@@ -160,7 +196,7 @@ where
                 Ok(_) => attempts = 0,
                 Err(nb::Error::WouldBlock) => {
                     attempts += 1;
-                    if attempts > 1000 {
+                    if attempts > 50_000 {
                         break;
                     }
                 }
@@ -179,17 +215,21 @@ where
 
     fn set_setting(&mut self, reg: Register, value: u8) -> bool {
         let cmd = protocol::build_set_setting(reg.address_bytes(), value);
-        matches!(self.send_command(&cmd), Some(Gm65Response::Success))
+        self.send_command(&cmd)
+            .map_or(false, |r| r != Gm65Response::Invalid)
     }
 
+    #[allow(dead_code)]
     fn set_setting_2byte(&mut self, reg: Register, value: [u8; 2]) -> bool {
         let cmd = protocol::build_set_setting_2byte(reg.address_bytes(), value);
-        matches!(self.send_command(&cmd), Some(Gm65Response::Success))
+        self.send_command(&cmd)
+            .map_or(false, |r| r != Gm65Response::Invalid)
     }
 
     fn save_settings(&mut self) -> bool {
         let cmd = protocol::build_save_settings();
-        matches!(self.send_command(&cmd), Some(Gm65Response::Success))
+        self.send_command(&cmd)
+            .map_or(false, |r| r != Gm65Response::Invalid)
     }
 
     fn probe_gm65(&mut self) -> bool {
@@ -208,23 +248,79 @@ where
         self.detected_model = ScannerModel::Gm65;
         self.state = ScannerState::Configuring;
 
-        let serial_val = match self.get_setting(Register::SerialOutput) {
-            Some(v) => v,
-            None => {
-                self.state = ScannerState::Error(ScannerError::ConfigFailed);
-                return Err(ScannerError::ConfigFailed);
+        let serial_val = {
+            let mut result = None;
+            for attempt in 0..3u32 {
+                self.drain_uart();
+                match self.get_setting(Register::SerialOutput) {
+                    Some(v) => {
+                        result = Some(v);
+                        break;
+                    }
+                    None => {
+                        #[cfg(feature = "defmt")]
+                        defmt::warn!("SerialOutput read failed, retry {}...", attempt + 1);
+                        for _ in 0..1_000_000 {
+                            core::hint::spin_loop();
+                        }
+                    }
+                }
+            }
+            match result {
+                Some(v) => {
+                    #[cfg(feature = "defmt")]
+                    defmt::info!("SerialOutput: 0x{:02x}", v);
+                    v
+                }
+                None => {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("init: failed to read SerialOutput after retries");
+                    self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                    return Err(ScannerError::ConfigFailed);
+                }
             }
         };
 
         if serial_val & 0x03 != 0 {
-            if !self.set_setting(Register::SerialOutput, serial_val & 0xFC) {
+            let fixed = serial_val & 0xFC;
+            if !self.set_setting(Register::SerialOutput, fixed) {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("init: failed to fix SerialOutput");
+                self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                return Err(ScannerError::ConfigFailed);
+            }
+            #[cfg(feature = "defmt")]
+            defmt::info!(
+                "SerialOutput fixed: 0x{:02x} -> 0x{:02x}",
+                serial_val,
+                fixed
+            );
+        }
+
+        match self.get_setting(Register::Settings) {
+            Some(val) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!("Settings: 0x{:02x}", val);
+                if val != CMD_MODE {
+                    if !self.set_setting(Register::Settings, CMD_MODE) {
+                        #[cfg(feature = "defmt")]
+                        defmt::warn!("init: failed to set Settings to CMD_MODE");
+                        self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                        return Err(ScannerError::ConfigFailed);
+                    }
+                    #[cfg(feature = "defmt")]
+                    defmt::info!("Settings set to CMD_MODE (0xD1)");
+                }
+            }
+            None => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("init: failed to read Settings");
                 self.state = ScannerState::Error(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
         }
 
-        let scanner_settings: [(Register, u8); 6] = [
-            (Register::Settings, CMD_MODE),
+        let config_settings: [(Register, u8); 5] = [
             (Register::Timeout, 0x00),
             (Register::ScanInterval, SCAN_INTERVAL_MS),
             (Register::SameBarcodeDelay, SAME_BARCODE_DELAY),
@@ -232,17 +328,38 @@ where
             (Register::QrEnable, 0x01),
         ];
 
-        for (reg, set_val) in scanner_settings.iter() {
+        for (reg, set_val) in config_settings.iter() {
             match self.get_setting(*reg) {
                 Some(val) => {
                     if val != *set_val {
+                        #[cfg(feature = "defmt")]
+                        defmt::info!(
+                            "Setting {:02x}: 0x{:02x} -> 0x{:02x}",
+                            reg.address_bytes(),
+                            val,
+                            set_val
+                        );
                         if !self.set_setting(*reg, *set_val) {
+                            #[cfg(feature = "defmt")]
+                            defmt::warn!(
+                                "init: failed to set register {:02x}",
+                                reg.address_bytes()
+                            );
                             self.state = ScannerState::Error(ScannerError::ConfigFailed);
                             return Err(ScannerError::ConfigFailed);
                         }
+                    } else {
+                        #[cfg(feature = "defmt")]
+                        defmt::info!(
+                            "Register {:02x}: already 0x{:02x}",
+                            reg.address_bytes(),
+                            val
+                        );
                     }
                 }
                 None => {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("init: failed to read register {:02x}", reg.address_bytes());
                     self.state = ScannerState::Error(ScannerError::ConfigFailed);
                     return Err(ScannerError::ConfigFailed);
                 }
@@ -250,6 +367,8 @@ where
         }
 
         if let Some(version) = self.get_setting(Register::Version) {
+            #[cfg(feature = "defmt")]
+            defmt::info!("Firmware version: 0x{:02x}", version);
             if version == VERSION_NEEDS_RAW {
                 if let Some(val) = self.get_setting(Register::RawMode) {
                     if val != RAW_MODE_VALUE {
@@ -257,11 +376,14 @@ where
                     }
                 }
             }
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("init: failed to read Version");
         }
 
         let _ = self.save_settings();
-
-        self.set_setting_2byte(Register::BaudRate, BAUD_RATE_115200);
+        #[cfg(feature = "defmt")]
+        defmt::info!("init: complete");
 
         self.initialized = true;
         self.state = ScannerState::Ready;
@@ -275,10 +397,17 @@ where
         }
         self.state = ScannerState::Scanning;
         self.buffer.clear();
-        self.drain_uart();
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x01);
-        self.uart_write_all(&cmd).ok();
+        let _ = self.send_command(&cmd);
         Ok(())
+    }
+
+    fn do_stop_scan(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x00);
+        self.send_command(&cmd).is_some()
     }
 
     fn do_read_scan(&mut self) -> Option<Vec<u8>> {
@@ -342,6 +471,10 @@ where
         self.do_trigger_scan()
     }
 
+    fn stop_scan(&mut self) -> bool {
+        self.do_stop_scan()
+    }
+
     fn read_scan(&mut self) -> Option<Vec<u8>> {
         self.do_read_scan()
     }
@@ -389,6 +522,10 @@ where
         &mut self,
     ) -> impl core::future::Future<Output = Result<(), ScannerError>> + Send {
         core::future::ready(self.do_trigger_scan())
+    }
+
+    fn stop_scan(&mut self) -> impl core::future::Future<Output = bool> + Send {
+        core::future::ready(self.do_stop_scan())
     }
 
     fn read_scan(&mut self) -> impl core::future::Future<Output = Option<Vec<u8>>> + Send {

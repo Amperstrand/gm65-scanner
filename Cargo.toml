@@ -30,6 +30,7 @@ linked_list_allocator = "0.10"
 critical-section = "1.2"
 usb-device = "0.3"
 usbd-serial = "0.2"
+bitflags = "2.6"
 
 # BSP - pinned to working commit
 stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "fa6dc86" }
