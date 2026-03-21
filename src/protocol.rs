@@ -34,8 +34,8 @@ use alloc::vec::Vec;
 pub const HEADER: [u8; 2] = [0x7E, 0x00];
 pub const CRC_NO_CHECKSUM: [u8; 2] = [0xAB, 0xCD];
 
-const SUCCESS_PREFIX: [u8; 4] = [0x02, 0x00, 0x00, 0x01];
-const SUCCESS_LEN: usize = 7;
+pub const RESPONSE_PREFIX: [u8; 4] = [0x02, 0x00, 0x00, 0x01];
+pub const RESPONSE_LEN: usize = 7;
 
 pub const CMD_SET_PARAM: u8 = 0x08;
 pub const CMD_GET_PARAM: u8 = 0x07;
@@ -89,10 +89,6 @@ impl BaudRate {
             BaudRate::Bps115200 => 115200,
         }
     }
-}
-
-pub fn calculate_crc(data: &[u8]) -> u8 {
-    data.iter().fold(0, |acc, &b| acc ^ b)
 }
 
 pub fn build_get_setting(addr: [u8; 2]) -> [u8; 9] {
@@ -158,21 +154,19 @@ pub enum Gm65Response {
 }
 
 impl Gm65Response {
-    pub fn parse_get_response(data: &[u8]) -> Self {
-        if data.len() != SUCCESS_LEN {
-            return Gm65Response::Invalid;
-        }
-        if data[0..4] != SUCCESS_PREFIX {
+    pub fn parse(data: &[u8]) -> Self {
+        if data.len() != RESPONSE_LEN || data[0..4] != RESPONSE_PREFIX {
             return Gm65Response::Invalid;
         }
         Gm65Response::SuccessWithValue(data[4])
     }
 
+    pub fn parse_get_response(data: &[u8]) -> Self {
+        Self::parse(data)
+    }
+
     pub fn parse_set_response(data: &[u8]) -> Self {
-        if data.len() != SUCCESS_LEN {
-            return Gm65Response::Invalid;
-        }
-        if data[0..4] != SUCCESS_PREFIX {
+        if data.len() != RESPONSE_LEN || data[0..4] != RESPONSE_PREFIX {
             return Gm65Response::Invalid;
         }
         Gm65Response::Success

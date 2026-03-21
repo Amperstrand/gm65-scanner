@@ -26,8 +26,6 @@ extern crate alloc;
 use alloc::vec::Vec;
 use core::fmt;
 
-pub const MAX_SCAN_SIZE: usize = 2048;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerModel {

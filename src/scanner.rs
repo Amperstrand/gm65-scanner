@@ -11,29 +11,14 @@ use crate::buffer::ScanBuffer;
 use crate::driver::{
     ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
-use crate::protocol;
+use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
 
-const GM65_SUCCESS_PREFIX: [u8; 4] = [0x02, 0x00, 0x00, 0x01];
-const GM65_SUCCESS_LEN: usize = 7;
-
-const SERIAL_ADDR: [u8; 2] = [0x00, 0x0D];
-const SETTINGS_ADDR: [u8; 2] = [0x00, 0x00];
-const BAUD_RATE_ADDR: [u8; 2] = [0x00, 0x2A];
 const BAUD_RATE_115200: [u8; 2] = [0x1A, 0x00];
-const SCAN_ADDR: [u8; 2] = [0x00, 0x02];
-const TIMEOUT_ADDR: [u8; 2] = [0x00, 0x06];
-const SCAN_INTERVAL_ADDR: [u8; 2] = [0x00, 0x05];
-const SAME_BARCODE_DELAY_ADDR: [u8; 2] = [0x00, 0x13];
-const VERSION_ADDR: [u8; 2] = [0x00, 0xE2];
-const VERSION_NEEDS_RAW: u8 = 0x69;
-const RAW_MODE_ADDR: [u8; 2] = [0x00, 0xBC];
-const RAW_MODE_VALUE: u8 = 0x08;
-const BAR_TYPE_ADDR: [u8; 2] = [0x00, 0x2C];
-const QR_ADDR: [u8; 2] = [0x00, 0x3F];
-
 const SCAN_INTERVAL_MS: u8 = 0x01;
 const SAME_BARCODE_DELAY: u8 = 0x85;
 const CMD_MODE: u8 = 0xD1;
+const VERSION_NEEDS_RAW: u8 = 0x69;
+const RAW_MODE_VALUE: u8 = 0x08;
 
 pub struct Gm65Scanner<UART> {
     uart: UART,
@@ -76,8 +61,6 @@ where
     UART: embedded_hal_02::serial::Write<u8, Error = WErr>
         + embedded_hal_02::serial::Read<u8, Error = RErr>,
 {
-    /// Read one byte from UART if available. Returns None if no data.
-    /// Does not block.
     pub fn poll_uart(&mut self) -> Option<u8> {
         match self.uart.read() {
             Ok(b) => Some(b),
@@ -86,8 +69,6 @@ where
         }
     }
 
-    /// Non-blocking: try to read one byte into the scan buffer.
-    /// Returns Some(data) if a complete scan was received, None otherwise.
     pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
         if !self.initialized {
             return None;
@@ -115,6 +96,7 @@ where
             None => None,
         }
     }
+
     fn uart_write_all(&mut self, data: &[u8]) -> Result<(), ()> {
         for &byte in data {
             let mut attempts = 0u32;
@@ -135,16 +117,16 @@ where
         Ok(())
     }
 
-    fn send_command(&mut self, cmd: &[u8]) -> Option<Vec<u8>> {
+    fn send_command(&mut self, cmd: &[u8]) -> Option<Gm65Response> {
         if self.uart_write_all(cmd).is_err() {
             return None;
         }
 
-        let mut resp = Vec::with_capacity(GM65_SUCCESS_LEN);
+        let mut resp = Vec::with_capacity(RESPONSE_LEN);
         let mut total_attempts = 0u32;
         let max_attempts = 200_000u32;
 
-        while resp.len() < GM65_SUCCESS_LEN && total_attempts < max_attempts {
+        while resp.len() < RESPONSE_LEN && total_attempts < max_attempts {
             match self.uart.read() {
                 Ok(byte) => {
                     resp.push(byte);
@@ -159,11 +141,16 @@ where
             }
         }
 
-        if resp.len() != GM65_SUCCESS_LEN {
+        if resp.len() != RESPONSE_LEN {
             return None;
         }
 
-        Some(resp)
+        let parsed = Gm65Response::parse(&resp);
+        if parsed == Gm65Response::Invalid {
+            return None;
+        }
+
+        Some(parsed)
     }
 
     fn drain_uart(&mut self) {
@@ -182,47 +169,32 @@ where
         }
     }
 
-    fn get_setting(&mut self, addr: [u8; 2]) -> Option<u8> {
-        let cmd = protocol::build_get_setting(addr);
-        let resp = self.send_command(&cmd)?;
-
-        if resp.len() != GM65_SUCCESS_LEN {
-            return None;
-        }
-        if resp[0..4] != GM65_SUCCESS_PREFIX {
-            return None;
-        }
-
-        Some(resp[4])
-    }
-
-    fn set_setting(&mut self, addr: [u8; 2], value: u8) -> bool {
-        let cmd = protocol::build_set_setting(addr, value);
+    fn get_setting(&mut self, reg: Register) -> Option<u8> {
+        let cmd = protocol::build_get_setting(reg.address_bytes());
         match self.send_command(&cmd) {
-            Some(resp) => resp.len() == GM65_SUCCESS_LEN && resp[0..4] == GM65_SUCCESS_PREFIX,
-            None => false,
+            Some(Gm65Response::SuccessWithValue(v)) => Some(v),
+            _ => None,
         }
     }
 
-    fn set_setting_2byte(&mut self, addr: [u8; 2], value: [u8; 2]) -> bool {
-        let cmd = protocol::build_set_setting_2byte(addr, value);
-        match self.send_command(&cmd) {
-            Some(resp) => resp.len() == GM65_SUCCESS_LEN && resp[0..4] == GM65_SUCCESS_PREFIX,
-            None => false,
-        }
+    fn set_setting(&mut self, reg: Register, value: u8) -> bool {
+        let cmd = protocol::build_set_setting(reg.address_bytes(), value);
+        matches!(self.send_command(&cmd), Some(Gm65Response::Success))
+    }
+
+    fn set_setting_2byte(&mut self, reg: Register, value: [u8; 2]) -> bool {
+        let cmd = protocol::build_set_setting_2byte(reg.address_bytes(), value);
+        matches!(self.send_command(&cmd), Some(Gm65Response::Success))
     }
 
     fn save_settings(&mut self) -> bool {
         let cmd = protocol::build_save_settings();
-        match self.send_command(&cmd) {
-            Some(resp) => resp.len() == GM65_SUCCESS_LEN && resp[0..4] == GM65_SUCCESS_PREFIX,
-            None => false,
-        }
+        matches!(self.send_command(&cmd), Some(Gm65Response::Success))
     }
 
     fn probe_gm65(&mut self) -> bool {
         self.drain_uart();
-        self.get_setting(SERIAL_ADDR).is_some()
+        self.get_setting(Register::SerialOutput).is_some()
     }
 
     fn do_init(&mut self) -> Result<ScannerModel, ScannerError> {
@@ -236,7 +208,7 @@ where
         self.detected_model = ScannerModel::Gm65;
         self.state = ScannerState::Configuring;
 
-        let serial_val = match self.get_setting(SERIAL_ADDR) {
+        let serial_val = match self.get_setting(Register::SerialOutput) {
             Some(v) => v,
             None => {
                 self.state = ScannerState::Error(ScannerError::ConfigFailed);
@@ -245,26 +217,26 @@ where
         };
 
         if serial_val & 0x03 != 0 {
-            if !self.set_setting(SERIAL_ADDR, serial_val & 0xFC) {
+            if !self.set_setting(Register::SerialOutput, serial_val & 0xFC) {
                 self.state = ScannerState::Error(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
         }
 
-        let scanner_settings: [([u8; 2], u8); 6] = [
-            (SETTINGS_ADDR, CMD_MODE),
-            (TIMEOUT_ADDR, 0x00),
-            (SCAN_INTERVAL_ADDR, SCAN_INTERVAL_MS),
-            (SAME_BARCODE_DELAY_ADDR, SAME_BARCODE_DELAY),
-            (BAR_TYPE_ADDR, 0x01),
-            (QR_ADDR, 0x01),
+        let scanner_settings: [(Register, u8); 6] = [
+            (Register::Settings, CMD_MODE),
+            (Register::Timeout, 0x00),
+            (Register::ScanInterval, SCAN_INTERVAL_MS),
+            (Register::SameBarcodeDelay, SAME_BARCODE_DELAY),
+            (Register::BarType, 0x01),
+            (Register::QrEnable, 0x01),
         ];
 
-        for (addr, set_val) in scanner_settings.iter() {
-            match self.get_setting(*addr) {
+        for (reg, set_val) in scanner_settings.iter() {
+            match self.get_setting(*reg) {
                 Some(val) => {
                     if val != *set_val {
-                        if !self.set_setting(*addr, *set_val) {
+                        if !self.set_setting(*reg, *set_val) {
                             self.state = ScannerState::Error(ScannerError::ConfigFailed);
                             return Err(ScannerError::ConfigFailed);
                         }
@@ -277,11 +249,11 @@ where
             }
         }
 
-        if let Some(version) = self.get_setting(VERSION_ADDR) {
+        if let Some(version) = self.get_setting(Register::Version) {
             if version == VERSION_NEEDS_RAW {
-                if let Some(val) = self.get_setting(RAW_MODE_ADDR) {
+                if let Some(val) = self.get_setting(Register::RawMode) {
                     if val != RAW_MODE_VALUE {
-                        self.set_setting(RAW_MODE_ADDR, RAW_MODE_VALUE);
+                        self.set_setting(Register::RawMode, RAW_MODE_VALUE);
                     }
                 }
             }
@@ -289,7 +261,7 @@ where
 
         let _ = self.save_settings();
 
-        self.set_setting_2byte(BAUD_RATE_ADDR, BAUD_RATE_115200);
+        self.set_setting_2byte(Register::BaudRate, BAUD_RATE_115200);
 
         self.initialized = true;
         self.state = ScannerState::Ready;
@@ -304,7 +276,7 @@ where
         self.state = ScannerState::Scanning;
         self.buffer.clear();
         self.drain_uart();
-        let cmd = protocol::build_set_setting(SCAN_ADDR, 0x01);
+        let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x01);
         self.uart_write_all(&cmd).ok();
         Ok(())
     }
@@ -363,7 +335,7 @@ where
     }
 
     fn ping(&mut self) -> bool {
-        self.get_setting(SERIAL_ADDR).is_some()
+        self.get_setting(Register::SerialOutput).is_some()
     }
 
     fn trigger_scan(&mut self) -> Result<(), ScannerError> {
@@ -410,7 +382,7 @@ where
     }
 
     fn ping(&mut self) -> impl core::future::Future<Output = bool> + Send {
-        core::future::ready(self.get_setting(SERIAL_ADDR).is_some())
+        core::future::ready(self.get_setting(Register::SerialOutput).is_some())
     }
 
     fn trigger_scan(

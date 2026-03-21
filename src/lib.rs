@@ -50,14 +50,18 @@ pub mod protocol;
 pub mod scanner;
 
 pub use buffer::ScanBuffer;
-pub use decoder::{classify_payload, decode_payload, DecodedPayload, PayloadType};
+pub use decoder::{
+    classify_payload, decode_payload, parse_ur_fragment, DecodedPayload, ParsedUrFragment,
+    PayloadType, UrDecoder,
+};
 pub use driver::{
     ScanMode, ScannerConfig, ScannerDriver, ScannerDriverSync, ScannerError, ScannerModel,
     ScannerState, ScannerStatus,
 };
 pub use protocol::{
     build_factory_reset, build_get_setting, build_save_settings, build_set_setting,
-    build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register,
+    build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register, RESPONSE_LEN,
+    RESPONSE_PREFIX,
 };
 #[cfg(feature = "embedded-hal")]
 pub use scanner::Gm65Scanner;
