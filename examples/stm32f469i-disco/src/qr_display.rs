@@ -31,8 +31,8 @@ pub fn render_qr_code(fb: &mut LtdcFramebuffer<u16>, text: &str) -> bool {
         Err(_) => return false,
     };
 
-    let fb_width: i32 = 800;
-    let fb_height: i32 = 480;
+    let fb_width: i32 = 480;
+    let fb_height: i32 = 800;
     let border = 2;
     let qr_size = qr.size();
     let total = qr_size + border * 2;
@@ -99,7 +99,7 @@ pub fn render_status(fb: &mut LtdcFramebuffer<u16>, message: &str) {
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
         truncate_str(message, 60),
-        Point::new(400, 240),
+        Point::new(240, 240),
         style,
         center_text,
     )
