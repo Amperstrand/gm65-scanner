@@ -31,6 +31,7 @@ critical-section = "1.2"
 usb-device = "0.3"
 usbd-serial = "0.2"
 usbd-hid = "0.10"
+qrcodegen-no-heap = "1.8"
 bitflags = "2.6"
 
 # BSP - pinned to working commit

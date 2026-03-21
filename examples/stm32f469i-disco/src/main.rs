@@ -31,6 +31,7 @@ use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings
 mod cdc;
 mod display;
 mod hid;
+mod qr_display;
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
@@ -259,6 +260,9 @@ fn main() -> ! {
                 defmt::info!("Scan data received: {} bytes", data.len());
                 let payload = gm65_scanner::decode_payload(&data);
                 render_decoded_scan(&mut fb, &payload);
+                if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
+                    qr_display::render_qr_mirror(&mut fb, &data);
+                }
                 let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
                 let mut buf = [0u8; MAX_PAYLOAD_SIZE - 1];
                 buf[..copy_len].copy_from_slice(&data[..copy_len]);
@@ -298,6 +302,7 @@ fn handle_command(
         Command::ScannerData => handle_scanner_data(fb, last_scan_data, last_scan_len),
         Command::GetSettings => handle_get_settings(scanner, fb),
         Command::SetSettings => handle_set_settings(scanner, payload, fb),
+        Command::DisplayQr => handle_display_qr(payload, fb),
     }
 }
 
@@ -426,5 +431,16 @@ fn handle_set_settings(
             }
         }
         None => Response::new(Status::InvalidPayload),
+    }
+}
+
+fn handle_display_qr(payload: &[u8], fb: &mut LtdcFramebuffer<u16>) -> Response {
+    defmt::info!("DISPLAY_QR");
+    let text = core::str::from_utf8(payload).unwrap_or("<invalid utf8>");
+    if qr_display::render_qr_code(fb, text) {
+        Response::new(Status::Ok)
+    } else {
+        display::render_error(fb, "QR encode failed");
+        Response::new(Status::Error)
     }
 }

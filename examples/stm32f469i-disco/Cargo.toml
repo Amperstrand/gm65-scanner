@@ -20,6 +20,7 @@ static_cell = { workspace = true }
 usb-device = { workspace = true }
 usbd-serial = { workspace = true }
 usbd-hid = { workspace = true }
+qrcodegen-no-heap = { workspace = true }
 gm65-scanner = { workspace = true, features = ["embedded-hal", "defmt"] }
 stm32f469i-disc = { workspace = true, features = ["usb_fs", "framebuffer"] }
 
