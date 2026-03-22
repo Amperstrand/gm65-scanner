@@ -1,18 +1,21 @@
 //! Async GM65 scanner implementation.
 //!
 //! This module provides `Gm65ScannerAsync<UART>` with true async I/O operations
-//! using `embedded-io-async` traits.
+//! using `embedded-io-async` traits. All state management is delegated to
+//! `ScannerCore`.
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::buffer::ScanBuffer;
 use crate::driver::{
     ScannerConfig, ScannerDriver, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-use crate::state_machine::{config, ScannerSettings};
+use crate::scanner_core::{
+    config, init_config_sequence, serial_output_needs_fix, fix_serial_output, version_needs_raw_fix,
+    ScanByteResult, ScannerCore, ScannerSettings,
+};
 
 /// GM65/M3Y QR scanner driver (async version).
 ///
@@ -32,26 +35,16 @@ use crate::state_machine::{config, ScannerSettings};
 /// }
 /// ```
 pub struct Gm65ScannerAsync<UART> {
+    core: ScannerCore,
     uart: UART,
-    config: ScannerConfig,
-    state: ScannerState,
-    buffer: ScanBuffer,
-    initialized: bool,
-    detected_model: ScannerModel,
-    last_scan_len: Option<usize>,
 }
 
 impl<UART> Gm65ScannerAsync<UART> {
     /// Create a new async scanner with the given UART and configuration.
     pub fn new(uart: UART, config: ScannerConfig) -> Self {
         Self {
+            core: ScannerCore::new(config),
             uart,
-            config,
-            state: ScannerState::Uninitialized,
-            buffer: ScanBuffer::new(),
-            initialized: false,
-            detected_model: ScannerModel::Unknown,
-            last_scan_len: None,
         }
     }
 
@@ -67,7 +60,12 @@ impl<UART> Gm65ScannerAsync<UART> {
 
     /// Decompose into parts for recovery or reconfiguration.
     pub fn into_parts(self) -> (UART, ScannerState, bool, ScannerModel) {
-        (self.uart, self.state, self.initialized, self.detected_model)
+        (
+            self.uart,
+            self.core.state(),
+            self.core.is_initialized(),
+            self.core.detected_model(),
+        )
     }
 
     /// Get scanner settings as bitflags.
@@ -95,36 +93,22 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Read,
     {
-        if !self.initialized {
+        if !self.core.is_initialized() {
             return None;
         }
-        if self.state == ScannerState::ScanComplete {
-            self.state = ScannerState::Ready;
+        // Reset state if previous scan complete
+        if self.core.state() == ScannerState::ScanComplete {
+            self.core.begin_scan().ok();
         }
 
-        let mut byte_buf = [0u8; 1];
-        match self.uart.read(&mut byte_buf).await {
+        let mut buf = [0u8; 1];
+        match self.uart.read(&mut buf).await {
             Ok(0) => None, // No data available
-            Ok(_) => {
-                let b = byte_buf[0];
-                if !self.buffer.push(b) {
-                    self.state = ScannerState::Error(ScannerError::BufferOverflow);
-                    return None;
-                }
-                if self.buffer.has_eol() {
-                    let data = self.buffer.data_without_eol();
-                    if data.is_empty() {
-                        self.buffer.clear();
-                        return None;
-                    }
-                    self.last_scan_len = Some(data.len());
-                    self.state = ScannerState::ScanComplete;
-                    let result = data.to_vec();
-                    self.buffer.clear();
-                    return Some(result);
-                }
-                None
-            }
+            Ok(_) => match self.core.handle_scan_byte(buf[0]) {
+                ScanByteResult::Complete(data) => Some(data),
+                ScanByteResult::BufferOverflow => None,
+                ScanByteResult::NeedMore => None,
+            },
             Err(_) => None,
         }
     }
@@ -243,21 +227,19 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
-        self.state = ScannerState::Detecting;
+        self.core.begin_init();
 
         if !self.probe_gm65().await {
-            self.state = ScannerState::Error(ScannerError::NotDetected);
+            self.core.fail_init(ScannerError::NotDetected);
             return Err(ScannerError::NotDetected);
         }
 
-        self.detected_model = ScannerModel::Gm65;
-        self.state = ScannerState::Configuring;
+        self.core.mark_detected(ScannerModel::Gm65);
 
         // Read SerialOutput with retry
-        #[allow(unused_variables)]
         let serial_val = {
             let mut result = None;
-            for attempt in 0..3u32 {
+            for _attempt in 0..3u32 {
                 self.drain_uart().await;
                 match self.get_setting(Register::SerialOutput).await {
                     Some(v) => {
@@ -266,7 +248,7 @@ impl<UART> Gm65ScannerAsync<UART> {
                     }
                     None => {
                         #[cfg(feature = "defmt")]
-                        defmt::warn!("SerialOutput read failed, retry {}...", attempt + 1);
+                        defmt::warn!("SerialOutput read failed, retry...");
                     }
                 }
             }
@@ -279,19 +261,19 @@ impl<UART> Gm65ScannerAsync<UART> {
                 None => {
                     #[cfg(feature = "defmt")]
                     defmt::warn!("init: failed to read SerialOutput after retries");
-                    self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                    self.core.fail_init(ScannerError::ConfigFailed);
                     return Err(ScannerError::ConfigFailed);
                 }
             }
         };
 
         // Fix SerialOutput if needed (clear bits 0-1)
-        if serial_val & 0x03 != 0 {
-            let fixed = serial_val & 0xFC;
+        if serial_output_needs_fix(serial_val) {
+            let fixed = fix_serial_output(serial_val);
             if !self.set_setting(Register::SerialOutput, fixed).await {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("init: failed to fix SerialOutput");
-                self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                self.core.fail_init(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
         }
@@ -305,7 +287,7 @@ impl<UART> Gm65ScannerAsync<UART> {
                     if !self.set_setting(Register::Settings, config::CMD_MODE).await {
                         #[cfg(feature = "defmt")]
                         defmt::warn!("init: failed to set Settings to CMD_MODE");
-                        self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                        self.core.fail_init(ScannerError::ConfigFailed);
                         return Err(ScannerError::ConfigFailed);
                     }
                 }
@@ -313,13 +295,13 @@ impl<UART> Gm65ScannerAsync<UART> {
             None => {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("init: failed to read Settings");
-                self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                self.core.fail_init(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
         }
 
         // Apply configuration settings
-        let config_settings = crate::state_machine::init_config_sequence();
+        let config_settings = init_config_sequence();
 
         for (reg, set_val) in config_settings.iter() {
             match self.get_setting(*reg).await {
@@ -338,7 +320,7 @@ impl<UART> Gm65ScannerAsync<UART> {
                                 "init: failed to set register {:02x}",
                                 reg.address_bytes()
                             );
-                            self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                            self.core.fail_init(ScannerError::ConfigFailed);
                             return Err(ScannerError::ConfigFailed);
                         }
                     }
@@ -346,7 +328,7 @@ impl<UART> Gm65ScannerAsync<UART> {
                 None => {
                     #[cfg(feature = "defmt")]
                     defmt::warn!("init: failed to read register {:02x}", reg.address_bytes());
-                    self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                    self.core.fail_init(ScannerError::ConfigFailed);
                     return Err(ScannerError::ConfigFailed);
                 }
             }
@@ -356,7 +338,7 @@ impl<UART> Gm65ScannerAsync<UART> {
         if let Some(version) = self.get_setting(Register::Version).await {
             #[cfg(feature = "defmt")]
             defmt::info!("Firmware version: 0x{:02x}", version);
-            if crate::state_machine::version_needs_raw_fix(version) {
+            if version_needs_raw_fix(version) {
                 if let Some(val) = self.get_setting(Register::RawMode).await {
                     if val != config::RAW_MODE_VALUE {
                         self.set_setting(Register::RawMode, config::RAW_MODE_VALUE)
@@ -370,21 +352,15 @@ impl<UART> Gm65ScannerAsync<UART> {
         #[cfg(feature = "defmt")]
         defmt::info!("init: complete");
 
-        self.initialized = true;
-        self.state = ScannerState::Ready;
-        self.config.model = self.detected_model;
-        Ok(self.detected_model)
+        self.core.complete_init(ScannerModel::Gm65);
+        Ok(ScannerModel::Gm65)
     }
 
     async fn do_trigger_scan(&mut self) -> Result<(), ScannerError>
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
-        if !self.initialized {
-            return Err(ScannerError::NotInitialized);
-        }
-        self.state = ScannerState::Scanning;
-        self.buffer.clear();
+        self.core.begin_scan()?;
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x01);
         let _ = self.send_command(&cmd).await;
         Ok(())
@@ -394,7 +370,7 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
-        if !self.initialized {
+        if !self.core.is_initialized() {
             return false;
         }
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x00);
@@ -405,7 +381,7 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Read,
     {
-        if !self.initialized {
+        if !self.core.is_initialized() {
             return None;
         }
 
@@ -417,28 +393,15 @@ impl<UART> Gm65ScannerAsync<UART> {
                     // No data available yet - return None, caller should retry
                     return None;
                 }
-                Ok(_) => {
-                    let b = buf[0];
-                    if !self.buffer.push(b) {
-                        self.state = ScannerState::Error(ScannerError::BufferOverflow);
-                        return None;
+                Ok(_) => match self.core.handle_scan_byte(buf[0]) {
+                    ScanByteResult::Complete(data) => return Some(data),
+                    ScanByteResult::BufferOverflow => return None,
+                    ScanByteResult::NeedMore => {
+                        // Continue reading until we get EOL or error
                     }
-                    if self.buffer.has_eol() {
-                        let data = self.buffer.data_without_eol();
-                        if data.is_empty() {
-                            self.buffer.clear();
-                            return None;
-                        }
-                        self.last_scan_len = Some(data.len());
-                        self.state = ScannerState::ScanComplete;
-                        let result = data.to_vec();
-                        self.buffer.clear();
-                        return Some(result);
-                    }
-                    // Continue reading until we get EOL or error
-                }
+                },
                 Err(_) => {
-                    self.state = ScannerState::Error(ScannerError::UartError);
+                    self.core.fail(ScannerError::UartError);
                     return None;
                 }
             }
@@ -471,21 +434,15 @@ where
     }
 
     fn state(&self) -> ScannerState {
-        self.state
+        self.core.state()
     }
 
     fn status(&self) -> ScannerStatus {
-        ScannerStatus {
-            model: self.detected_model,
-            connected: self.initialized,
-            initialized: self.initialized,
-            config: self.config.clone(),
-            last_scan_len: self.last_scan_len,
-        }
+        self.core.status()
     }
 
     fn data_ready(&self) -> bool {
-        self.state == ScannerState::ScanComplete
+        self.core.data_ready()
     }
 }
 

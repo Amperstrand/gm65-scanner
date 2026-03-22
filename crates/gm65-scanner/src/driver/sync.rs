@@ -236,7 +236,7 @@ where
                     }
                     None => {
                         #[cfg(feature = "defmt")]
-                        defmt::warn!("SerialOutput read failed, retry {}...", attempt + 1);
+                        defmt::warn!("SerialOutput read failed, retry {}...", _attempt + 1);
                         for _ in 0..1_000_000 {
                             core::hint::spin_loop();
                         }
