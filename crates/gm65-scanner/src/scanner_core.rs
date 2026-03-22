@@ -187,6 +187,46 @@ pub enum ScanByteResult {
 }
 
 // ============================================================================
+// HIL Test Results
+// ============================================================================
+
+/// Results from Hardware-In-the-Loop (HIL) tests.
+#[derive(Debug, Clone, Copy)]
+#[cfg(feature = "hil-tests")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HilTestResults {
+    pub init_detects_scanner: bool,
+    pub ping_after_init: bool,
+    pub trigger_and_stop: bool,
+    pub read_scan_timeout: bool,
+    pub state_transitions: bool,
+}
+
+#[cfg(feature = "hil-tests")]
+impl HilTestResults {
+    pub fn all_passed(&self) -> bool {
+        self.init_detects_scanner
+            && self.ping_after_init
+            && self.trigger_and_stop
+            && self.read_scan_timeout
+            && self.state_transitions
+    }
+
+    pub fn passed_count(&self) -> usize {
+        [
+            self.init_detects_scanner,
+            self.ping_after_init,
+            self.trigger_and_stop,
+            self.read_scan_timeout,
+            self.state_transitions,
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count()
+    }
+}
+
+// ============================================================================
 // Init Step Tracker
 // ============================================================================
 

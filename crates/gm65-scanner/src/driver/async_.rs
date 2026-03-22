@@ -449,39 +449,7 @@ where
 #[cfg(feature = "hil-tests")]
 pub mod hil_tests {
     use super::*;
-
-    #[derive(Debug, Clone, Copy)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub struct HilTestResults {
-        pub init_detects_scanner: bool,
-        pub ping_after_init: bool,
-        pub trigger_and_stop: bool,
-        pub read_scan_timeout: bool,
-        pub state_transitions: bool,
-    }
-
-    impl HilTestResults {
-        pub fn all_passed(&self) -> bool {
-            self.init_detects_scanner
-                && self.ping_after_init
-                && self.trigger_and_stop
-                && self.read_scan_timeout
-                && self.state_transitions
-        }
-
-        pub fn passed_count(&self) -> usize {
-            [
-                self.init_detects_scanner,
-                self.ping_after_init,
-                self.trigger_and_stop,
-                self.read_scan_timeout,
-                self.state_transitions,
-            ]
-            .iter()
-            .filter(|&&x| x)
-            .count()
-        }
-    }
+    use crate::scanner_core::HilTestResults;
 
     pub async fn run_hil_tests<UART>(
         scanner: &mut Gm65ScannerAsync<UART>,

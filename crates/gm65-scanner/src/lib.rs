@@ -77,6 +77,8 @@ pub use protocol::{
 pub use state_machine::ScannerSettings;
 
 // Re-export scanner core types
+#[cfg(feature = "hil-tests")]
+pub use scanner_core::HilTestResults;
 pub use scanner_core::{InitStep, ScanByteResult, ScannerCore};
 
 // Re-export sync scanner when sync feature is enabled

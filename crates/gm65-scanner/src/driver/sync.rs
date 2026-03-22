@@ -428,3 +428,211 @@ where
         self.core.data_ready()
     }
 }
+
+// ============================================================================
+// HIL Tests (Hardware-In-the-Loop)
+// ============================================================================
+
+#[cfg(feature = "hil-tests")]
+pub mod hil_tests {
+    use super::*;
+    use crate::scanner_core::HilTestResults;
+
+    pub fn run_hil_tests<UART>(scanner: &mut Gm65Scanner<UART>) -> HilTestResults
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        defmt::info!("==== HIL TESTS (SYNC) STARTING ====");
+
+        let mut results = HilTestResults {
+            init_detects_scanner: false,
+            ping_after_init: false,
+            trigger_and_stop: false,
+            read_scan_timeout: false,
+            state_transitions: false,
+        };
+
+        defmt::info!("HIL (SYNC): test_init_detects_scanner");
+        results.init_detects_scanner = test_init(scanner);
+        defmt::info!(
+            "HIL (SYNC): {} - init_detects_scanner",
+            if results.init_detects_scanner {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+
+        if !results.init_detects_scanner {
+            defmt::warn!("HIL (SYNC): Aborting remaining tests - no scanner detected");
+            return results;
+        }
+
+        defmt::info!("HIL (SYNC): test_ping_after_init");
+        results.ping_after_init = test_ping(scanner);
+        defmt::info!(
+            "HIL (SYNC): {} - ping_after_init",
+            if results.ping_after_init {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+
+        defmt::info!("HIL (SYNC): test_trigger_and_stop");
+        results.trigger_and_stop = test_trigger_stop(scanner);
+        defmt::info!(
+            "HIL (SYNC): {} - trigger_and_stop",
+            if results.trigger_and_stop {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+
+        defmt::info!("HIL (SYNC): test_read_scan_timeout");
+        results.read_scan_timeout = test_read_scan_timeout(scanner);
+        defmt::info!(
+            "HIL (SYNC): {} - read_scan_timeout",
+            if results.read_scan_timeout {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+
+        defmt::info!("HIL (SYNC): test_state_transitions");
+        results.state_transitions = test_state_transitions(scanner);
+        defmt::info!(
+            "HIL (SYNC): {} - state_transitions",
+            if results.state_transitions {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+
+        defmt::info!(
+            "==== HIL TESTS (SYNC) COMPLETE: {}/5 passed ====",
+            results.passed_count()
+        );
+
+        results
+    }
+
+    fn test_init<UART>(scanner: &mut Gm65Scanner<UART>) -> bool
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        match scanner.init() {
+            Ok(model) => {
+                defmt::info!("HIL (SYNC): detected model = {:?}", model);
+                true
+            }
+            Err(e) => {
+                defmt::error!("HIL (SYNC): init failed with {:?}", e);
+                false
+            }
+        }
+    }
+
+    fn test_ping<UART>(scanner: &mut Gm65Scanner<UART>) -> bool
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        let result = scanner.ping();
+        if !result {
+            defmt::warn!("HIL (SYNC): ping returned false");
+        }
+        result
+    }
+
+    fn test_trigger_stop<UART>(scanner: &mut Gm65Scanner<UART>) -> bool
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        if scanner.trigger_scan().is_err() {
+            defmt::error!("HIL (SYNC): trigger_scan failed");
+            return false;
+        }
+
+        if !matches!(scanner.state(), ScannerState::Scanning) {
+            defmt::error!("HIL (SYNC): state not Scanning after trigger");
+            return false;
+        }
+
+        if !scanner.stop_scan() {
+            defmt::error!("HIL (SYNC): stop_scan failed");
+            return false;
+        }
+
+        true
+    }
+
+    fn test_read_scan_timeout<UART>(scanner: &mut Gm65Scanner<UART>) -> bool
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        if scanner.trigger_scan().is_err() {
+            defmt::error!("HIL (SYNC): trigger_scan failed in timeout test");
+            return false;
+        }
+
+        let result = scanner.read_scan();
+        let pass = result.is_none()
+            && matches!(scanner.state(), ScannerState::Error(ScannerError::Timeout));
+
+        let _ = scanner.stop_scan();
+
+        if !pass {
+            defmt::warn!("HIL (SYNC): read_scan did not timeout as expected");
+        }
+        pass
+    }
+
+    fn test_state_transitions<UART>(scanner: &mut Gm65Scanner<UART>) -> bool
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        let initial_state = scanner.state();
+        defmt::info!("HIL (SYNC): initial state = {:?}", initial_state);
+
+        match scanner.init() {
+            Ok(_) => {
+                let final_state = scanner.state();
+                defmt::info!("HIL (SYNC): final state = {:?}", final_state);
+                matches!(final_state, ScannerState::Ready)
+            }
+            Err(e) => {
+                defmt::error!("HIL (SYNC): re-init failed: {:?}", e);
+                false
+            }
+        }
+    }
+
+    pub fn run_hil_test_with_qr<UART>(scanner: &mut Gm65Scanner<UART>) -> bool
+    where
+        UART: embedded_hal_02::serial::Write<u8> + embedded_hal_02::serial::Read<u8>,
+    {
+        defmt::info!("==== HIL TEST (SYNC): SCAN WITH QR ====");
+        defmt::info!("HIL (SYNC): Present QR code within 5 seconds...");
+
+        if scanner.trigger_scan().is_err() {
+            defmt::error!("HIL (SYNC): trigger failed");
+            return false;
+        }
+
+        let result = scanner.read_scan();
+
+        match result {
+            Some(payload) => {
+                defmt::info!("HIL (SYNC): PASS - scanned {} bytes", payload.len());
+                true
+            }
+            None => {
+                defmt::error!("HIL (SYNC): FAIL - no scan data");
+                false
+            }
+        }
+    }
+}
