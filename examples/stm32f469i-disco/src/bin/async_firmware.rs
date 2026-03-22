@@ -32,13 +32,11 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "scanner-async")]
 use embassy_sync::channel::Channel;
 #[cfg(feature = "scanner-async")]
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 #[cfg(feature = "scanner-async")]
 use embassy_usb::Builder;
 #[cfg(feature = "scanner-async")]
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
-#[cfg(feature = "scanner-async")]
-use embassy_usb::driver::EndpointError;
 #[cfg(feature = "scanner-async")]
 use embedded_hal_02::blocking::serial::Write as _;
 #[cfg(feature = "scanner-async")]
@@ -152,19 +150,6 @@ impl<'d> embedded_io_async::Write for AsyncUart<'d> {
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.inner.bflush()
-    }
-}
-
-#[cfg(feature = "scanner-async")]
-struct Disconnected {}
-
-#[cfg(feature = "scanner-async")]
-impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
-            EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
-        }
     }
 }
 
@@ -293,6 +278,7 @@ async fn main(_spawner: Spawner) {
             cdc.wait_connection().await;
             defmt::info!("USB: connected");
 
+            let mut heartbeat = Ticker::every(Duration::from_secs(3));
             loop {
                 match SCAN_CHANNEL.try_receive() {
                     Ok(result) => {
@@ -301,24 +287,14 @@ async fn main(_spawner: Spawner) {
                         let mut msg = String::from(header);
                         msg.push_str(&data_str);
                         msg.push_str("\r\n");
-
-                        let mut written = 0usize;
-                        while written < msg.len() {
-                            let chunk = &msg.as_bytes()[written..];
-                            match cdc.write_packet(chunk).await {
-                                Ok(()) => {
-                                    written += chunk.len().min(64);
-                                    if written < msg.len() {
-                                        Timer::after(Duration::from_millis(1)).await;
-                                    }
-                                }
-                                Err(_) => break,
-                            }
+                        match cdc.write_packet(msg.as_bytes()).await {
+                            Ok(()) => defmt::info!("USB: sent scan result"),
+                            Err(_) => break,
                         }
-                        defmt::info!("USB: sent scan result");
                     }
                     Err(_) => {
-                        match cdc_echo(&mut cdc).await {
+                        heartbeat.next().await;
+                        match cdc.write_packet(b"[ALIVE] gm65-scanner ready\r\n").await {
                             Ok(()) => {}
                             Err(_) => break,
                         }
@@ -331,17 +307,6 @@ async fn main(_spawner: Spawner) {
     };
 
     embassy_futures::join::join3(usb_task, scanner_task, cdc_task).await;
-}
-
-#[cfg(feature = "scanner-async")]
-async fn cdc_echo<'d, T: usb::Instance + 'd>(
-    class: &mut CdcAcmClass<'d, usb::Driver<'d, T>>,
-) -> Result<(), Disconnected> {
-    let mut buf = [0u8; 64];
-    let n = class.read_packet(&mut buf).await?;
-    let data = &buf[..n];
-    class.write_packet(data).await?;
-    Ok(())
 }
 
 #[cfg(not(feature = "scanner-async"))]
