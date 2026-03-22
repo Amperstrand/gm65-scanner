@@ -37,7 +37,9 @@ mod settings;
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
 use hid::{BarcodeScannerReport, KeyboardWedgeState, HID_KBD_POLL_MS, HID_POS_POLL_MS};
-use settings::{DeviceSettings, SettingsAction, SettingsScreen};
+use settings::{
+    draw_settings_entry_button, hit_settings_entry, DeviceSettings, SettingsAction, SettingsScreen,
+};
 
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
 
@@ -224,6 +226,7 @@ fn main() -> ! {
     } else {
         display::render_home(&mut fb, false, model_str);
     }
+    draw_settings_entry_button(&mut fb);
 
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
@@ -290,9 +293,10 @@ fn main() -> ! {
                                 } else {
                                     display::render_home(&mut fb, false, model_str);
                                 }
+                                draw_settings_entry_button(&mut fb);
                             }
-                            SettingsAction::Apply => {
-                                settings_screen.draw(&mut fb, &device_settings);
+                            SettingsAction::Apply(idx) => {
+                                settings_screen.draw_button(&mut fb, idx, &device_settings);
                             }
                             SettingsAction::None => {}
                         }
@@ -301,8 +305,26 @@ fn main() -> ! {
                     touch_active = false;
                 }
             }
-        } else if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
-            let _ = scanner.trigger_scan();
+        } else {
+            if let Some(t) = touch_ctrl.as_mut() {
+                let touching = t.td_status(&mut touch_i2c).unwrap_or(0) > 0;
+                if touching && !touch_active {
+                    touch_active = true;
+                    if let Ok(point) = t.get_touch(&mut touch_i2c, 1) {
+                        if hit_settings_entry(point.x, point.y) {
+                            in_settings = true;
+                            auto_scan = false;
+                            scanner.stop_scan();
+                            settings_screen.draw(&mut fb, &device_settings);
+                        }
+                    }
+                } else if !touching {
+                    touch_active = false;
+                }
+            }
+            if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
+                let _ = scanner.trigger_scan();
+            }
         }
 
         if !in_settings {

@@ -16,14 +16,15 @@ const BTN_GAP: u32 = 12;
 const BTN_X: i32 = 30;
 const BTN_START_Y: i32 = 100;
 
-const COLOR_ON: Rgb565 = Rgb565::new(0x00, 0xA0, 0x00);
-const COLOR_OFF: Rgb565 = Rgb565::new(0x30, 0x30, 0x30);
+const COLOR_ON: Rgb565 = Rgb565::new(0x00, 0x80, 0x00);
+const COLOR_OFF: Rgb565 = Rgb565::new(0x20, 0x20, 0x25);
 const COLOR_BG: Rgb565 = Rgb565::BLACK;
 const COLOR_TITLE: Rgb565 = Rgb565::CSS_CYAN;
 const COLOR_LABEL: Rgb565 = Rgb565::WHITE;
-const COLOR_VALUE_ON: Rgb565 = Rgb565::new(0x40, 0xFF, 0x40);
+const COLOR_VALUE_ON: Rgb565 = Rgb565::new(0x60, 0xFF, 0x60);
 const COLOR_VALUE_OFF: Rgb565 = Rgb565::new(0x80, 0x80, 0x80);
 const COLOR_BACK: Rgb565 = Rgb565::new(0xA0, 0x30, 0x30);
+const COLOR_SETTINGS_BTN: Rgb565 = Rgb565::new(0x30, 0x50, 0xA0);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SuffixKey {
@@ -106,7 +107,7 @@ impl Default for DeviceSettings {
 pub enum SettingsAction {
     None,
     Back,
-    Apply,
+    Apply(usize),
 }
 
 enum ButtonKind {
@@ -247,42 +248,8 @@ impl SettingsScreen {
         let sep = Rectangle::new(Point::new(20, 65), Size::new(FB_W as u32 - 40, 1));
         fb.fill_solid(&sep, Rgb565::new(0x40, 0x40, 0x40)).ok();
 
-        for btn in &self.buttons {
-            match &btn.kind {
-                ButtonKind::Toggle { field, setting, .. } => {
-                    let on = setting(settings);
-                    let bg = if on { COLOR_ON } else { COLOR_OFF };
-                    fb.fill_solid(&btn.bounds(), bg).ok();
-
-                    let label_style = MonoTextStyle::new(&FONT_10X20, COLOR_LABEL);
-                    Text::new(*field, Point::new(BTN_X + 15, btn.y + 22), label_style)
-                        .draw(fb)
-                        .ok();
-
-                    let val_str = if on { "ON" } else { "OFF" };
-                    let val_color = if on { COLOR_VALUE_ON } else { COLOR_VALUE_OFF };
-                    let val_style = MonoTextStyle::new(&FONT_10X20, val_color);
-                    let val_x = BTN_X + BTN_W as i32 - 80;
-                    Text::new(val_str, Point::new(val_x, btn.y + 22), val_style)
-                        .draw(fb)
-                        .ok();
-                }
-                ButtonKind::Cycle { label, values } => {
-                    fb.fill_solid(&btn.bounds(), COLOR_OFF).ok();
-
-                    let label_style = MonoTextStyle::new(&FONT_10X20, COLOR_LABEL);
-                    Text::new(*label, Point::new(BTN_X + 15, btn.y + 22), label_style)
-                        .draw(fb)
-                        .ok();
-
-                    let val_str = values.label(settings);
-                    let val_style = MonoTextStyle::new(&FONT_10X20, COLOR_TITLE);
-                    let val_x = BTN_X + BTN_W as i32 - 80;
-                    Text::new(val_str, Point::new(val_x, btn.y + 22), val_style)
-                        .draw(fb)
-                        .ok();
-                }
-            }
+        for (_i, btn) in self.buttons.iter().enumerate() {
+            Self::draw_button_at(fb, btn, settings);
         }
 
         fb.fill_solid(&self.back_bounds, COLOR_BACK).ok();
@@ -298,22 +265,75 @@ impl SettingsScreen {
         .ok();
     }
 
+    pub fn draw_button(
+        &self,
+        fb: &mut LtdcFramebuffer<u16>,
+        index: usize,
+        settings: &DeviceSettings,
+    ) {
+        if let Some(btn) = self.buttons.get(index) {
+            Self::draw_button_at(fb, btn, settings);
+        }
+    }
+
+    fn draw_button_at(fb: &mut LtdcFramebuffer<u16>, btn: &Button, settings: &DeviceSettings) {
+        match &btn.kind {
+            ButtonKind::Toggle { field, setting, .. } => {
+                let on = setting(settings);
+                let bg = if on { COLOR_ON } else { COLOR_OFF };
+                fb.fill_solid(&btn.bounds(), bg).ok();
+
+                let label_style = MonoTextStyle::new(&FONT_10X20, COLOR_LABEL);
+                Text::new(*field, Point::new(BTN_X + 15, btn.y + 22), label_style)
+                    .draw(fb)
+                    .ok();
+
+                let val_str = if on { "ON" } else { "OFF" };
+                let val_color = if on { COLOR_VALUE_ON } else { COLOR_VALUE_OFF };
+                let val_style = MonoTextStyle::new(&FONT_10X20, val_color);
+                let val_x = BTN_X + BTN_W as i32 - 80;
+                Text::new(val_str, Point::new(val_x, btn.y + 22), val_style)
+                    .draw(fb)
+                    .ok();
+            }
+            ButtonKind::Cycle { label, values } => {
+                fb.fill_solid(&btn.bounds(), COLOR_OFF).ok();
+
+                let label_style = MonoTextStyle::new(&FONT_10X20, COLOR_LABEL);
+                Text::new(*label, Point::new(BTN_X + 15, btn.y + 22), label_style)
+                    .draw(fb)
+                    .ok();
+
+                let val_str = values.label(settings);
+                let val_style = MonoTextStyle::new(&FONT_10X20, COLOR_TITLE);
+                let val_x = BTN_X + BTN_W as i32 - 80;
+                Text::new(val_str, Point::new(val_x, btn.y + 22), val_style)
+                    .draw(fb)
+                    .ok();
+            }
+        }
+    }
+
+    pub fn back_bounds(&self) -> Rectangle {
+        self.back_bounds
+    }
+
     pub fn handle_touch(&self, tx: u16, ty: u16, settings: &mut DeviceSettings) -> SettingsAction {
         if self.back_bounds.contains(Point::new(tx as i32, ty as i32)) {
             return SettingsAction::Back;
         }
 
-        for btn in &self.buttons {
+        for (i, btn) in self.buttons.iter().enumerate() {
             if btn.hit_test(tx, ty) {
                 match &btn.kind {
                     ButtonKind::Toggle { setting, apply, .. } => {
                         let new_val = !setting(settings);
                         apply(settings, new_val);
-                        return SettingsAction::Apply;
+                        return SettingsAction::Apply(i);
                     }
                     ButtonKind::Cycle { values, .. } => {
                         values.next(settings);
-                        return SettingsAction::Apply;
+                        return SettingsAction::Apply(i);
                     }
                 }
             }
@@ -321,6 +341,29 @@ impl SettingsScreen {
 
         SettingsAction::None
     }
+}
+
+pub const SETTINGS_ENTRY_Y: i32 = FB_H as i32 - 100;
+pub const SETTINGS_ENTRY_BOUNDS: Rectangle =
+    Rectangle::new(Point::new(BTN_X, SETTINGS_ENTRY_Y), Size::new(BTN_W, 60));
+
+pub fn draw_settings_entry_button(fb: &mut LtdcFramebuffer<u16>) {
+    fb.fill_solid(&SETTINGS_ENTRY_BOUNDS, COLOR_SETTINGS_BTN)
+        .ok();
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
+    Text::with_text_style(
+        "Settings",
+        Point::new(BTN_X + BTN_W as i32 / 2, SETTINGS_ENTRY_Y + 18),
+        style,
+        center,
+    )
+    .draw(fb)
+    .ok();
+}
+
+pub fn hit_settings_entry(tx: u16, ty: u16) -> bool {
+    SETTINGS_ENTRY_BOUNDS.contains(Point::new(tx as i32, ty as i32))
 }
 
 const fn btn_y(index: usize) -> i32 {
