@@ -17,7 +17,7 @@ use stm32f469i_disc::{
     hal::pac::{self, CorePeripherals},
     hal::prelude::*,
     hal::rcc,
-    lcd, sdram, usb,
+    lcd, sdram, touch, usb,
 };
 
 use hal::otg_fs::UsbBus;
@@ -32,10 +32,12 @@ mod cdc;
 mod display;
 mod hid;
 mod qr_display;
+mod settings;
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
 use hid::{BarcodeScannerReport, KeyboardWedgeState, HID_KBD_POLL_MS, HID_POS_POLL_MS};
+use settings::{DeviceSettings, SettingsAction, SettingsScreen};
 
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
 
@@ -58,7 +60,9 @@ fn main() -> ! {
     defmt::info!("GM65 Scanner firmware starting...");
 
     let gpioa = dp.GPIOA.split(&mut rcc);
+    let gpiob = dp.GPIOB.split(&mut rcc);
     let gpioc = dp.GPIOC.split(&mut rcc);
+    let ts_int = gpioc.pc1.into_pull_down_input();
     let gpiod = dp.GPIOD.split(&mut rcc);
     let gpioe = dp.GPIOE.split(&mut rcc);
     let gpiof = dp.GPIOF.split(&mut rcc);
@@ -123,6 +127,10 @@ fn main() -> ! {
     let mut fb = LtdcFramebuffer::new(fb_buf, lcd::WIDTH, lcd::HEIGHT);
 
     defmt::info!("Display initialized");
+
+    defmt::info!("Initializing touch...");
+    let mut touch_i2c = touch::init_i2c(dp.I2C1, gpiob.pb8, gpiob.pb9, &mut rcc);
+    let mut touch_ctrl = touch::init_ft6x06(&touch_i2c, ts_int);
 
     defmt::info!("Initializing USB...");
     let usb_periph = usb::init(
@@ -219,9 +227,13 @@ fn main() -> ! {
 
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
+    let mut device_settings = DeviceSettings::default();
+    let settings_screen = SettingsScreen::new();
+    let mut in_settings = false;
     let mut auto_scan: bool = scanner_connected;
     let mut kbd_state = KeyboardWedgeState::default();
     let mut pos_pending: Option<[u8; 32]> = None;
+    let mut touch_active = false;
 
     loop {
         if usb_dev.poll(&mut [cdc_port.serial_mut(), &mut hid_keyboard, &mut hid_pos]) {
@@ -229,6 +241,11 @@ fn main() -> ! {
                 if frame.command == Command::SetSettings || frame.command == Command::ScannerTrigger
                 {
                     auto_scan = false;
+                }
+                if frame.command == Command::EnterSettings {
+                    in_settings = true;
+                    auto_scan = false;
+                    scanner.stop_scan();
                 }
                 if frame.command == Command::ScannerTrigger {
                     last_scan_data = None;
@@ -248,34 +265,69 @@ fn main() -> ! {
                 if was_auto {
                     auto_scan = true;
                 }
+                if in_settings {
+                    settings_screen.draw(&mut fb, &device_settings);
+                }
             }
         }
 
-        if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
+        if in_settings {
+            if let Some(t) = touch_ctrl.as_mut() {
+                let touching = t.td_status(&mut touch_i2c).unwrap_or(0) > 0;
+                if touching && !touch_active {
+                    touch_active = true;
+                    if let Ok(point) = t.get_touch(&mut touch_i2c, 1) {
+                        let action =
+                            settings_screen.handle_touch(point.x, point.y, &mut device_settings);
+                        match action {
+                            SettingsAction::Back => {
+                                in_settings = false;
+                                auto_scan = scanner_connected;
+                                if scanner_connected {
+                                    if let Some(s) = scanner.get_scanner_settings() {
+                                        display::render_scanner_settings(&mut fb, s);
+                                    }
+                                } else {
+                                    display::render_home(&mut fb, false, model_str);
+                                }
+                            }
+                            SettingsAction::Apply => {
+                                settings_screen.draw(&mut fb, &device_settings);
+                            }
+                            SettingsAction::None => {}
+                        }
+                    }
+                } else if !touching {
+                    touch_active = false;
+                }
+            }
+        } else if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
             let _ = scanner.trigger_scan();
         }
 
-        for _ in 0..256 {
-            if let Some(data) = scanner.try_read_scan() {
-                defmt::info!("Scan data received: {} bytes", data.len());
-                let payload = gm65_scanner::decode_payload(&data);
-                render_decoded_scan(&mut fb, &payload);
-                if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
-                    qr_display::render_qr_mirror(&mut fb, &data);
+        if !in_settings {
+            for _ in 0..8 {
+                if let Some(data) = scanner.try_read_scan() {
+                    defmt::info!("Scan data received: {} bytes", data.len());
+                    let payload = gm65_scanner::decode_payload(&data);
+                    render_decoded_scan(&mut fb, &payload);
+                    if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
+                        qr_display::render_qr_mirror(&mut fb, &data);
+                    }
+                    let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
+                    let mut buf = [0u8; MAX_PAYLOAD_SIZE - 1];
+                    buf[..copy_len].copy_from_slice(&data[..copy_len]);
+                    last_scan_data = Some(buf);
+                    last_scan_len = copy_len;
+                    kbd_state.start(&buf[..copy_len]);
+                    {
+                        let mut pos_data = [0u8; 32];
+                        let pos_len = copy_len.min(32);
+                        pos_data[..pos_len].copy_from_slice(&buf[..pos_len]);
+                        pos_pending = Some(pos_data);
+                    }
+                    break;
                 }
-                let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
-                let mut buf = [0u8; MAX_PAYLOAD_SIZE - 1];
-                buf[..copy_len].copy_from_slice(&data[..copy_len]);
-                last_scan_data = Some(buf);
-                last_scan_len = copy_len;
-                kbd_state.start(&buf[..copy_len]);
-                {
-                    let mut pos_data = [0u8; 32];
-                    let pos_len = copy_len.min(32);
-                    pos_data[..pos_len].copy_from_slice(&buf[..pos_len]);
-                    pos_pending = Some(pos_data);
-                }
-                break;
             }
         }
 
@@ -303,6 +355,10 @@ fn handle_command(
         Command::GetSettings => handle_get_settings(scanner, fb),
         Command::SetSettings => handle_set_settings(scanner, payload, fb),
         Command::DisplayQr => handle_display_qr(payload, fb),
+        Command::EnterSettings => {
+            defmt::info!("ENTER_SETTINGS");
+            Response::new(Status::Ok)
+        }
     }
 }
 

@@ -15,11 +15,20 @@ use gm65_scanner::{driver::hil_tests, Gm65Scanner};
 use linked_list_allocator::LockedHeap;
 use stm32f469i_disc::{hal::pac, hal::prelude::*, hal::rcc, hal::serial::Serial6};
 
+const HEAP_SIZE: usize = 32 * 1024;
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
+static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
+
 #[entry]
 fn main() -> ! {
+    unsafe {
+        ALLOCATOR
+            .lock()
+            .init(core::ptr::addr_of_mut!(HEAP_MEMORY) as *mut u8, HEAP_SIZE);
+    }
+
     let dp = pac::Peripherals::take().unwrap();
 
     let mut rcc = dp.RCC.freeze(
@@ -45,7 +54,5 @@ fn main() -> ! {
         defmt::error!("HIL tests failed: {}/5", results.passed_count());
     }
 
-    loop {
-        cortex_m::asm::wfi();
-    }
+    loop {}
 }

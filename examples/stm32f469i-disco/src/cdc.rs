@@ -13,6 +13,7 @@ pub enum Command {
     GetSettings = 0x13,
     SetSettings = 0x14,
     DisplayQr = 0x15,
+    EnterSettings = 0x16,
 }
 
 impl Command {
@@ -24,6 +25,7 @@ impl Command {
             0x13 => Some(Command::GetSettings),
             0x14 => Some(Command::SetSettings),
             0x15 => Some(Command::DisplayQr),
+            0x16 => Some(Command::EnterSettings),
             _ => None,
         }
     }

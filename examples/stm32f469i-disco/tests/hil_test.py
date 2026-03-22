@@ -64,11 +64,16 @@ class CdcClient:
         frame = bytes([cmd_byte, (len(payload) >> 8) & 0xFF, len(payload) & 0xFF]) + payload
         self.ser.write(frame)
 
-    def recv(self, timeout=1.0):
+    def recv(self, timeout=2.0):
         old_timeout = self.ser.timeout
         self.ser.timeout = timeout
         resp = self.ser.read(256)
         self.ser.timeout = old_timeout
+        if not resp or len(resp) < 3:
+            time.sleep(0.5)
+            self.ser.timeout = timeout
+            resp = self.ser.read(256)
+            self.ser.timeout = old_timeout
         if not resp or len(resp) < 3:
             return None, b""
         status = resp[0]
@@ -125,10 +130,12 @@ def open_cdc(port=None, retries=10):
     for attempt in range(retries):
         try:
             client = CdcClient(port)
+            client.drain()
             client.send(CMD_STATUS)
             status, payload = client.recv(timeout=1.0)
             if status == STATUS_OK and len(payload) >= 3:
                 print(f"CDC connected (attempt {attempt + 1})")
+                client.drain()
                 return client, port
             client.close()
         except Exception as e:
@@ -168,6 +175,7 @@ def test_protocol(client):
         check("scanner initialized", initialized == 1, f"got {initialized}")
         model_name = MODEL_NAMES.get(model, f"0x{model:02x}")
         print(f"    Model: {model_name} (0x{model:02x})")
+    time.sleep(0.5)
 
     # Test 2: GetSettings
     print("\n2. GetSettings")
