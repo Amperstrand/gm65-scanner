@@ -57,6 +57,7 @@ pub mod buffer;
 pub mod decoder;
 pub mod driver;
 pub mod protocol;
+pub mod scanner_core;
 pub mod state_machine;
 
 pub use buffer::ScanBuffer;
@@ -74,6 +75,9 @@ pub use protocol::{
     RESPONSE_PREFIX,
 };
 pub use state_machine::ScannerSettings;
+
+// Re-export scanner core types
+pub use scanner_core::{InitStep, ScanByteResult, ScannerCore};
 
 // Re-export sync scanner when sync feature is enabled
 #[cfg(feature = "sync")]
