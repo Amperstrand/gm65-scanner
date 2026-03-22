@@ -1,18 +1,21 @@
 //! Sync (blocking) GM65 scanner implementation.
 //!
 //! This module provides `Gm65Scanner<UART>` with blocking I/O operations
-//! using `embedded-hal-02` traits.
+//! using `embedded-hal-02` traits. All state management is delegated to
+//! `ScannerCore`.
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::buffer::ScanBuffer;
 use crate::driver::{
     ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-use crate::state_machine::{config, ScannerSettings};
+use crate::scanner_core::{
+    config, init_config_sequence, version_needs_raw_fix, ScanByteResult, ScannerCore,
+    ScannerSettings,
+};
 
 /// GM65/M3Y QR scanner driver (blocking/sync version).
 ///
@@ -32,13 +35,8 @@ use crate::state_machine::{config, ScannerSettings};
 /// }
 /// ```
 pub struct Gm65Scanner<UART> {
+    core: ScannerCore,
     uart: UART,
-    config: ScannerConfig,
-    state: ScannerState,
-    buffer: ScanBuffer,
-    initialized: bool,
-    detected_model: ScannerModel,
-    last_scan_len: Option<usize>,
 }
 
 impl<UART, WErr, RErr> Gm65Scanner<UART>
@@ -49,13 +47,8 @@ where
     /// Create a new scanner with the given UART and configuration.
     pub fn new(uart: UART, config: ScannerConfig) -> Self {
         Self {
+            core: ScannerCore::new(config),
             uart,
-            config,
-            state: ScannerState::Uninitialized,
-            buffer: ScanBuffer::new(),
-            initialized: false,
-            detected_model: ScannerModel::Unknown,
-            last_scan_len: None,
         }
     }
 
@@ -71,7 +64,12 @@ where
 
     /// Decompose into parts for recovery or reconfiguration.
     pub fn into_parts(self) -> (UART, ScannerState, bool, ScannerModel) {
-        (self.uart, self.state, self.initialized, self.detected_model)
+        (
+            self.uart,
+            self.core.state(),
+            self.core.is_initialized(),
+            self.core.detected_model(),
+        )
     }
 
     /// Get scanner settings as bitflags.
@@ -97,32 +95,19 @@ where
     /// Non-blocking incremental scan read.
     /// Call repeatedly until `data_ready()` returns true.
     pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
-        if !self.initialized {
+        if !self.core.is_initialized() {
             return None;
         }
-        if self.state == ScannerState::ScanComplete {
-            self.state = ScannerState::Ready;
+        // Reset state if previous scan complete
+        if self.core.state() == ScannerState::ScanComplete {
+            self.core.begin_scan().ok();
         }
         match self.poll_uart() {
-            Some(b) => {
-                if !self.buffer.push(b) {
-                    self.state = ScannerState::Error(ScannerError::BufferOverflow);
-                    return None;
-                }
-                if self.buffer.has_eol() {
-                    let data = self.buffer.data_without_eol();
-                    if data.is_empty() {
-                        self.buffer.clear();
-                        return None;
-                    }
-                    self.last_scan_len = Some(data.len());
-                    self.state = ScannerState::ScanComplete;
-                    let result = data.to_vec();
-                    self.buffer.clear();
-                    return Some(result);
-                }
-                None
-            }
+            Some(byte) => match self.core.handle_scan_byte(byte) {
+                ScanByteResult::Complete(data) => Some(data),
+                ScanByteResult::BufferOverflow => None,
+                ScanByteResult::NeedMore => None,
+            },
             None => None,
         }
     }
@@ -230,21 +215,19 @@ where
     }
 
     fn do_init(&mut self) -> Result<ScannerModel, ScannerError> {
-        self.state = ScannerState::Detecting;
+        self.core.begin_init();
 
         if !self.probe_gm65() {
-            self.state = ScannerState::Error(ScannerError::NotDetected);
+            self.core.fail_init(ScannerError::NotDetected);
             return Err(ScannerError::NotDetected);
         }
 
-        self.detected_model = ScannerModel::Gm65;
-        self.state = ScannerState::Configuring;
+        self.core.mark_detected(ScannerModel::Gm65);
 
         // Read SerialOutput with retry
-        #[allow(unused_variables)]
         let serial_val = {
             let mut result = None;
-            for attempt in 0..3u32 {
+            for _attempt in 0..3u32 {
                 self.drain_uart();
                 match self.get_setting(Register::SerialOutput) {
                     Some(v) => {
@@ -269,19 +252,19 @@ where
                 None => {
                     #[cfg(feature = "defmt")]
                     defmt::warn!("init: failed to read SerialOutput after retries");
-                    self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                    self.core.fail_init(ScannerError::ConfigFailed);
                     return Err(ScannerError::ConfigFailed);
                 }
             }
         };
 
         // Fix SerialOutput if needed (clear bits 0-1)
-        if serial_val & 0x03 != 0 {
-            let fixed = serial_val & 0xFC;
+        if crate::scanner_core::serial_output_needs_fix(serial_val) {
+            let fixed = crate::scanner_core::fix_serial_output(serial_val);
             if !self.set_setting(Register::SerialOutput, fixed) {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("init: failed to fix SerialOutput");
-                self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                self.core.fail_init(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
         }
@@ -295,7 +278,7 @@ where
                     if !self.set_setting(Register::Settings, config::CMD_MODE) {
                         #[cfg(feature = "defmt")]
                         defmt::warn!("init: failed to set Settings to CMD_MODE");
-                        self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                        self.core.fail_init(ScannerError::ConfigFailed);
                         return Err(ScannerError::ConfigFailed);
                     }
                 }
@@ -303,13 +286,13 @@ where
             None => {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("init: failed to read Settings");
-                self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                self.core.fail_init(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
         }
 
         // Apply configuration settings
-        let config_settings = crate::state_machine::init_config_sequence();
+        let config_settings = init_config_sequence();
 
         for (reg, set_val) in config_settings.iter() {
             match self.get_setting(*reg) {
@@ -328,7 +311,7 @@ where
                                 "init: failed to set register {:02x}",
                                 reg.address_bytes()
                             );
-                            self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                            self.core.fail_init(ScannerError::ConfigFailed);
                             return Err(ScannerError::ConfigFailed);
                         }
                     }
@@ -336,7 +319,7 @@ where
                 None => {
                     #[cfg(feature = "defmt")]
                     defmt::warn!("init: failed to read register {:02x}", reg.address_bytes());
-                    self.state = ScannerState::Error(ScannerError::ConfigFailed);
+                    self.core.fail_init(ScannerError::ConfigFailed);
                     return Err(ScannerError::ConfigFailed);
                 }
             }
@@ -346,7 +329,7 @@ where
         if let Some(version) = self.get_setting(Register::Version) {
             #[cfg(feature = "defmt")]
             defmt::info!("Firmware version: 0x{:02x}", version);
-            if crate::state_machine::version_needs_raw_fix(version) {
+            if version_needs_raw_fix(version) {
                 if let Some(val) = self.get_setting(Register::RawMode) {
                     if val != config::RAW_MODE_VALUE {
                         self.set_setting(Register::RawMode, config::RAW_MODE_VALUE);
@@ -359,25 +342,19 @@ where
         #[cfg(feature = "defmt")]
         defmt::info!("init: complete");
 
-        self.initialized = true;
-        self.state = ScannerState::Ready;
-        self.config.model = self.detected_model;
-        Ok(self.detected_model)
+        self.core.complete_init(ScannerModel::Gm65);
+        Ok(ScannerModel::Gm65)
     }
 
     fn do_trigger_scan(&mut self) -> Result<(), ScannerError> {
-        if !self.initialized {
-            return Err(ScannerError::NotInitialized);
-        }
-        self.state = ScannerState::Scanning;
-        self.buffer.clear();
+        self.core.begin_scan()?;
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x01);
         let _ = self.send_command(&cmd);
         Ok(())
     }
 
     fn do_stop_scan(&mut self) -> bool {
-        if !self.initialized {
+        if !self.core.is_initialized() {
             return false;
         }
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x00);
@@ -385,7 +362,7 @@ where
     }
 
     fn do_read_scan(&mut self) -> Option<Vec<u8>> {
-        if !self.initialized {
+        if !self.core.is_initialized() {
             return None;
         }
 
@@ -394,36 +371,22 @@ where
 
         while attempts < max_attempts {
             match self.uart.read() {
-                Ok(b) => {
-                    if !self.buffer.push(b) {
-                        self.state = ScannerState::Error(ScannerError::BufferOverflow);
-                        return None;
-                    }
-                    if self.buffer.has_eol() {
-                        let data = self.buffer.data_without_eol();
-                        if data.is_empty() {
-                            self.buffer.clear();
-                            return None;
-                        }
-                        self.last_scan_len = Some(data.len());
-                        self.state = ScannerState::ScanComplete;
-                        let result = data.to_vec();
-                        self.buffer.clear();
-                        return Some(result);
-                    }
-                    attempts = 0;
-                }
+                Ok(b) => match self.core.handle_scan_byte(b) {
+                    ScanByteResult::Complete(data) => return Some(data),
+                    ScanByteResult::BufferOverflow => return None,
+                    ScanByteResult::NeedMore => attempts = 0,
+                },
                 Err(nb::Error::WouldBlock) => {
                     attempts += 1;
                 }
                 Err(_) => {
-                    self.state = ScannerState::Error(ScannerError::UartError);
+                    self.core.fail(ScannerError::UartError);
                     return None;
                 }
             }
         }
 
-        self.state = ScannerState::Error(ScannerError::Timeout);
+        self.core.fail(ScannerError::Timeout);
         None
     }
 }
@@ -454,20 +417,14 @@ where
     }
 
     fn state(&self) -> ScannerState {
-        self.state
+        self.core.state()
     }
 
     fn status(&self) -> ScannerStatus {
-        ScannerStatus {
-            model: self.detected_model,
-            connected: self.initialized,
-            initialized: self.initialized,
-            config: self.config.clone(),
-            last_scan_len: self.last_scan_len,
-        }
+        self.core.status()
     }
 
     fn data_ready(&self) -> bool {
-        self.state == ScannerState::ScanComplete
+        self.core.data_ready()
     }
 }
