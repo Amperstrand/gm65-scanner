@@ -7,7 +7,7 @@ license.workspace = true
 [features]
 default = ["sync-mode", "defmt"]
 sync-mode = ["gm65-scanner/sync", "gm65-scanner/hil-tests"]
-scanner-async = ["gm65-scanner/async", "gm65-scanner/hil-tests", "dep:embassy-executor", "dep:embassy-stm32", "dep:embassy-time", "dep:embedded-io", "dep:embedded-io-async", "dep:stm32f4"]
+scanner-async = ["gm65-scanner/async", "gm65-scanner/hil-tests", "dep:embassy-executor", "dep:embassy-stm32", "dep:embassy-time", "dep:embassy-usb", "dep:embassy-usb-synopsys-otg", "dep:embassy-sync", "dep:embassy-futures", "dep:embedded-io", "dep:embedded-io-async", "dep:stm32f4"]
 defmt = ["dep:defmt", "dep:defmt-rtt", "dep:panic-probe", "gm65-scanner/defmt", "stm32f469i-disc/defmt"]
 
 [dependencies]
@@ -37,3 +37,7 @@ embedded-io-async = { version = "0.7", optional = true }
 embassy-executor = { workspace = true, optional = true }
 embassy-stm32 = { workspace = true, optional = true }
 embassy-time = { workspace = true, optional = true }
+embassy-usb = { workspace = true, optional = true }
+embassy-usb-synopsys-otg = { workspace = true, optional = true }
+embassy-sync = { workspace = true, optional = true }
+embassy-futures = { workspace = true, optional = true }

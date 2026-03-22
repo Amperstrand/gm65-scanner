@@ -41,6 +41,10 @@ stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev 
 embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19", features = ["defmt"] }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", package = "embassy-executor", rev = "84444a19", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", package = "embassy-stm32", rev = "84444a19", features = ["stm32f469ni", "time-driver-any", "exti", "defmt"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", package = "embassy-usb", rev = "84444a19" }
+embassy-usb-synopsys-otg = { git = "https://github.com/embassy-rs/embassy", package = "embassy-usb-synopsys-otg", rev = "84444a19" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", package = "embassy-sync", rev = "84444a19" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", package = "embassy-futures", rev = "84444a19" }
 
 [profile.release]
 debug = true
