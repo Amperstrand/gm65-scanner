@@ -218,7 +218,20 @@ unsafe fn dsi_init() {
     const WRPCR: usize = 0x430;
     const WISR: usize = 0x40C;
     const WCFGR: usize = 0x400;
+    const WCR: usize = 0x404;
     const WPCR0: usize = 0x418;
+
+    // Timing from sync BSP (NT35510_DISPLAY_CONFIG)
+    let h_sync = 2u32;
+    let h_back_porch = 34u32;
+    let h_front_porch = 34u32;
+    let v_sync = 1u32;
+    let v_back_porch = 15u32;
+    let v_front_porch = 16u32;
+    let active_width = FB_WIDTH as u32; // 480
+    let active_height = FB_HEIGHT as u32; // 800
+    let lane_byte_clk = 500_000_000u32; // 500MHz (VCO/ODF=500/1)
+    let pixel_clk = 27_429u32; // ~27.4 MHz (from sync BSP)
 
     // Shutdown
     reg32_clear(DSI_BASE, CR, 1 << 2); // CMDM=0
@@ -249,7 +262,7 @@ unsafe fn dsi_init() {
     }
     defmt::assert!(timeout > 0, "DSI regulator timeout");
 
-    // PLL: VCO = (8MHz / IDF=2) * NDIV=125 = 500MHz, LaneByteClk = 500MHz/2 = 250MHz
+    // PLL: VCO = (8MHz / IDF=2) * NDIV=125 = 500MHz, LaneByteClk = 500MHz/ODF1 = 500MHz
     // NDIV[8:2], IDF[14:11], ODF[17:16]
     reg32_modify(DSI_BASE, WRPCR, |w| {
         (w & !(0x7F << 2 | 0x0F << 11 | 0x03 << 16))
@@ -258,6 +271,8 @@ unsafe fn dsi_init() {
         | (0x00 << 16) // ODF=1
     });
     reg32_set(DSI_BASE, WRPCR, 1 << 0); // PLLEN=1
+
+    cortex_m::asm::delay(168_000 / 2); // 400us delay before checking lock
 
     timeout = 100_000u32;
     while reg32(DSI_BASE, WISR) & (1 << 8) == 0 && timeout > 0 {
@@ -275,28 +290,44 @@ unsafe fn dsi_init() {
     reg32_write(DSI_BASE, IER1, 0);
     reg32_set(DSI_BASE, PCR, 1 << 2); // BTAE=1
 
-    // Video mode: burst
+    // Video mode: burst (matching sync BSP exactly)
     reg32_clear(DSI_BASE, CR, 1 << 2); // CMDM=0
-    reg32_clear(DSI_BASE, WCFGR, 1 << 0); // DSIM=0
+    reg32_clear(DSI_BASE, WCFGR, 1 << 0); // DSIM=0 (video mode, NOT command mode)
     reg32_modify(DSI_BASE, VMCR, |w| (w & !0x03) | 0x02); // VMT=2 (burst)
-    reg32_write(DSI_BASE, VPCR, FB_HEIGHT as u32); // VPSIZE=800
+    reg32_write(DSI_BASE, VPCR, active_width); // VPSIZE=480
     reg32_write(DSI_BASE, VCCR, 0); // NUMC=0
-    reg32_write(DSI_BASE, VNPCR, 0xFFF); // NPSIZE
+    reg32_write(DSI_BASE, VNPCR, 0); // NPSIZE=0
     reg32_write(DSI_BASE, LVCIDR, 0); // VCID=0
     reg32_write(DSI_BASE, LPCR, 0); // DEP=0, HSP=0, VSP=0
-    reg32_write(DSI_BASE, LCOLCR, 0x06); // COLC=RGB565
-    reg32_modify(DSI_BASE, WCFGR, |w| (w & !(0x07 << 1)) | (0x06 << 1)); // COLMUX=RGB565
+    reg32_write(DSI_BASE, LCOLCR, 0x00); // COLC=SixteenBitsConfig1 (RGB565)
+    reg32_modify(DSI_BASE, WCFGR, |w| (w & !(0x07 << 1)) | (0x00 << 1)); // COLMUX=SixteenBitsConfig1
 
-    // DSI timing
-    reg32_write(DSI_BASE, VHSACR, 4);
-    reg32_write(DSI_BASE, VHBPACR, 77);
-    reg32_write(DSI_BASE, VLCR, 1982);
-    reg32_write(DSI_BASE, VVSACR, 120);
-    reg32_write(DSI_BASE, VVBPCR, 150);
-    reg32_write(DSI_BASE, VVFPCR, 150);
-    reg32_write(DSI_BASE, VVACR, FB_WIDTH as u32); // VA=480
+    // DSI timing (matching sync BSP calculations)
+    // HSA = h_sync * lane_byte_clk / pixel_clk = 2 * 500M / 27429 = ~36500 → fits in u16
+    let dsi_hsa =
+        ((h_sync as u64 * lane_byte_clk as u64 + pixel_clk as u64 / 2) / pixel_clk as u64) as u32;
+    let dsi_hbp = ((h_back_porch as u64 * lane_byte_clk as u64 + pixel_clk as u64 / 2)
+        / pixel_clk as u64) as u32;
+    let dsi_hline = (((active_width + h_sync + h_back_porch + h_front_porch) as u64
+        * lane_byte_clk as u64
+        + pixel_clk as u64 / 2)
+        / pixel_clk as u64) as u32;
+    let dsi_vsa =
+        ((v_sync as u64 * lane_byte_clk as u64 + pixel_clk as u64 / 2) / pixel_clk as u64) as u32;
+    let dsi_vbp = ((v_back_porch as u64 * lane_byte_clk as u64 + pixel_clk as u64 / 2)
+        / pixel_clk as u64) as u32;
+    let dsi_vfp = ((v_front_porch as u64 * lane_byte_clk as u64 + pixel_clk as u64 / 2)
+        / pixel_clk as u64) as u32;
 
-    // LP command enable + all LP transitions
+    reg32_write(DSI_BASE, VHSACR, dsi_hsa);
+    reg32_write(DSI_BASE, VHBPACR, dsi_hbp);
+    reg32_write(DSI_BASE, VLCR, dsi_hline);
+    reg32_write(DSI_BASE, VVSACR, dsi_vsa);
+    reg32_write(DSI_BASE, VVBPCR, dsi_vbp);
+    reg32_write(DSI_BASE, VVFPCR, dsi_vfp);
+    reg32_write(DSI_BASE, VVACR, active_height); // VA=800
+
+    // LP command enable + all LP transitions (matching sync BSP)
     reg32_set(
         DSI_BASE,
         VMCR,
@@ -309,18 +340,20 @@ unsafe fn dsi_init() {
         1 << 11, // LPVSAE
     );
 
-    reg32_write(DSI_BASE, LPMCR, (0 << 0) | (16 << 1)); // LPSIZE=16, VLPSIZE=0
+    reg32_write(DSI_BASE, LPMCR, (64 << 0) | (64 << 8)); // LPSIZE=64, VLPSIZE=64
 
     // HS/LP transition timers
     reg32_write(DSI_BASE, CLTCR, (35 << 0) | (35 << 16)); // HS2LP_TIME, LP2HS_TIME
-    reg32_write(DSI_BASE, DLTCR, (35 << 0) | (35 << 16)); // HS2LP_TIME, LP2HS_TIME, MRD_TIME=0
+                                                          // DLTCR: [26:16]=MRD_TIME, [15:8]=LP2HS_TIME, [7:0]=HS2LP_TIME
+    reg32_write(DSI_BASE, DLTCR, (35 << 0) | (35 << 8) | (0 << 16)); // HS2LP=35, LP2HS=35, MRD=0
     reg32_modify(DSI_BASE, PCONFR, |w| (w & !0x1F << 16) | (10 << 16)); // SW_TIME=10
 
     cortex_m::asm::delay(168_000 * 10);
 
-    // Enable DSI
+    // Enable DSI host and wrapper
     reg32_set(DSI_BASE, CR, 1 << 0); // EN=1
-    reg32_set(DSI_BASE, WCFGR, 1 << 0); // DSIM=1
+                                     // WCFGR DSIM stays 0 (video mode) — do NOT set to 1
+    reg32_set(DSI_BASE, WCR, 1 << 0); // DSIEN=1 (enable DSI wrapper)
 }
 
 // ── LTDC init ─────────────────────────────────────────────────────────
@@ -346,12 +379,13 @@ unsafe fn ltdc_init(fb_addr: u32) {
     const L1CFBLR: usize = L1_BASE + 0x2C;
     const L1CFBLNR: usize = L1_BASE + 0x30;
 
+    // Timing matching sync BSP (NT35510_DISPLAY_CONFIG)
     let h_sync = 2u32;
     let h_back_porch = 34u32;
     let h_front_porch = 34u32;
-    let v_sync = 120u32;
-    let v_back_porch = 150u32;
-    let v_front_porch = 150u32;
+    let v_sync = 1u32;
+    let v_back_porch = 15u32;
+    let v_front_porch = 16u32;
 
     // Global config
     reg32_write(
@@ -378,15 +412,15 @@ unsafe fn ltdc_init(fb_addr: u32) {
     reg32_write(
         LTDC_BASE,
         AWCR,
-        ((FB_HEIGHT as u32 + h_sync + h_back_porch - 1) & 0xFFF)
-            | (((v_sync + v_back_porch + FB_WIDTH as u32 - 1) & 0xFFF) << 16),
+        ((FB_WIDTH as u32 + h_sync + h_back_porch - 1) & 0xFFF)
+            | (((v_sync + v_back_porch + FB_HEIGHT as u32 - 1) & 0xFFF) << 16),
     );
 
     reg32_write(
         LTDC_BASE,
         TWCR,
-        ((FB_HEIGHT as u32 + h_sync + h_back_porch + h_front_porch - 1) & 0xFFF)
-            | (((v_sync + v_back_porch + FB_WIDTH as u32 + v_front_porch - 1) & 0xFFF) << 16),
+        ((FB_WIDTH as u32 + h_sync + h_back_porch + h_front_porch - 1) & 0xFFF)
+            | (((v_sync + v_back_porch + FB_HEIGHT as u32 + v_front_porch - 1) & 0xFFF) << 16),
     );
 
     reg32_write(LTDC_BASE, BCCR, 0); // Black background
@@ -396,23 +430,23 @@ unsafe fn ltdc_init(fb_addr: u32) {
     let ahbp = h_sync + h_back_porch - 1;
     let avbp = v_sync + v_back_porch - 1;
     let bytes_per_pixel: u32 = 2; // RGB565
-    let line_length = FB_HEIGHT as u32 * bytes_per_pixel;
+    let line_length = FB_WIDTH as u32 * bytes_per_pixel;
 
     reg32_write(
         LTDC_BASE,
         L1WHPCR,
-        ((ahbp + 1) & 0xFFF) | (((ahbp + FB_HEIGHT as u32) & 0xFFF) << 16),
+        ((ahbp + 1) & 0xFFF) | (((ahbp + FB_WIDTH as u32) & 0xFFF) << 16),
     );
     reg32_write(
         LTDC_BASE,
         L1WVPCR,
-        ((avbp + 1) & 0xFFF) | (((avbp + FB_WIDTH as u32) & 0xFFF) << 16),
+        ((avbp + 1) & 0xFFF) | (((avbp + FB_HEIGHT as u32) & 0xFFF) << 16),
     );
     reg32_write(LTDC_BASE, L1PFCR, 0x02); // RGB565
     reg32_write(LTDC_BASE, L1CACR, 255); // CONSTA=255
     reg32_write(LTDC_BASE, L1CFBAR, fb_addr);
     reg32_write(LTDC_BASE, L1CFBLR, (line_length + 3) | (line_length << 16));
-    reg32_write(LTDC_BASE, L1CFBLNR, FB_WIDTH as u32);
+    reg32_write(LTDC_BASE, L1CFBLNR, FB_HEIGHT as u32);
     reg32_write(LTDC_BASE, L1CR, 1 << 0); // LEN=1 (enable layer)
 
     // Reload and enable
@@ -420,7 +454,6 @@ unsafe fn ltdc_init(fb_addr: u32) {
     while reg32(LTDC_BASE, SRCR) & 0x01 != 0 {}
 
     reg32_set(LTDC_BASE, GCR, 1 << 0); // LTDCEN=1
-    while reg32(LTDC_BASE, GCR) & (1 << 0) == 0 {}
 }
 
 // ── DsiHostCtrlIo adapter (raw FIFO writes) ────────────────────────────
