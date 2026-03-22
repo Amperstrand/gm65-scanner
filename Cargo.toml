@@ -37,6 +37,11 @@ bitflags = "2.6"
 # BSP - pinned to working commit
 stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "fa6dc86" }
 
+# Embassy - pinned to latest release
+embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19", features = ["defmt"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", package = "embassy-executor", rev = "84444a19", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", package = "embassy-stm32", rev = "84444a19", features = ["stm32f469ni", "time-driver-any", "exti", "defmt"] }
+
 [profile.release]
 debug = true
 lto = true

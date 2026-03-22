@@ -3,6 +3,10 @@
 //! This module provides `Gm65ScannerAsync<UART>` with true async I/O operations
 //! using `embedded-io-async` traits. All state management is delegated to
 //! `ScannerCore`.
+//!
+//! **Important**: This driver requires `embassy-time` for timeouts on all UART
+//! read operations. Embassy's `BufferedUart::read()` yields until data arrives,
+//! so without timeouts the driver would hang forever when no data is available.
 
 extern crate alloc;
 
@@ -16,6 +20,10 @@ use crate::scanner_core::{
     config, init_config_sequence, serial_output_needs_fix, fix_serial_output, version_needs_raw_fix,
     ScanByteResult, ScannerCore, ScannerSettings,
 };
+use embassy_time::{Duration, with_timeout};
+
+const CMD_TIMEOUT: Duration = Duration::from_secs(2);
+const DRAIN_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// GM65/M3Y QR scanner driver (async version).
 ///
@@ -68,6 +76,12 @@ impl<UART> Gm65ScannerAsync<UART> {
         )
     }
 
+    /// Cancel an in-progress scan and set state to Timeout.
+    /// Use this when `read_scan()` is cancelled via `embassy_time::with_timeout`.
+    pub fn cancel_scan(&mut self) {
+        self.core.fail(ScannerError::Timeout);
+    }
+
     /// Get scanner settings as bitflags.
     pub async fn get_scanner_settings(&mut self) -> Option<ScannerSettings>
     where
@@ -86,33 +100,6 @@ impl<UART> Gm65ScannerAsync<UART> {
         self.set_setting(Register::Settings, settings.bits()).await
     }
 
-    /// Non-blocking incremental scan read.
-    /// Call repeatedly until `data_ready()` returns true.
-    /// Returns `Some(data)` when a complete scan is available.
-    pub async fn try_read_scan(&mut self) -> Option<Vec<u8>>
-    where
-        UART: embedded_io_async::Read,
-    {
-        if !self.core.is_initialized() {
-            return None;
-        }
-        // Reset state if previous scan complete
-        if self.core.state() == ScannerState::ScanComplete {
-            self.core.begin_scan().ok();
-        }
-
-        let mut buf = [0u8; 1];
-        match self.uart.read(&mut buf).await {
-            Ok(0) => None, // No data available
-            Ok(_) => match self.core.handle_scan_byte(buf[0]) {
-                ScanByteResult::Complete(data) => Some(data),
-                ScanByteResult::BufferOverflow => None,
-                ScanByteResult::NeedMore => None,
-            },
-            Err(_) => None,
-        }
-    }
-
     // ========================================================================
     // Internal UART Operations (Async)
     // ========================================================================
@@ -128,37 +115,31 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
-        self.drain_uart().await;
         if self.uart_write_all(cmd).await.is_err() {
             return None;
         }
 
-        let mut resp = Vec::with_capacity(RESPONSE_LEN);
-        let mut buf = [0u8; 1];
+        let mut resp = [0u8; RESPONSE_LEN];
+        let mut offset = 0;
 
-        // Read response bytes one at a time
-        // In true async, we should have a timeout here, but for simplicity
-        // we rely on the underlying HAL's behavior
-        while resp.len() < RESPONSE_LEN {
-            match self.uart.read(&mut buf).await {
-                Ok(0) => {
-                    // No data - return None if we haven't started receiving
-                    if resp.is_empty() {
+        while offset < RESPONSE_LEN {
+            let remaining = &mut resp[offset..];
+            match with_timeout(CMD_TIMEOUT, self.uart.read(remaining)).await {
+                Ok(Ok(0)) => {
+                    if offset == 0 {
                         return None;
                     }
-                    // Keep trying if we have partial data (could add timeout here)
                 }
-                Ok(_) => {
-                    resp.push(buf[0]);
+                Ok(Ok(n)) => {
+                    offset += n;
+                }
+                Ok(Err(_)) => {
+                    return None;
                 }
                 Err(_) => {
                     return None;
                 }
             }
-        }
-
-        if resp.len() != RESPONSE_LEN {
-            return None;
         }
 
         let parsed = Gm65Response::parse(&resp);
@@ -174,12 +155,11 @@ impl<UART> Gm65ScannerAsync<UART> {
         UART: embedded_io_async::Read,
     {
         let mut buf = [0u8; 16];
-        // Drain in chunks for efficiency
         loop {
-            match self.uart.read(&mut buf).await {
-                Ok(0) => break, // No more data
-                Ok(_) => continue,
-                Err(_) => break,
+            match with_timeout(DRAIN_TIMEOUT, self.uart.read(&mut buf)).await {
+                Ok(Ok(0)) | Err(_) => break,
+                Ok(Ok(_n)) => {}
+                Ok(Err(_)) => break,
             }
         }
     }
@@ -219,7 +199,6 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
-        self.drain_uart().await;
         self.get_setting(Register::SerialOutput).await.is_some()
     }
 
@@ -236,7 +215,6 @@ impl<UART> Gm65ScannerAsync<UART> {
 
         self.core.mark_detected(ScannerModel::Gm65);
 
-        // Read SerialOutput with retry
         let serial_val = {
             let mut result = None;
             for _attempt in 0..3u32 {
@@ -267,7 +245,6 @@ impl<UART> Gm65ScannerAsync<UART> {
             }
         };
 
-        // Fix SerialOutput if needed (clear bits 0-1)
         if serial_output_needs_fix(serial_val) {
             let fixed = fix_serial_output(serial_val);
             if !self.set_setting(Register::SerialOutput, fixed).await {
@@ -278,7 +255,6 @@ impl<UART> Gm65ScannerAsync<UART> {
             }
         }
 
-        // Set command mode
         match self.get_setting(Register::Settings).await {
             Some(val) => {
                 #[cfg(feature = "defmt")]
@@ -300,7 +276,6 @@ impl<UART> Gm65ScannerAsync<UART> {
             }
         }
 
-        // Apply configuration settings
         let config_settings = init_config_sequence();
 
         for (reg, set_val) in config_settings.iter() {
@@ -334,7 +309,6 @@ impl<UART> Gm65ScannerAsync<UART> {
             }
         }
 
-        // Check firmware version for raw mode fix
         if let Some(version) = self.get_setting(Register::Version).await {
             #[cfg(feature = "defmt")]
             defmt::info!("Firmware version: 0x{:02x}", version);
@@ -390,15 +364,12 @@ impl<UART> Gm65ScannerAsync<UART> {
         loop {
             match self.uart.read(&mut buf).await {
                 Ok(0) => {
-                    // No data available yet - return None, caller should retry
                     return None;
                 }
                 Ok(_) => match self.core.handle_scan_byte(buf[0]) {
                     ScanByteResult::Complete(data) => return Some(data),
                     ScanByteResult::BufferOverflow => return None,
-                    ScanByteResult::NeedMore => {
-                        // Continue reading until we get EOL or error
-                    }
+                    ScanByteResult::NeedMore => {}
                 },
                 Err(_) => {
                     self.core.fail(ScannerError::UartError);
@@ -573,19 +544,20 @@ pub mod hil_tests {
             return false;
         }
 
-        let result = scanner.read_scan().await;
-        let pass = result.is_none()
-            && matches!(
-                scanner.state(),
-                ScannerState::Error(ScannerError::Timeout)
-            );
+        let result = with_timeout(Duration::from_secs(2), scanner.read_scan()).await;
+        let timed_out = result.is_err();
+
+        if timed_out {
+            scanner.cancel_scan();
+        }
 
         let _ = scanner.stop_scan().await;
 
-        if !pass {
+        if !timed_out || !matches!(scanner.state(), ScannerState::Error(ScannerError::Timeout)) {
             defmt::warn!("HIL: read_scan did not timeout as expected");
+            return false;
         }
-        pass
+        true
     }
 
     async fn test_state_transitions<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> bool
@@ -620,14 +592,14 @@ pub mod hil_tests {
             return false;
         }
 
-        let result = scanner.read_scan().await;
+        let result = with_timeout(Duration::from_secs(5), scanner.read_scan()).await;
 
         match result {
-            Some(payload) => {
+            Ok(Some(payload)) => {
                 defmt::info!("HIL: PASS - scanned {} bytes", payload.len());
                 true
             }
-            None => {
+            _ => {
                 defmt::error!("HIL: FAIL - no scan data");
                 false
             }

@@ -7,7 +7,7 @@ license.workspace = true
 [features]
 default = ["sync-mode", "defmt"]
 sync-mode = ["gm65-scanner/sync", "gm65-scanner/hil-tests"]
-async-mode = ["gm65-scanner/async", "gm65-scanner/hil-tests", "dep:embassy-executor", "dep:embassy-stm32", "dep:embassy-time"]
+scanner-async = ["gm65-scanner/async", "gm65-scanner/hil-tests", "dep:embassy-executor", "dep:embassy-stm32", "dep:embassy-time", "dep:embedded-io", "dep:embedded-io-async", "dep:stm32f4"]
 defmt = ["dep:defmt", "dep:defmt-rtt", "dep:panic-probe", "gm65-scanner/defmt", "stm32f469i-disc/defmt"]
 
 [dependencies]
@@ -29,7 +29,11 @@ usbd-hid = { workspace = true }
 qrcodegen-no-heap = { workspace = true }
 gm65-scanner = { workspace = true }
 stm32f469i-disc = { workspace = true, features = ["usb_fs", "framebuffer"] }
+stm32f4 = { version = "0.16", features = ["stm32f469"], optional = true }
 
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", package = "embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"], optional = true }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", package = "embassy-stm32", features = ["stm32f469zg", "time-driver-any", "exti", "defmt", "single-bank"], optional = true }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", features = ["defmt"], optional = true }
+embedded-io = { version = "0.7", optional = true }
+embedded-io-async = { version = "0.7", optional = true }
+
+embassy-executor = { workspace = true, optional = true }
+embassy-stm32 = { workspace = true, optional = true }
+embassy-time = { workspace = true, optional = true }
