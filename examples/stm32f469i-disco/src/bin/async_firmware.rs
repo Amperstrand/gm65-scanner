@@ -1,6 +1,6 @@
 //! Async Scanner Firmware — embassy executor
 //!
-//! Concurrent tasks: scanner, USB CDC, LED indicator.
+//! Concurrent tasks: scanner, USB CDC, LED indicator, SDRAM.
 //! Scanner results are echoed over USB CDC with type prefix.
 //! LED (PG6) blinks on successful scan.
 //!
@@ -47,6 +47,9 @@ use gm65_scanner::{Gm65ScannerAsync, ScannerDriver};
 use linked_list_allocator::LockedHeap;
 
 #[cfg(feature = "scanner-async")]
+use crate::display_embassy::SdramCtrl;
+
+#[cfg(feature = "scanner-async")]
 const HEAP_SIZE: usize = 32 * 1024;
 #[cfg(feature = "scanner-async")]
 #[global_allocator]
@@ -58,9 +61,19 @@ static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 static SCAN_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, 4> = Channel::new();
 
 #[cfg(feature = "scanner-async")]
+static SDRAM_CHANNEL: Channel<CriticalSectionRawMutex, SdramStatus, 4> = Channel::new();
+
+#[cfg(feature = "scanner-async")]
 #[derive(Clone)]
 pub struct ScanResult {
     pub data: Vec<u8>,
+}
+
+#[cfg(feature = "scanner-async")]
+#[derive(Clone)]
+pub struct SdramStatus {
+    pub base_address: usize,
+    pub test_passed: bool,
 }
 
 #[cfg(feature = "scanner-async")]
@@ -181,8 +194,41 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.pllsai = Some(Pll {
+            prediv: PllPreDiv::DIV8,
+            mul: PllMul::MUL384,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV7),
+        });
     }
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
+
+    defmt::info!("Initializing SDRAM...");
+    let sdram = SdramCtrl::new(&mut p, 168_000_000);
+    let sdram_base = sdram.base_address();
+    let sdram_ok = sdram.test_quick();
+    defmt::info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
+    let _ = SDRAM_CHANNEL.try_send(SdramStatus {
+        base_address: sdram_base,
+        test_passed: sdram_ok,
+    });
+
+    defmt::info!("Initializing display...");
+    let mut display = crate::display_embassy::DisplayCtrl::new(&sdram, p.PH7);
+    use embedded_graphics::mono_font::ascii::FONT_10X20;
+    use embedded_graphics::mono_font::MonoTextStyle;
+    use embedded_graphics::pixelcolor::Rgb565;
+    use embedded_graphics::prelude::*;
+    use embedded_graphics::text::{Alignment, Text, TextStyleBuilder};
+    display.fb().clear(Rgb565::BLACK);
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::CYAN);
+    let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
+    Text::with_text_style("gm65-scanner", Point::new(240, 400), style, center)
+        .draw(&mut display.fb()).ok();
+    Text::with_text_style("READY", Point::new(240, 420), style, center)
+        .draw(&mut display.fb()).ok();
+    defmt::info!("Display: initialized");
 
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
@@ -280,25 +326,40 @@ async fn main(_spawner: Spawner) {
 
             let mut heartbeat = Ticker::every(Duration::from_secs(3));
             loop {
-                match SCAN_CHANNEL.try_receive() {
-                    Ok(result) => {
-                        let data_str = String::from_utf8_lossy(&result.data);
-                        let header = "[SCAN] ";
-                        let mut msg = String::from(header);
-                        msg.push_str(&data_str);
-                        msg.push_str("\r\n");
-                        match cdc.write_packet(msg.as_bytes()).await {
-                            Ok(()) => defmt::info!("USB: sent scan result"),
-                            Err(_) => break,
-                        }
+                if let Ok(result) = SCAN_CHANNEL.try_receive() {
+                    let data_str = String::from_utf8_lossy(&result.data);
+                    let header = "[SCAN] ";
+                    let mut msg = String::from(header);
+                    msg.push_str(&data_str);
+                    msg.push_str("\r\n");
+                    match cdc.write_packet(msg.as_bytes()).await {
+                        Ok(()) => defmt::info!("USB: sent scan result"),
+                        Err(_) => break,
                     }
-                    Err(_) => {
-                        heartbeat.next().await;
-                        match cdc.write_packet(b"[ALIVE] gm65-scanner ready\r\n").await {
-                            Ok(()) => {}
-                            Err(_) => break,
-                        }
+                    continue;
+                }
+
+                if let Ok(status) = SDRAM_CHANNEL.try_receive() {
+                    let mut msg = String::from("[SDRAM] base=0x");
+                    let _ = write_hex(&mut msg, status.base_address as u64);
+                    msg.push_str(" test=");
+                    if status.test_passed {
+                        msg.push_str("PASS");
+                    } else {
+                        msg.push_str("FAIL");
                     }
+                    msg.push_str("\r\n");
+                    match cdc.write_packet(msg.as_bytes()).await {
+                        Ok(()) => {}
+                        Err(_) => break,
+                    }
+                    continue;
+                }
+
+                heartbeat.next().await;
+                match cdc.write_packet(b"[ALIVE] gm65-scanner ready\r\n").await {
+                    Ok(()) => {}
+                    Err(_) => break,
                 }
             }
             defmt::info!("USB: disconnected");
@@ -307,6 +368,19 @@ async fn main(_spawner: Spawner) {
     };
 
     embassy_futures::join::join3(usb_task, scanner_task, cdc_task).await;
+}
+
+#[cfg(feature = "scanner-async")]
+fn write_hex(buf: &mut String, val: u64) {
+    let hex = b"0123456789ABCDEF";
+    let mut started = false;
+    for i in (0..64).step_by(4).rev() {
+        let digit = ((val >> i) & 0xF) as usize;
+        if digit != 0 || started || i == 0 {
+            started = true;
+            let _ = buf.push(hex[digit] as char);
+        }
+    }
 }
 
 #[cfg(not(feature = "scanner-async"))]
@@ -319,4 +393,9 @@ fn main() -> ! {
     loop {
         cortex_m::asm::wfi();
     }
+}
+
+mod display_embassy {
+    #[cfg(feature = "scanner-async")]
+    include!("../display_embassy.rs");
 }
