@@ -27,3 +27,7 @@ stm32f469i-disc = { workspace = true, features = ["usb_fs", "framebuffer"] }
 [features]
 default = ["defmt"]
 defmt = ["dep:defmt", "dep:defmt-rtt", "dep:panic-probe", "stm32f469i-disc/defmt"]
+
+[[bin]]
+name = "gram-retention-test"
+path = "src/bin/gram_retention_test.rs"
