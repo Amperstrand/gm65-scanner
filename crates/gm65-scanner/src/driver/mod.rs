@@ -48,8 +48,14 @@ mod sync;
 #[cfg(feature = "sync")]
 pub use sync::Gm65Scanner;
 
+#[cfg(all(feature = "sync", feature = "hil-tests"))]
+pub use sync::hil_tests;
+
 #[cfg(feature = "async")]
 mod async_;
 
 #[cfg(feature = "async")]
 pub use async_::Gm65ScannerAsync;
+
+#[cfg(all(feature = "async", feature = "hil-tests"))]
+pub use async_::hil_tests as async_hil_tests;
