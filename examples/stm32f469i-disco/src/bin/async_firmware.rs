@@ -123,6 +123,7 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
             return Ok(0);
         }
         let mut total = 0usize;
+        let yield_threshold = if buf.len() <= 8 { 2_000_000 } else { 100_000 };
         for slot in buf.iter_mut() {
             let mut spins = 0u32;
             loop {
@@ -134,7 +135,7 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
                     }
                     Err(nb::Error::WouldBlock) => {
                         spins += 1;
-                        if spins < 100_000 {
+                        if spins < yield_threshold {
                             continue;
                         }
                         Timer::after_micros(100).await;

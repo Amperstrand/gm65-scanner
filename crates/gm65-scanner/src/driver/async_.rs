@@ -115,6 +115,7 @@ impl<UART> Gm65ScannerAsync<UART> {
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
+        self.drain_uart().await;
         if self.uart_write_all(cmd).await.is_err() {
             return None;
         }
