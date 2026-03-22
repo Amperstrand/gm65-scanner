@@ -4,7 +4,7 @@
 
 ### Root Causes
 
-There are 3 distinct lockup states, each with different symptoms and fixes:
+There are 4 distinct lockup states, each with different symptoms and fixes:
 
 ### 1. Stale probe-rs Process (most common)
 
@@ -18,7 +18,7 @@ There are 3 distinct lockup states, each with different symptoms and fixes:
 ```
 pkill -9 probe-rs; sleep 3-5
 ```
-If that doesn't work, physically unplug and replug the ST-LINK USB cable.
+If that doesn't work, try the USB bus unbind/rebind (State 4) or physically unplug and replug the ST-LINK USB cable.
 
 ### 2. JTAG DMA Error (SDRAM/FMC contention)
 
@@ -31,11 +31,11 @@ If that doesn't work, physically unplug and replug the ST-LINK USB cable.
 **Fix:**
 ```
 pkill -9 probe-rs; sleep 5
-probe-rs reset --chip STM32F469II
+probe-rs reset --chip STM32F469NIHx
 sleep 2
 # now safe to download/run/attach
 ```
-The `reset` without `--connect-under-reset` does a simple system reset which reinitializes FMC but doesn't try to read memory. If that fails too, power cycle the board.
+The `reset` without `--connect-under-reset` does a simple system reset which reinitializes FMC but doesn't try to read memory. If that fails too, try xHCI PCI rescan (State 4) or power cycle the board.
 
 ### 3. CDC Port Confusion (not really a lockup, but wastes time)
 
@@ -56,6 +56,41 @@ Or use VID/PID matching (`0x16c0:0x27dd`) to find the right port.
 
 **Better approach for CDC testing:** Use `probe-rs download` then `probe-rs reset`, then `pkill -9 probe-rs; sleep 2`. This disconnects probe-rs and the firmware's CDC will be on `/dev/ttyACM0`.
 
+### 4. xHCI Host Controller Died (severe — software fix available)
+
+**Symptom:** `lsusb` shows only root hubs (no devices at all). `probe-rs list` shows nothing. `dmesg` shows `xHCI host controller not responding, assume dead` and `HC died; cleaning up`.
+
+**Cause:** Repeated `probe-rs run` + kill cycles, or abrupt USB device disconnects, can crash the xHCI host controller on the machine. The controller enters a dead state and all USB devices on all buses disappear. On this machine (AMD 500 Series chipset), the xHCI controller is at PCI address `0000:02:00.0`.
+
+**Provokes it:** Multiple `probe-rs run & ... ; kill` cycles without proper cleanup. Compounds State 1 when `pkill -9` alone doesn't recover.
+
+**Fix (PCI remove/rescan — no physical access needed):**
+```bash
+# 1. Kill any remaining probe-rs
+pkill -9 probe-rs; sleep 2
+
+# 2. Remove the xHCI controller from PCI bus
+echo 1 | sudo tee /sys/bus/pci/devices/0000:02:00.0/remove
+
+# 3. Wait 2 seconds
+sleep 2
+
+# 4. Trigger PCI bus rescan — controller and all devices re-enumerate
+echo 1 | sudo tee /sys/bus/pci/rescan
+
+# 5. Verify ST-LINK is back
+sleep 3
+probe-rs list
+```
+
+**If PCI address changes** (different machine), find it with:
+```bash
+sudo lspci -nn | grep -i "USB controller.*xHCI"
+```
+Use the `XXXX:XX:XX.X` address from that output.
+
+**If PCI rescan doesn't work**, physically unplug the main USB cable from the Discovery board, wait 10 seconds, and replug.
+
 ### Prevention Rules
 
 1. **Always `pkill -9 probe-rs; sleep 3` before any probe-rs operation** — never assume the previous session cleaned up.
@@ -70,13 +105,15 @@ Or use VID/PID matching (`0x16c0:0x27dd`) to find the right port.
 
 6. **The defmt RTT sometimes doesn't produce output** on the main firmware binary (but works on hil_test_sync). Root cause unknown — possibly defmt version conflict (BSP uses 0.3.x, workspace uses 1.0.x). Don't waste time debugging this; use CDC for main firmware testing.
 
+7. **If xHCI controller dies**, use PCI remove/rescan before reaching for the physical cable. It saves a trip to the hardware.
+
 ## USB CDC Testing Protocol
 
 For reliable CDC testing:
 ```
 pkill -9 probe-rs; sleep 2
-probe-rs download --chip STM32F469II <binary>
-probe-rs reset --chip STM32F469II
+probe-rs download --chip STM32F469NIHx <binary>
+probe-rs reset --chip STM32F469NIHx
 sleep 5
 python3 tests/hil_test.py --port /dev/ttyACM0 protocol
 ```
@@ -88,11 +125,28 @@ If ttyACM0 doesn't respond, try ttyACM1 (probe-rs may still be partially connect
 For on-device HIL tests (RTT output):
 ```
 pkill -9 probe-rs; sleep 2
-probe-rs run --chip STM32F469II <binary> &
+probe-rs run --chip STM32F469NIHx <binary> &
 PID=$!
 sleep 25
 kill $PID 2>/dev/null
 wait $PID 2>/dev/null
+```
+
+## xHCI Recovery Quick Reference
+
+```bash
+# One-liner to recover from dead xHCI controller
+pkill -9 probe-rs; sleep 2
+echo 1 | sudo tee /sys/bus/pci/devices/0000:02:00.0/remove
+sleep 2
+echo 1 | sudo tee /sys/bus/pci/rescan
+sleep 3
+probe-rs list
+```
+
+To find the PCI address on a different machine:
+```bash
+sudo lspci -nn | grep -i "xHCI"
 ```
 
 ## Why Not Specter-DIY USB Settings
