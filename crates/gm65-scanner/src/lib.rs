@@ -11,28 +11,39 @@
 //!
 //! # Features
 //!
-//! - `embedded-hal` - Enable `Gm65Scanner<UART>` with `ScannerDriverSync` trait impl
-//! - `embedded-hal-async` - Also enable async `ScannerDriver` trait impl
-//! - `std` - Enable standard library support
+//! - `sync` (default) — Enables `Gm65Scanner<UART>` with blocking I/O
+//! - `async` — Enables `Gm65ScannerAsync<UART>` with async I/O
+//! - `defmt` — Enables `defmt::Format` derives for logging
 //!
 //! # Sync vs Async
 //!
-//! Two traits are provided for scanner communication:
+//! Two driver implementations are provided:
 //!
-//! - `ScannerDriverSync` — blocking methods, for polling main loops
-//! - `ScannerDriver` — async methods, for executor-based firmware
-//!
-//! `Gm65Scanner<UART>` implements both when the respective features are enabled.
+//! - `Gm65Scanner<UART>` — blocking methods, for polling main loops
+//! - `Gm65ScannerAsync<UART>` — async methods, for executor-based firmware
 //!
 //! # Example (sync)
 //!
 //! ```rust,ignore
 //! use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerConfig};
 //!
-//! let mut scanner = Gm65Scanner::with_default_config(uart);
-//! scanner.init().ok();
-//! scanner.trigger_scan().ok();
+//! let mut scanner = Gm65Scanner::new(uart, ScannerConfig::default());
+//! scanner.init()?;
+//! scanner.trigger_scan()?;
 //! if let Some(data) = scanner.read_scan() {
+//!     // use scanned data
+//! }
+//! ```
+//!
+//! # Example (async)
+//!
+//! ```rust,ignore
+//! use gm65_scanner::{Gm65ScannerAsync, ScannerDriver, ScannerConfig};
+//!
+//! let mut scanner = Gm65ScannerAsync::new(uart, ScannerConfig::default());
+//! scanner.init().await?;
+//! scanner.trigger_scan().await?;
+//! if let Some(data) = scanner.read_scan().await {
 //!     // use scanned data
 //! }
 //! ```
@@ -46,8 +57,7 @@ pub mod buffer;
 pub mod decoder;
 pub mod driver;
 pub mod protocol;
-#[cfg(feature = "embedded-hal")]
-pub mod scanner;
+pub mod state_machine;
 
 pub use buffer::ScanBuffer;
 pub use decoder::{
@@ -63,7 +73,12 @@ pub use protocol::{
     build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register, RESPONSE_LEN,
     RESPONSE_PREFIX,
 };
-#[cfg(feature = "embedded-hal")]
-pub use scanner::Gm65Scanner;
-#[cfg(feature = "embedded-hal")]
-pub use scanner::ScannerSettings;
+pub use state_machine::ScannerSettings;
+
+// Re-export sync scanner when sync feature is enabled
+#[cfg(feature = "sync")]
+pub use driver::Gm65Scanner;
+
+// Re-export async scanner when async feature is enabled
+#[cfg(feature = "async")]
+pub use driver::Gm65ScannerAsync;

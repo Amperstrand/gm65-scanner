@@ -1,7 +1,7 @@
-//! GM65 Scanner Implementation
+//! Sync (blocking) GM65 scanner implementation.
 //!
-//! Concrete `Gm65Scanner<UART>` type implementing both `ScannerDriverSync` and
-//! `ScannerDriver` (async) traits. Requires the `embedded-hal` feature.
+//! This module provides `Gm65Scanner<UART>` with blocking I/O operations
+//! using `embedded-hal-02` traits.
 
 extern crate alloc;
 
@@ -12,33 +12,25 @@ use crate::driver::{
     ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
+use crate::state_machine::{config, ScannerSettings};
 
-const SCAN_INTERVAL_MS: u8 = 0x01;
-const SAME_BARCODE_DELAY: u8 = 0x85;
-const CMD_MODE: u8 = 0xD1;
-const VERSION_NEEDS_RAW: u8 = 0x69;
-const RAW_MODE_VALUE: u8 = 0x08;
-
-bitflags::bitflags! {
-    #[derive(Clone, Copy)]
-    pub struct ScannerSettings: u8 {
-        const ALWAYS_ON  = 1 << 7;
-        const SOUND      = 1 << 6;
-        const UNKNOWN_5  = 1 << 5;
-        const AIM        = 1 << 4;
-        const UNKNOWN_3  = 1 << 3;
-        const LIGHT      = 1 << 2;
-        const CONTINUOUS = 1 << 1;
-        const COMMAND    = 1 << 0;
-    }
-}
-
-impl Default for ScannerSettings {
-    fn default() -> Self {
-        Self::ALWAYS_ON | Self::SOUND | Self::AIM | Self::COMMAND
-    }
-}
-
+/// GM65/M3Y QR scanner driver (blocking/sync version).
+///
+/// This type implements `ScannerDriverSync` using blocking UART operations.
+/// It uses `embedded-hal-02` traits for compatibility with existing HALs.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerConfig};
+///
+/// let mut scanner = Gm65Scanner::new(uart, ScannerConfig::default());
+/// scanner.init()?;
+/// scanner.trigger_scan()?;
+/// if let Some(data) = scanner.read_scan() {
+///     // process QR code data
+/// }
+/// ```
 pub struct Gm65Scanner<UART> {
     uart: UART,
     config: ScannerConfig,
@@ -54,6 +46,7 @@ where
     UART: embedded_hal_02::serial::Write<u8, Error = WErr>
         + embedded_hal_02::serial::Read<u8, Error = RErr>,
 {
+    /// Create a new scanner with the given UART and configuration.
     pub fn new(uart: UART, config: ScannerConfig) -> Self {
         Self {
             uart,
@@ -66,33 +59,33 @@ where
         }
     }
 
+    /// Create a new scanner with default configuration.
     pub fn with_default_config(uart: UART) -> Self {
         Self::new(uart, ScannerConfig::default())
     }
 
+    /// Release ownership of the UART peripheral.
     pub fn release(self) -> UART {
         self.uart
     }
 
+    /// Decompose into parts for recovery or reconfiguration.
     pub fn into_parts(self) -> (UART, ScannerState, bool, ScannerModel) {
         (self.uart, self.state, self.initialized, self.detected_model)
     }
 
+    /// Get scanner settings as bitflags.
     pub fn get_scanner_settings(&mut self) -> Option<ScannerSettings> {
         self.get_setting(Register::Settings)
             .and_then(|v| ScannerSettings::from_bits(v))
     }
 
+    /// Set scanner settings from bitflags.
     pub fn set_scanner_settings(&mut self, settings: ScannerSettings) -> bool {
         self.set_setting(Register::Settings, settings.bits())
     }
-}
 
-impl<UART, WErr, RErr> Gm65Scanner<UART>
-where
-    UART: embedded_hal_02::serial::Write<u8, Error = WErr>
-        + embedded_hal_02::serial::Read<u8, Error = RErr>,
-{
+    /// Poll UART for a single byte (non-blocking).
     pub fn poll_uart(&mut self) -> Option<u8> {
         match self.uart.read() {
             Ok(b) => Some(b),
@@ -101,6 +94,8 @@ where
         }
     }
 
+    /// Non-blocking incremental scan read.
+    /// Call repeatedly until `data_ready()` returns true.
     pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
         if !self.initialized {
             return None;
@@ -131,6 +126,10 @@ where
             None => None,
         }
     }
+
+    // ========================================================================
+    // Internal UART Operations
+    // ========================================================================
 
     fn uart_write_all(&mut self, data: &[u8]) -> Result<(), ()> {
         for &byte in data {
@@ -219,13 +218,6 @@ where
             .map_or(false, |r| r != Gm65Response::Invalid)
     }
 
-    #[allow(dead_code)]
-    fn set_setting_2byte(&mut self, reg: Register, value: [u8; 2]) -> bool {
-        let cmd = protocol::build_set_setting_2byte(reg.address_bytes(), value);
-        self.send_command(&cmd)
-            .map_or(false, |r| r != Gm65Response::Invalid)
-    }
-
     fn save_settings(&mut self) -> bool {
         let cmd = protocol::build_save_settings();
         self.send_command(&cmd)
@@ -248,6 +240,8 @@ where
         self.detected_model = ScannerModel::Gm65;
         self.state = ScannerState::Configuring;
 
+        // Read SerialOutput with retry
+        #[allow(unused_variables)]
         let serial_val = {
             let mut result = None;
             for attempt in 0..3u32 {
@@ -281,6 +275,7 @@ where
             }
         };
 
+        // Fix SerialOutput if needed (clear bits 0-1)
         if serial_val & 0x03 != 0 {
             let fixed = serial_val & 0xFC;
             if !self.set_setting(Register::SerialOutput, fixed) {
@@ -289,27 +284,20 @@ where
                 self.state = ScannerState::Error(ScannerError::ConfigFailed);
                 return Err(ScannerError::ConfigFailed);
             }
-            #[cfg(feature = "defmt")]
-            defmt::info!(
-                "SerialOutput fixed: 0x{:02x} -> 0x{:02x}",
-                serial_val,
-                fixed
-            );
         }
 
+        // Set command mode
         match self.get_setting(Register::Settings) {
             Some(val) => {
                 #[cfg(feature = "defmt")]
                 defmt::info!("Settings: 0x{:02x}", val);
-                if val != CMD_MODE {
-                    if !self.set_setting(Register::Settings, CMD_MODE) {
+                if val != config::CMD_MODE {
+                    if !self.set_setting(Register::Settings, config::CMD_MODE) {
                         #[cfg(feature = "defmt")]
                         defmt::warn!("init: failed to set Settings to CMD_MODE");
                         self.state = ScannerState::Error(ScannerError::ConfigFailed);
                         return Err(ScannerError::ConfigFailed);
                     }
-                    #[cfg(feature = "defmt")]
-                    defmt::info!("Settings set to CMD_MODE (0xD1)");
                 }
             }
             None => {
@@ -320,13 +308,8 @@ where
             }
         }
 
-        let config_settings: [(Register, u8); 5] = [
-            (Register::Timeout, 0x00),
-            (Register::ScanInterval, SCAN_INTERVAL_MS),
-            (Register::SameBarcodeDelay, SAME_BARCODE_DELAY),
-            (Register::BarType, 0x01),
-            (Register::QrEnable, 0x01),
-        ];
+        // Apply configuration settings
+        let config_settings = crate::state_machine::init_config_sequence();
 
         for (reg, set_val) in config_settings.iter() {
             match self.get_setting(*reg) {
@@ -348,13 +331,6 @@ where
                             self.state = ScannerState::Error(ScannerError::ConfigFailed);
                             return Err(ScannerError::ConfigFailed);
                         }
-                    } else {
-                        #[cfg(feature = "defmt")]
-                        defmt::info!(
-                            "Register {:02x}: already 0x{:02x}",
-                            reg.address_bytes(),
-                            val
-                        );
                     }
                 }
                 None => {
@@ -366,19 +342,17 @@ where
             }
         }
 
+        // Check firmware version for raw mode fix
         if let Some(version) = self.get_setting(Register::Version) {
             #[cfg(feature = "defmt")]
             defmt::info!("Firmware version: 0x{:02x}", version);
-            if version == VERSION_NEEDS_RAW {
+            if crate::state_machine::version_needs_raw_fix(version) {
                 if let Some(val) = self.get_setting(Register::RawMode) {
-                    if val != RAW_MODE_VALUE {
-                        self.set_setting(Register::RawMode, RAW_MODE_VALUE);
+                    if val != config::RAW_MODE_VALUE {
+                        self.set_setting(Register::RawMode, config::RAW_MODE_VALUE);
                     }
                 }
             }
-        } else {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("init: failed to read Version");
         }
 
         let _ = self.save_settings();
@@ -477,59 +451,6 @@ where
 
     fn read_scan(&mut self) -> Option<Vec<u8>> {
         self.do_read_scan()
-    }
-
-    fn state(&self) -> ScannerState {
-        self.state
-    }
-
-    fn status(&self) -> ScannerStatus {
-        ScannerStatus {
-            model: self.detected_model,
-            connected: self.initialized,
-            initialized: self.initialized,
-            config: self.config.clone(),
-            last_scan_len: self.last_scan_len,
-        }
-    }
-
-    fn data_ready(&self) -> bool {
-        self.state == ScannerState::ScanComplete
-    }
-}
-
-#[cfg(feature = "embedded-hal-async")]
-use crate::driver::ScannerDriver;
-
-#[cfg(feature = "embedded-hal-async")]
-impl<UART, WErr, RErr> ScannerDriver for Gm65Scanner<UART>
-where
-    UART: embedded_hal_02::serial::Write<u8, Error = WErr>
-        + embedded_hal_02::serial::Read<u8, Error = RErr>
-        + Send,
-{
-    fn init(
-        &mut self,
-    ) -> impl core::future::Future<Output = Result<ScannerModel, ScannerError>> + Send {
-        core::future::ready(self.do_init())
-    }
-
-    fn ping(&mut self) -> impl core::future::Future<Output = bool> + Send {
-        core::future::ready(self.get_setting(Register::SerialOutput).is_some())
-    }
-
-    fn trigger_scan(
-        &mut self,
-    ) -> impl core::future::Future<Output = Result<(), ScannerError>> + Send {
-        core::future::ready(self.do_trigger_scan())
-    }
-
-    fn stop_scan(&mut self) -> impl core::future::Future<Output = bool> + Send {
-        core::future::ready(self.do_stop_scan())
-    }
-
-    fn read_scan(&mut self) -> impl core::future::Future<Output = Option<Vec<u8>>> + Send {
-        core::future::ready(self.do_read_scan())
     }
 
     fn state(&self) -> ScannerState {

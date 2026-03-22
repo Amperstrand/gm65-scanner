@@ -1,31 +1,8 @@
-//! GM65 Scanner Driver
-//!
-//! Hardware driver for GM65/M3Y QR scanner modules connected via UART.
-//! Protocol modeled after specter-diy's qr.py:
-//! https://github.com/cryptoadvance/specter-diy/blob/master/src/hosts/qr.py
-//!
-//! # Key Differences from the Datasheet
-//!
-//! The GM65 datasheet protocol description is incorrect/misleading. The real
-//! protocol (as used by specter-diy, which ships working hardware) is:
-//!
-//! - Commands end with `AB CD` (sentinel, not a checksum)
-//! - Responses are `02 00 00 01 [value] 33 31` (7 bytes, no `7E 00` header)
-//! - Register addresses differ from datasheet (see protocol.rs)
-//!
-//! # Sync vs Async
-//!
-//! Two traits are provided:
-//! - `ScannerDriverSync` — blocking, for polling main loops (no allocator needed for trait methods)
-//! - `ScannerDriver` — async, for executor-based firmware (embassy, etc.)
-//!
-//! `Gm65Scanner<UART>` implements both when the `embedded-hal` feature is enabled.
+//! Shared types for GM65 scanner drivers.
 
-extern crate alloc;
-
-use alloc::vec::Vec;
 use core::fmt;
 
+/// Scanner model identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerModel {
@@ -46,6 +23,7 @@ impl fmt::Display for ScannerModel {
     }
 }
 
+/// Scanner scan mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScanMode {
@@ -54,6 +32,7 @@ pub enum ScanMode {
     HardwareTriggered,
 }
 
+/// Scanner operational state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerState {
@@ -66,6 +45,7 @@ pub enum ScannerState {
     Error(ScannerError),
 }
 
+/// Scanner error type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerError {
@@ -92,7 +72,9 @@ impl fmt::Display for ScannerError {
     }
 }
 
+/// Scanner configuration
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScannerConfig {
     pub model: ScannerModel,
     pub baud_rate: u32,
@@ -111,37 +93,13 @@ impl Default for ScannerConfig {
     }
 }
 
+/// Scanner status snapshot
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScannerStatus {
     pub model: ScannerModel,
     pub connected: bool,
     pub initialized: bool,
     pub config: ScannerConfig,
     pub last_scan_len: Option<usize>,
-}
-
-pub trait ScannerDriverSync {
-    fn init(&mut self) -> Result<ScannerModel, ScannerError>;
-    fn ping(&mut self) -> bool;
-    fn trigger_scan(&mut self) -> Result<(), ScannerError>;
-    fn stop_scan(&mut self) -> bool;
-    fn read_scan(&mut self) -> Option<Vec<u8>>;
-    fn state(&self) -> ScannerState;
-    fn status(&self) -> ScannerStatus;
-    fn data_ready(&self) -> bool;
-}
-
-pub trait ScannerDriver {
-    fn init(
-        &mut self,
-    ) -> impl core::future::Future<Output = Result<ScannerModel, ScannerError>> + Send;
-    fn ping(&mut self) -> impl core::future::Future<Output = bool> + Send;
-    fn trigger_scan(
-        &mut self,
-    ) -> impl core::future::Future<Output = Result<(), ScannerError>> + Send;
-    fn stop_scan(&mut self) -> impl core::future::Future<Output = bool> + Send;
-    fn read_scan(&mut self) -> impl core::future::Future<Output = Option<Vec<u8>>> + Send;
-    fn state(&self) -> ScannerState;
-    fn status(&self) -> ScannerStatus;
-    fn data_ready(&self) -> bool;
 }

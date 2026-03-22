@@ -1,28 +1,43 @@
 [package]
 name = "gm65-scanner"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "UART driver for GM65/M3Y QR barcode scanner modules"
+description = "UART driver for GM65/M3Y QR barcode scanner modules (sync and async)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Amperstrand/gm65-scanner"
-keywords = ["qr", "barcode", "scanner", "gm65", "m3y", "uart", "embedded", "no-std"]
-categories = ["embedded", "hardware-support", "no-std"]
+keywords = ["qr", "barcode", "scanner", "gm65", "m3y", "uart", "embedded", "no-std", "async"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 readme = "README.md"
 exclude = ["/examples", "/.github"]
 
 [features]
-default = []
-embedded-hal = ["dep:embedded-hal-02", "dep:nb"]
-embedded-hal-async = ["dep:embedded-hal-async", "embedded-hal", "dep:embedded-hal"]
-std = []
+default = ["sync"]
+
+# Primary features
+sync = ["dep:embedded-hal-02", "dep:nb"]
+async = ["dep:embedded-io-async", "sync"]
 defmt = ["dep:defmt"]
+std = []
+
+# Testing
+hil-tests = ["async", "defmt"]
+
+# Backward compatibility (deprecated, use sync/async instead)
+embedded-hal = ["sync"]
+embedded-hal-async = ["async"]
 
 [dependencies]
-embedded-hal = { version = "1.0", optional = true }
+# Sync (blocking) I/O
 embedded-hal-02 = { package = "embedded-hal", version = "0.2", features = ["unproven"], optional = true }
-embedded-hal-async = { version = "1.0", optional = true }
 nb = { version = "1.1", optional = true }
+
+# Async I/O
+embedded-io-async = { version = "0.6", optional = true }
+
+# Logging
 defmt = { version = "1.0", optional = true }
+
+# Always required
 bitflags = "2.6"
 
 [dev-dependencies]
