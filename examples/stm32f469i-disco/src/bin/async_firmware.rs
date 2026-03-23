@@ -64,6 +64,9 @@ static SCAN_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, 4> = Channel::
 static SDRAM_CHANNEL: Channel<CriticalSectionRawMutex, SdramStatus, 4> = Channel::new();
 
 #[cfg(feature = "scanner-async")]
+static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, 4> = Channel::new();
+
+#[cfg(feature = "scanner-async")]
 #[derive(Clone)]
 pub struct ScanResult {
     pub data: Vec<u8>,
@@ -294,7 +297,8 @@ async fn main(_spawner: Spawner) {
                 Ok(Some(data)) => {
                     let len = data.len();
                     defmt::info!("Scanner: scanned {} bytes", len);
-                    let _ = SCAN_CHANNEL.try_send(ScanResult { data });
+                    let _ = SCAN_CHANNEL.try_send(ScanResult { data: data.clone() });
+                    let _ = DISPLAY_CHANNEL.try_send(ScanResult { data });
                     for _ in 0..3 {
                         led.set_high();
                         Timer::after(Duration::from_millis(100)).await;
@@ -368,7 +372,19 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    embassy_futures::join::join3(usb_task, scanner_task, cdc_task).await;
+    let display_task = async {
+        loop {
+            let result = DISPLAY_CHANNEL.receive().await;
+            let data_str = core::str::from_utf8(&result.data);
+            if data_str.is_ok() && result.data.len() <= 200 {
+                crate::qr_display_async::render_qr_mirror(&mut display.fb(), &result.data);
+            } else {
+                crate::qr_display_async::render_scan_result(&mut display.fb(), &result.data);
+            }
+        }
+    };
+
+    embassy_futures::join::join4(usb_task, scanner_task, cdc_task, display_task).await;
 }
 
 #[cfg(feature = "scanner-async")]
@@ -399,4 +415,9 @@ fn main() -> ! {
 mod display_embassy {
     #[cfg(feature = "scanner-async")]
     include!("../display_embassy.rs");
+}
+
+mod qr_display_async {
+    #[cfg(feature = "scanner-async")]
+    include!("../qr_display_async.rs");
 }
