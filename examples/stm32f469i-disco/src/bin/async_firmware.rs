@@ -24,9 +24,11 @@ use panic_probe as _;
 #[cfg(feature = "scanner-async")]
 use embassy_executor::Spawner;
 #[cfg(feature = "scanner-async")]
-use embassy_stm32::{bind_interrupts, interrupt::InterruptExt, peripherals, rcc::*, usart, usb, Config};
-#[cfg(feature = "scanner-async")]
 use embassy_stm32::time::Hertz;
+#[cfg(feature = "scanner-async")]
+use embassy_stm32::{
+    bind_interrupts, interrupt::InterruptExt, peripherals, rcc::*, usart, usb, Config,
+};
 #[cfg(feature = "scanner-async")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "scanner-async")]
@@ -34,9 +36,9 @@ use embassy_sync::channel::Channel;
 #[cfg(feature = "scanner-async")]
 use embassy_time::{Duration, Ticker, Timer};
 #[cfg(feature = "scanner-async")]
-use embassy_usb::Builder;
-#[cfg(feature = "scanner-async")]
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+#[cfg(feature = "scanner-async")]
+use embassy_usb::Builder;
 #[cfg(feature = "scanner-async")]
 use embedded_hal_02::blocking::serial::Write as _;
 #[cfg(feature = "scanner-async")]
@@ -82,27 +84,39 @@ pub struct SdramStatus {
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn LTDC() { cortex_m::asm::nop(); }
+unsafe extern "C" fn LTDC() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn LTDC_ER() { cortex_m::asm::nop(); }
+unsafe extern "C" fn LTDC_ER() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn DSI() { cortex_m::asm::nop(); }
+unsafe extern "C" fn DSI() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn DSIHOST() { cortex_m::asm::nop(); }
+unsafe extern "C" fn DSIHOST() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn DMA2D() { cortex_m::asm::nop(); }
+unsafe extern "C" fn DMA2D() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn FMC() { cortex_m::asm::nop(); }
+unsafe extern "C" fn FMC() {
+    cortex_m::asm::nop();
+}
 
 #[cfg(feature = "scanner-async")]
 bind_interrupts!(struct Irqs {
@@ -229,9 +243,11 @@ async fn main(_spawner: Spawner) {
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::CYAN);
     let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style("gm65-scanner", Point::new(240, 400), style, center)
-        .draw(&mut display.fb()).ok();
+        .draw(&mut display.fb())
+        .ok();
     Text::with_text_style("READY", Point::new(240, 420), style, center)
-        .draw(&mut display.fb()).ok();
+        .draw(&mut display.fb())
+        .ok();
     defmt::info!("Display: initialized");
 
     let mut uart_config = usart::Config::default();
@@ -242,12 +258,23 @@ async fn main(_spawner: Spawner) {
     let async_uart = AsyncUart { inner: uart };
     let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 
-    let mut led = embassy_stm32::gpio::Output::new(p.PG6, embassy_stm32::gpio::Level::Low, embassy_stm32::gpio::Speed::Low);
+    let mut led = embassy_stm32::gpio::Output::new(
+        p.PG6,
+        embassy_stm32::gpio::Level::Low,
+        embassy_stm32::gpio::Speed::Low,
+    );
 
     let mut ep_out_buffer = [0u8; 256];
     let mut usb_config = usb::Config::default();
     usb_config.vbus_detection = false;
-    let usb_driver = usb::Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, usb_config);
+    let usb_driver = usb::Driver::new_fs(
+        p.USB_OTG_FS,
+        Irqs,
+        p.PA12,
+        p.PA11,
+        &mut ep_out_buffer,
+        usb_config,
+    );
 
     let mut usb_config_desc = embassy_usb::Config::new(0xc0de, 0xcafe);
     usb_config_desc.manufacturer = Some("gm65-scanner");

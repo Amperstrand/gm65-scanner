@@ -38,9 +38,7 @@ mod traits;
 mod types;
 
 pub use traits::{ScannerDriver, ScannerDriverSync};
-pub use types::{
-    ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus,
-};
+pub use types::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
 
 #[cfg(feature = "sync")]
 mod sync;

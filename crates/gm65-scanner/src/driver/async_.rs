@@ -17,10 +17,10 @@ use crate::driver::{
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
 use crate::scanner_core::{
-    config, init_config_sequence, serial_output_needs_fix, fix_serial_output, version_needs_raw_fix,
-    ScanByteResult, ScannerCore, ScannerSettings,
+    config, fix_serial_output, init_config_sequence, serial_output_needs_fix,
+    version_needs_raw_fix, ScanByteResult, ScannerCore, ScannerSettings,
 };
-use embassy_time::{Duration, with_timeout};
+use embassy_time::{with_timeout, Duration};
 
 const CMD_TIMEOUT: Duration = Duration::from_secs(2);
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(50);
@@ -183,7 +183,7 @@ impl<UART> Gm65ScannerAsync<UART> {
         let cmd = protocol::build_set_setting(reg.address_bytes(), value);
         self.send_command(&cmd)
             .await
-            .map_or(false, |r| r != Gm65Response::Invalid)
+            .is_some_and(|r| r != Gm65Response::Invalid)
     }
 
     async fn save_settings(&mut self) -> bool
@@ -193,7 +193,7 @@ impl<UART> Gm65ScannerAsync<UART> {
         let cmd = protocol::build_save_settings();
         self.send_command(&cmd)
             .await
-            .map_or(false, |r| r != Gm65Response::Invalid)
+            .is_some_and(|r| r != Gm65Response::Invalid)
     }
 
     async fn probe_gm65(&mut self) -> bool
@@ -260,13 +260,13 @@ impl<UART> Gm65ScannerAsync<UART> {
             Some(val) => {
                 #[cfg(feature = "defmt")]
                 defmt::info!("Settings: 0x{:02x}", val);
-                if val != config::CMD_MODE {
-                    if !self.set_setting(Register::Settings, config::CMD_MODE).await {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("init: failed to set Settings to CMD_MODE");
-                        self.core.fail_init(ScannerError::ConfigFailed);
-                        return Err(ScannerError::ConfigFailed);
-                    }
+                if val != config::CMD_MODE
+                    && !self.set_setting(Register::Settings, config::CMD_MODE).await
+                {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("init: failed to set Settings to CMD_MODE");
+                    self.core.fail_init(ScannerError::ConfigFailed);
+                    return Err(ScannerError::ConfigFailed);
                 }
             }
             None => {
@@ -423,9 +423,7 @@ pub mod hil_tests {
     use super::*;
     use crate::scanner_core::HilTestResults;
 
-    pub async fn run_hil_tests<UART>(
-        scanner: &mut Gm65ScannerAsync<UART>,
-    ) -> HilTestResults
+    pub async fn run_hil_tests<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> HilTestResults
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
@@ -443,7 +441,11 @@ pub mod hil_tests {
         results.init_detects_scanner = test_init(scanner).await;
         defmt::info!(
             "HIL: {} - init_detects_scanner",
-            if results.init_detects_scanner { "PASS" } else { "FAIL" }
+            if results.init_detects_scanner {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
 
         if !results.init_detects_scanner {
@@ -455,28 +457,44 @@ pub mod hil_tests {
         results.ping_after_init = test_ping(scanner).await;
         defmt::info!(
             "HIL: {} - ping_after_init",
-            if results.ping_after_init { "PASS" } else { "FAIL" }
+            if results.ping_after_init {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
 
         defmt::info!("HIL: test_trigger_and_stop");
         results.trigger_and_stop = test_trigger_stop(scanner).await;
         defmt::info!(
             "HIL: {} - trigger_and_stop",
-            if results.trigger_and_stop { "PASS" } else { "FAIL" }
+            if results.trigger_and_stop {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
 
         defmt::info!("HIL: test_read_scan_timeout");
         results.read_scan_timeout = test_read_scan_timeout(scanner).await;
         defmt::info!(
             "HIL: {} - read_scan_timeout",
-            if results.read_scan_timeout { "PASS" } else { "FAIL" }
+            if results.read_scan_timeout {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
 
         defmt::info!("HIL: test_state_transitions");
         results.state_transitions = test_state_transitions(scanner).await;
         defmt::info!(
             "HIL: {} - state_transitions",
-            if results.state_transitions { "PASS" } else { "FAIL" }
+            if results.state_transitions {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
 
         defmt::info!(

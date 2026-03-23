@@ -30,8 +30,9 @@ pub mod config {
     /// Delay before scanning same barcode again.
     pub const SAME_BARCODE_DELAY: u8 = 0x85;
 
-    /// Command mode settings value (ALWAYS_ON | SOUND | AIM | COMMAND).
-    pub const CMD_MODE: u8 = 0xD1;
+    /// Command mode settings value (ALWAYS_ON | COMMAND).
+    /// Sound, aim, and illumination disabled to reduce visual/audio noise.
+    pub const CMD_MODE: u8 = 0x81;
 
     /// Firmware version that requires raw mode fix.
     pub const VERSION_NEEDS_RAW: u8 = 0x69;
@@ -72,7 +73,7 @@ bitflags::bitflags! {
 
 impl Default for ScannerSettings {
     fn default() -> Self {
-        Self::ALWAYS_ON | Self::SOUND | Self::AIM | Self::COMMAND
+        Self::ALWAYS_ON | Self::COMMAND
     }
 }
 
@@ -773,7 +774,7 @@ mod tests {
     fn test_config_constants() {
         assert_eq!(config::SCAN_INTERVAL_MS, 0x01);
         assert_eq!(config::SAME_BARCODE_DELAY, 0x85);
-        assert_eq!(config::CMD_MODE, 0xD1);
+        assert_eq!(config::CMD_MODE, 0x81);
         assert_eq!(config::VERSION_NEEDS_RAW, 0x69);
         assert_eq!(config::RAW_MODE_VALUE, 0x08);
     }
@@ -786,16 +787,16 @@ mod tests {
     fn test_scanner_settings_default() {
         let settings = ScannerSettings::default();
         assert!(settings.contains(ScannerSettings::ALWAYS_ON));
-        assert!(settings.contains(ScannerSettings::SOUND));
-        assert!(settings.contains(ScannerSettings::AIM));
         assert!(settings.contains(ScannerSettings::COMMAND));
+        assert!(!settings.contains(ScannerSettings::SOUND));
+        assert!(!settings.contains(ScannerSettings::AIM));
         assert!(!settings.contains(ScannerSettings::CONTINUOUS));
     }
 
     #[test]
     fn test_scanner_settings_bits() {
-        // CMD_MODE should be ALWAYS_ON | SOUND | AIM | COMMAND
-        let expected = (1 << 7) | (1 << 6) | (1 << 4) | (1 << 0);
+        // CMD_MODE should be ALWAYS_ON | COMMAND (sound/aim disabled)
+        let expected = (1 << 7) | (1 << 0);
         assert_eq!(config::CMD_MODE, expected);
 
         let settings = ScannerSettings::from_bits(expected);

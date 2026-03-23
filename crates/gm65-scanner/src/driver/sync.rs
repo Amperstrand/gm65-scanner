@@ -75,7 +75,7 @@ where
     /// Get scanner settings as bitflags.
     pub fn get_scanner_settings(&mut self) -> Option<ScannerSettings> {
         self.get_setting(Register::Settings)
-            .and_then(|v| ScannerSettings::from_bits(v))
+            .and_then(ScannerSettings::from_bits)
     }
 
     /// Set scanner settings from bitflags.
@@ -200,13 +200,13 @@ where
     fn set_setting(&mut self, reg: Register, value: u8) -> bool {
         let cmd = protocol::build_set_setting(reg.address_bytes(), value);
         self.send_command(&cmd)
-            .map_or(false, |r| r != Gm65Response::Invalid)
+            .is_some_and(|r| r != Gm65Response::Invalid)
     }
 
     fn save_settings(&mut self) -> bool {
         let cmd = protocol::build_save_settings();
         self.send_command(&cmd)
-            .map_or(false, |r| r != Gm65Response::Invalid)
+            .is_some_and(|r| r != Gm65Response::Invalid)
     }
 
     fn probe_gm65(&mut self) -> bool {
@@ -274,13 +274,13 @@ where
             Some(val) => {
                 #[cfg(feature = "defmt")]
                 defmt::info!("Settings: 0x{:02x}", val);
-                if val != config::CMD_MODE {
-                    if !self.set_setting(Register::Settings, config::CMD_MODE) {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("init: failed to set Settings to CMD_MODE");
-                        self.core.fail_init(ScannerError::ConfigFailed);
-                        return Err(ScannerError::ConfigFailed);
-                    }
+                if val != config::CMD_MODE
+                    && !self.set_setting(Register::Settings, config::CMD_MODE)
+                {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("init: failed to set Settings to CMD_MODE");
+                    self.core.fail_init(ScannerError::ConfigFailed);
+                    return Err(ScannerError::ConfigFailed);
                 }
             }
             None => {

@@ -2,7 +2,7 @@ CHIP       ?= STM32F469NIHx
 VID_PID    ?= 16c0:27dd
 TARGET     ?= thumbv7em-none-eabihf
 BUILD_DIR  ?= target/$(TARGET)/release
-EXAMPLE_DIR ?= examples/stm32f469i-disco
+EXAMPLE_DIR = examples/stm32f469i-disco
 
 SYNC_BINARY  = $(BUILD_DIR)/stm32f469i-disco-scanner
 ASYNC_BINARY = $(BUILD_DIR)/async_firmware
@@ -10,9 +10,11 @@ ASYNC_BINARY = $(BUILD_DIR)/async_firmware
 SYNC_FEATURES  = sync-mode,defmt
 ASYNC_FEATURES = scanner-async,defmt
 
-CARGO_FLAGS = --release --target $(TARGET)
-FLASH_HELPERS = scripts/flash-helpers.sh
-SHELL = /bin/bash
+# --manifest-path keeps us at workspace root while cargo still picks up
+# .cargo/config.toml (target, rustflags) from the workspace .cargo/ dir.
+CARGO_FLAGS    = --release --manifest-path $(EXAMPLE_DIR)/Cargo.toml
+FLASH_HELPERS  = scripts/flash-helpers.sh
+SHELL          = /bin/bash
 
 .PHONY: build-sync build-async build-all \
         run-sync run-async \
@@ -34,10 +36,10 @@ build-all: build-sync build-async
 # ── Run with RTT capture (fastest edit-run cycle) ─────────────────────────
 
 run-sync: build-sync
-	@source $(FLASH_HELPERS); BINARY=$(SYNC_BINARY) run_rtt
+	@source $(FLASH_HELPERS); BINARY=$(SYNC_BINARY) RTT_TIMEOUT=30 run_rtt
 
 run-async: build-async
-	@source $(FLASH_HELPERS); BINARY=$(ASYNC_BINARY) run_rtt
+	@source $(FLASH_HELPERS); BINARY=$(ASYNC_BINARY) RTT_TIMEOUT=30 run_rtt
 
 # ── Flash + auto-recover + detect port ─────────────────────────────────────
 

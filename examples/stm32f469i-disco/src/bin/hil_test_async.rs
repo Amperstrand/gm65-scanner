@@ -25,7 +25,7 @@ use embedded_hal_02::blocking::serial::Write as _;
 #[cfg(feature = "scanner-async")]
 use embedded_io::ErrorType;
 #[cfg(feature = "scanner-async")]
-use gm65_scanner::{Gm65ScannerAsync, driver::async_hil_tests as hil_tests};
+use gm65_scanner::{driver::async_hil_tests as hil_tests, Gm65ScannerAsync};
 #[cfg(feature = "scanner-async")]
 use linked_list_allocator::LockedHeap;
 
@@ -40,27 +40,39 @@ static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn LTDC() { cortex_m::asm::nop(); }
+unsafe extern "C" fn LTDC() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn LTDC_ER() { cortex_m::asm::nop(); }
+unsafe extern "C" fn LTDC_ER() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn DSI() { cortex_m::asm::nop(); }
+unsafe extern "C" fn DSI() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn DSIHOST() { cortex_m::asm::nop(); }
+unsafe extern "C" fn DSIHOST() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn DMA2D() { cortex_m::asm::nop(); }
+unsafe extern "C" fn DMA2D() {
+    cortex_m::asm::nop();
+}
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
-unsafe extern "C" fn FMC() { cortex_m::asm::nop(); }
+unsafe extern "C" fn FMC() {
+    cortex_m::asm::nop();
+}
 
 #[cfg(feature = "scanner-async")]
 struct AsyncUart<'d> {
