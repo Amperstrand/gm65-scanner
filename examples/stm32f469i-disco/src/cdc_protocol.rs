@@ -1,0 +1,214 @@
+pub const MAX_PAYLOAD_SIZE: usize = 256;
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Command {
+    ScannerStatus = 0x10,
+    ScannerTrigger = 0x11,
+    ScannerData = 0x12,
+    GetSettings = 0x13,
+    SetSettings = 0x14,
+    DisplayQr = 0x15,
+    EnterSettings = 0x16,
+}
+
+impl Command {
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0x10 => Some(Command::ScannerStatus),
+            0x11 => Some(Command::ScannerTrigger),
+            0x12 => Some(Command::ScannerData),
+            0x13 => Some(Command::GetSettings),
+            0x14 => Some(Command::SetSettings),
+            0x15 => Some(Command::DisplayQr),
+            0x16 => Some(Command::EnterSettings),
+            _ => None,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Status {
+    Ok = 0x00,
+    Error = 0xFF,
+    InvalidCommand = 0x01,
+    InvalidPayload = 0x02,
+    BufferOverflow = 0x03,
+    ScannerNotConnected = 0x10,
+    ScannerBusy = 0x11,
+    NoScanData = 0x12,
+}
+
+impl Status {
+    pub fn to_byte(self) -> u8 {
+        self as u8
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Frame {
+    pub command: Command,
+    pub length: u16,
+    pub payload: [u8; MAX_PAYLOAD_SIZE],
+}
+
+impl Frame {
+    pub fn new(command: Command) -> Self {
+        Self {
+            command,
+            length: 0,
+            payload: [0; MAX_PAYLOAD_SIZE],
+        }
+    }
+
+    pub fn with_payload(command: Command, data: &[u8]) -> Option<Self> {
+        if data.len() > MAX_PAYLOAD_SIZE {
+            return None;
+        }
+        let mut frame = Self::new(command);
+        frame.length = data.len() as u16;
+        frame.payload[..data.len()].copy_from_slice(data);
+        Some(frame)
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload[..self.length as usize]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Response {
+    pub status: Status,
+    pub length: u16,
+    pub payload: [u8; MAX_PAYLOAD_SIZE],
+}
+
+impl Response {
+    pub fn new(status: Status) -> Self {
+        Self {
+            status,
+            length: 0,
+            payload: [0; MAX_PAYLOAD_SIZE],
+        }
+    }
+
+    pub fn with_payload(status: Status, data: &[u8]) -> Option<Self> {
+        if data.len() > MAX_PAYLOAD_SIZE {
+            return None;
+        }
+        let mut resp = Self::new(status);
+        resp.length = data.len() as u16;
+        resp.payload[..data.len()].copy_from_slice(data);
+        Some(resp)
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload[..self.length as usize]
+    }
+
+    pub fn encode(&self, buf: &mut [u8]) -> usize {
+        let total_len = 3 + self.length as usize;
+        if buf.len() < total_len {
+            return 0;
+        }
+        buf[0] = self.status.to_byte();
+        buf[1] = (self.length >> 8) as u8;
+        buf[2] = (self.length & 0xFF) as u8;
+        buf[3..total_len].copy_from_slice(self.payload());
+        total_len
+    }
+
+    pub fn encoded_size(&self) -> usize {
+        3 + self.length as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DecodeState {
+    Idle,
+    LenHigh,
+    LenLow,
+    Payload,
+}
+
+#[derive(Debug)]
+pub struct FrameDecoder {
+    state: DecodeState,
+    command_byte: u8,
+    length: u16,
+    payload_idx: usize,
+    payload: [u8; MAX_PAYLOAD_SIZE],
+}
+
+impl FrameDecoder {
+    pub const fn new() -> Self {
+        Self {
+            state: DecodeState::Idle,
+            command_byte: 0,
+            length: 0,
+            payload_idx: 0,
+            payload: [0; MAX_PAYLOAD_SIZE],
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.state = DecodeState::Idle;
+        self.command_byte = 0;
+        self.length = 0;
+        self.payload_idx = 0;
+    }
+
+    pub fn decode(&mut self, data: &[u8]) -> Option<Frame> {
+        for &byte in data {
+            match self.state {
+                DecodeState::Idle => {
+                    self.command_byte = byte;
+                    self.state = DecodeState::LenHigh;
+                }
+                DecodeState::LenHigh => {
+                    self.length = (byte as u16) << 8;
+                    self.state = DecodeState::LenLow;
+                }
+                DecodeState::LenLow => {
+                    self.length |= byte as u16;
+
+                    if self.length as usize > MAX_PAYLOAD_SIZE {
+                        self.reset();
+                        return None;
+                    }
+
+                    if self.length == 0 {
+                        let cmd = Command::from_byte(self.command_byte)?;
+                        let frame = Frame::new(cmd);
+                        self.reset();
+                        return Some(frame);
+                    }
+
+                    self.payload_idx = 0;
+                    self.state = DecodeState::Payload;
+                }
+                DecodeState::Payload => {
+                    self.payload[self.payload_idx] = byte;
+                    self.payload_idx += 1;
+
+                    if self.payload_idx >= self.length as usize {
+                        let cmd = Command::from_byte(self.command_byte)?;
+                        let frame = Frame::with_payload(cmd, &self.payload[..self.payload_idx])?;
+                        self.reset();
+                        return Some(frame);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+impl Default for FrameDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
