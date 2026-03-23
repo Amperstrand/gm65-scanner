@@ -416,6 +416,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-stm32f469i-disco"
+version = "0.1.0"
+source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco#6b620e527ef3b463edea5ccf9e606acf8a8ab30d"
+dependencies = [
+ "cortex-m",
+ "defmt 1.0.1",
+ "embassy-stm32",
+ "embassy-time",
+ "embedded-display-controller",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "nt35510",
+ "stm32-fmc",
+]
+
+[[package]]
 name = "embassy-sync"
 version = "0.8.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=84444a19#84444a19eb57d978e3c09fcdc8e60cdd7278eb03"
@@ -1368,6 +1384,7 @@ dependencies = [
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",
+ "embassy-stm32f469i-disco",
  "embassy-sync",
  "embassy-time",
  "embassy-usb",

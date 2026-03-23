@@ -49,7 +49,7 @@ use gm65_scanner::{Gm65ScannerAsync, ScannerDriver};
 use linked_list_allocator::LockedHeap;
 
 #[cfg(feature = "scanner-async")]
-use crate::display_embassy::SdramCtrl;
+use embassy_stm32f469i_disco::display::SdramCtrl;
 
 #[cfg(feature = "scanner-async")]
 const HEAP_SIZE: usize = 32 * 1024;
@@ -233,7 +233,7 @@ async fn main(_spawner: Spawner) {
     });
 
     defmt::info!("Initializing display...");
-    let mut display = crate::display_embassy::DisplayCtrl::new(&sdram, p.PH7);
+    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7);
     use embedded_graphics::mono_font::ascii::FONT_10X20;
     use embedded_graphics::mono_font::MonoTextStyle;
     use embedded_graphics::pixelcolor::Rgb565;
@@ -437,11 +437,6 @@ fn main() -> ! {
     loop {
         cortex_m::asm::wfi();
     }
-}
-
-mod display_embassy {
-    #[cfg(feature = "scanner-async")]
-    include!("../display_embassy.rs");
 }
 
 mod qr_display_async {

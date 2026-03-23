@@ -8,7 +8,7 @@ use embedded_graphics::{
 };
 use qrcodegen_no_heap::{QrCode, QrCodeEcc, Version};
 
-use crate::display_embassy::{FramebufferView, FB_HEIGHT, FB_WIDTH};
+use embassy_stm32f469i_disco::{FramebufferView, FB_HEIGHT, FB_WIDTH};
 
 const BLACK: Rgb565 = Rgb565::BLACK;
 const WHITE: Rgb565 = Rgb565::WHITE;

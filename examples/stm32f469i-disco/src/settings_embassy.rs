@@ -7,7 +7,7 @@ use embedded_graphics::{
     text::{Alignment, Text, TextStyleBuilder},
 };
 
-use crate::display_embassy::{FramebufferView, FB_HEIGHT, FB_WIDTH};
+use embassy_stm32f469i_disco::{FramebufferView, FB_HEIGHT, FB_WIDTH};
 
 const BTN_W: u32 = 420;
 const BTN_H: u32 = 70;
