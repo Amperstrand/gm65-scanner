@@ -11,7 +11,7 @@ use cortex_m_rt::entry;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use gm65_scanner::{driver::hil_tests, Gm65Scanner, ScannerDriverSync};
+use gm65_scanner::{driver::hil_tests, Gm65Scanner};
 use linked_list_allocator::LockedHeap;
 use stm32f469i_disc::{hal::pac, hal::prelude::*, hal::rcc, hal::serial::Serial6};
 
@@ -42,51 +42,8 @@ fn main() -> ! {
     let scanner_tx = gpiog.pg14;
     let scanner_rx = gpiog.pg9;
 
-    let baud_rates: [u32; 3] = [9600, 57600, 115200];
-    let mut scanner: Option<Gm65Scanner<Serial6>> = None;
-    let mut scanner_usart = Some(dp.USART6);
-    let mut scanner_pins = Some((scanner_tx, scanner_rx));
-
-    for &baud in &baud_rates {
-        let (usart, pins) = match (scanner_usart.take(), scanner_pins.take()) {
-            (Some(u), Some(p)) => (u, p),
-            _ => break,
-        };
-        let uart = usart.serial(pins, baud.bps(), &mut rcc).unwrap();
-        let mut s = Gm65Scanner::with_default_config(uart);
-        defmt::info!("Probing scanner at {} bps (init)...", baud);
-        match s.init() {
-            Ok(model) => {
-                defmt::info!("Scanner found at {} bps, model={:?}", baud, model);
-                scanner = Some(s);
-                break;
-            }
-            Err(_) => {
-                defmt::info!("No response at {} bps, trying next...", baud);
-                let (raw_usart, raw_pins) = s.release().release();
-                scanner_usart = Some(raw_usart);
-                let tx_pin: stm32f469i_disc::hal::gpio::Pin<'G', 14> =
-                    raw_pins.0.unwrap().try_into().ok().unwrap();
-                let rx_pin: stm32f469i_disc::hal::gpio::Pin<'G', 9> =
-                    raw_pins.1.unwrap().try_into().ok().unwrap();
-                scanner_pins = Some((tx_pin, rx_pin));
-            }
-        }
-    }
-
-    let mut scanner = match scanner {
-        Some(s) => s,
-        None => {
-            let (usart, pins) = match (scanner_usart.take(), scanner_pins.take()) {
-                (Some(u), Some(p)) => (u, p),
-                _ => panic!("No USART6 available"),
-            };
-            let uart = usart.serial(pins, 9600.bps(), &mut rcc).unwrap();
-            let s = Gm65Scanner::with_default_config(uart);
-            defmt::warn!("QR scanner not found at any baud rate, using 9600 default");
-            s
-        }
-    };
+    let uart = Serial6::new(dp.USART6, (scanner_tx, scanner_rx), 115200.bps(), &mut rcc).unwrap();
+    let mut scanner = Gm65Scanner::with_default_config(uart);
 
     defmt::info!("Running HIL tests (sync)...");
     let results = hil_tests::run_hil_tests(&mut scanner);
