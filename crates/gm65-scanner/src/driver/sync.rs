@@ -272,27 +272,15 @@ where
             }
         }
 
-        // Set command mode
-        match self.get_setting(Register::Settings) {
-            Some(val) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!("Settings: 0x{:02x}", val);
-                if val != config::CMD_MODE
-                    && !self.set_setting(Register::Settings, config::CMD_MODE)
-                {
-                    #[cfg(feature = "defmt")]
-                    defmt::warn!("init: failed to set Settings to CMD_MODE");
-                    self.core.fail_init(ScannerError::ConfigFailed);
-                    return Err(ScannerError::ConfigFailed);
-                }
-            }
-            None => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("init: failed to read Settings");
-                self.core.fail_init(ScannerError::ConfigFailed);
-                return Err(ScannerError::ConfigFailed);
-            }
+        // Force command mode (always write to clear any stale bits like AIM)
+        if !self.set_setting(Register::Settings, config::CMD_MODE) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("init: failed to set Settings to CMD_MODE");
+            self.core.fail_init(ScannerError::ConfigFailed);
+            return Err(ScannerError::ConfigFailed);
         }
+        #[cfg(feature = "defmt")]
+        defmt::info!("Settings forced to 0x{:02x}", config::CMD_MODE);
 
         // Apply configuration settings
         let config_settings = init_config_sequence();
