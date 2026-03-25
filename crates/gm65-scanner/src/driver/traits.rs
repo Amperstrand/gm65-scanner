@@ -29,6 +29,11 @@ pub trait ScannerDriverSync {
     /// Returns Some(data) if a complete scan was read, None on timeout.
     fn read_scan(&mut self) -> Option<alloc::vec::Vec<u8>>;
 
+    /// Non-blocking incremental scan read.
+    /// Drains all available bytes from the UART FIFO.
+    /// Returns Some(data) when a complete scan is received, None if UART is empty.
+    fn try_read_scan(&mut self) -> Option<alloc::vec::Vec<u8>>;
+
     /// Get the current scanner state.
     fn state(&self) -> ScannerState;
 

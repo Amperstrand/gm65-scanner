@@ -93,7 +93,8 @@ where
     }
 
     /// Non-blocking incremental scan read.
-    /// Call repeatedly until `data_ready()` returns true.
+    /// Drains all available bytes from the UART FIFO in a single call.
+    /// Returns Some(data) when a complete scan is received, None if UART is empty.
     pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
         if !self.core.is_initialized() {
             return None;
@@ -102,13 +103,15 @@ where
         if self.core.state() == ScannerState::ScanComplete {
             self.core.begin_scan().ok();
         }
-        match self.poll_uart() {
-            Some(byte) => match self.core.handle_scan_byte(byte) {
-                ScanByteResult::Complete(data) => Some(data),
-                ScanByteResult::BufferOverflow => None,
-                ScanByteResult::NeedMore => None,
-            },
-            None => None,
+        loop {
+            match self.poll_uart() {
+                Some(byte) => match self.core.handle_scan_byte(byte) {
+                    ScanByteResult::Complete(data) => return Some(data),
+                    ScanByteResult::BufferOverflow => return None,
+                    ScanByteResult::NeedMore => continue,
+                },
+                None => return None,
+            }
         }
     }
 
@@ -414,6 +417,10 @@ where
 
     fn read_scan(&mut self) -> Option<Vec<u8>> {
         self.do_read_scan()
+    }
+
+    fn try_read_scan(&mut self) -> Option<Vec<u8>> {
+        self.try_read_scan()
     }
 
     fn state(&self) -> ScannerState {
