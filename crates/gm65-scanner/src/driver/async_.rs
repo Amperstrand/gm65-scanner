@@ -502,6 +502,9 @@ pub mod hil_tests {
             results.passed_count()
         );
 
+        defmt::info!("HIL: running extended tests...");
+        let _ = run_extended_hil_tests(scanner).await;
+
         results
     }
 
@@ -625,3 +628,112 @@ pub mod hil_tests {
         }
     }
 }
+
+    async fn test_cancel_then_rescan<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        defmt::info!("HIL: test_cancel_then_rescan");
+
+        if scanner.trigger_scan().await.is_err() {
+            defmt::error!("HIL: initial trigger failed");
+            return false;
+        }
+
+        let _ = with_timeout(Duration::from_secs(1), scanner.read_scan()).await;
+        scanner.cancel_scan();
+        let _ = scanner.stop_scan().await;
+
+        defmt::info!("HIL: state after cancel = {:?}", scanner.state());
+
+        if scanner.trigger_scan().await.is_err() {
+            defmt::error!("HIL: re-trigger after cancel failed");
+            return false;
+        }
+
+        let result = with_timeout(Duration::from_secs(3), scanner.read_scan()).await;
+        let _ = scanner.stop_scan().await;
+
+        match result {
+            Ok(Some(data)) => {
+                defmt::info!("HIL: rescan after cancel got {} bytes", data.len());
+                true
+            }
+            Ok(None) => {
+                defmt::warn!("HIL: rescan returned None (not timeout)");
+                true
+            }
+            Err(_) => {
+                defmt::warn!("HIL: rescan timed out (no QR, but trigger worked)");
+                true
+            }
+        }
+    }
+
+    async fn test_rapid_triggers<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        defmt::info!("HIL: test_rapid_triggers");
+
+        for i in 0..5u8 {
+            if scanner.trigger_scan().await.is_err() {
+                defmt::error!("HIL: trigger #{} failed", i);
+                return false;
+            }
+            embassy_time::Timer::after(Duration::from_millis(10)).await;
+            let _ = scanner.stop_scan().await;
+        }
+
+        let final_state = scanner.state();
+        defmt::info!("HIL: state after 5 rapid triggers = {:?}", final_state);
+        matches!(final_state, ScannerState::Ready)
+    }
+
+    async fn test_read_idle_no_trigger<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        defmt::info!("HIL: test_read_idle_no_trigger");
+
+        let result = with_timeout(Duration::from_millis(500), scanner.read_scan()).await;
+
+        match result {
+            Ok(Some(_)) => {
+                defmt::warn!("HIL: read_scan returned data without trigger");
+                false
+            }
+            Ok(None) => {
+                defmt::error!("HIL: read_scan returned None (Ok(0) path - UART bug)");
+                false
+            }
+            Err(_) => {
+                defmt::info!("HIL: read_scan correctly timed out without trigger");
+                true
+            }
+        }
+    }
+
+    pub async fn run_extended_hil_tests<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        defmt::info!("==== EXTENDED HIL TESTS STARTING ====");
+
+        let cancel_rescan = test_cancel_then_rescan(scanner).await;
+        defmt::info!("HIL: {} - cancel_then_rescan", if cancel_rescan { "PASS" } else { "FAIL" });
+
+        let rapid = test_rapid_triggers(scanner).await;
+        defmt::info!("HIL: {} - rapid_triggers", if rapid { "PASS" } else { "FAIL" });
+
+        let idle = test_read_idle_no_trigger(scanner).await;
+        defmt::info!("HIL: {} - read_idle_no_trigger", if idle { "PASS" } else { "FAIL" });
+
+        let all_pass = cancel_rescan && rapid && idle;
+        defmt::info!(
+            "==== EXTENDED HIL TESTS COMPLETE: {} ====",
+            if all_pass { "ALL PASS" } else { "SOME FAIL" }
+        );
+
+        all_pass
+    }
