@@ -192,7 +192,7 @@ where
         }
     }
 
-    fn get_setting(&mut self, reg: Register) -> Option<u8> {
+    pub fn get_setting(&mut self, reg: Register) -> Option<u8> {
         let cmd = protocol::build_get_setting(reg.address_bytes());
         match self.send_command(&cmd) {
             Some(Gm65Response::SuccessWithValue(v)) => Some(v),
@@ -340,7 +340,12 @@ where
     fn do_trigger_scan(&mut self) -> Result<(), ScannerError> {
         self.core.begin_scan()?;
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x01);
-        let _ = self.send_command(&cmd);
+        let resp = self.send_command(&cmd);
+        #[cfg(feature = "defmt")]
+        match &resp {
+            Some(_) => defmt::info!("Trigger ScanEnable: ack ok"),
+            None => defmt::warn!("Trigger ScanEnable: NO RESPONSE"),
+        }
         Ok(())
     }
 
@@ -349,7 +354,13 @@ where
             return false;
         }
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x00);
-        self.send_command(&cmd).is_some()
+        let resp = self.send_command(&cmd);
+        #[cfg(feature = "defmt")]
+        match &resp {
+            Some(_) => defmt::info!("Stop ScanEnable: ack ok"),
+            None => defmt::warn!("Stop ScanEnable: NO RESPONSE"),
+        }
+        resp.is_some()
     }
 
     fn do_read_scan(&mut self) -> Option<Vec<u8>> {
