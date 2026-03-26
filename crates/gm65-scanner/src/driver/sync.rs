@@ -208,8 +208,12 @@ where
 
     fn save_settings(&mut self) -> bool {
         let cmd = protocol::build_save_settings();
-        self.send_command(&cmd)
-            .is_some_and(|r| r != Gm65Response::Invalid)
+        let result = self
+            .send_command(&cmd)
+            .is_some_and(|r| r != Gm65Response::Invalid);
+        #[cfg(feature = "defmt")]
+        defmt::info!("save_settings: {}", if result { "OK" } else { "FAIL" });
+        result
     }
 
     fn probe_gm65(&mut self) -> bool {
@@ -304,6 +308,17 @@ where
                             );
                             self.core.fail_init(ScannerError::ConfigFailed);
                             return Err(ScannerError::ConfigFailed);
+                        }
+                        #[cfg(feature = "defmt")]
+                        if let Some(verify) = self.get_setting(*reg) {
+                            if verify != *set_val {
+                                defmt::warn!(
+                                    "init: VERIFY FAIL {:02x}: wrote 0x{:02x}, read 0x{:02x}",
+                                    reg.address_bytes(),
+                                    set_val,
+                                    verify
+                                );
+                            }
                         }
                     }
                 }
