@@ -152,3 +152,12 @@ sudo lspci -nn | grep -i "xHCI"
 ## Why Not Specter-DIY USB Settings
 
 The specter-diy project does NOT disable USB — it simply doesn't implement a USB device at all. It's a pure UART + LCD firmware. The GM65 scanner's settings register (0x0000) has no USB-related bits. All USB issues are STM32/ST-LINK debug probe issues, not scanner-related.
+
+## Upstream Interaction Policy
+
+**NEVER file PRs or issues on upstream projects (embassy-rs, stm32-rs, etc.) without human review and approval.** AI-generated bug diagnoses can be confidently wrong. If you find a potential upstream bug:
+1. Document your findings in an Amperstrand repo issue first
+2. Include all evidence (register dumps, test results, methodology)
+3. Let a human decide whether to escalate
+
+See [Amperstrand/micronuts#19](https://github.com/Amperstrand/micronuts/issues/19) for a retrospective on how a confident misdiagnosis wasted upstream maintainer time.
