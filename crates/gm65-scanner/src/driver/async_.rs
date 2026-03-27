@@ -627,7 +627,6 @@ pub mod hil_tests {
             }
         }
     }
-}
 
     async fn test_cancel_then_rescan<UART>(scanner: &mut Gm65ScannerAsync<UART>) -> bool
     where
