@@ -1,5 +1,53 @@
 # Agent Reference
 
+## Hardware Test Evidence
+
+All testing performed on STM32F469I-Discovery board with GM65 module connected via USART6 (PG14=TX, PG9=RX) through shield-lite Arduino headers. GM65 firmware version: 0x87.
+
+### Known-Good Pin
+
+| Commit | Notes |
+|--------|-------|
+| `85734ba` (main HEAD) | Extended HIL tests (drain/cancel/rapid-trigger/idle). **Used by micronuts firmware** |
+
+### Test Date: 2026-03-26
+
+Testing performed by the **micronuts** firmware (Amperstrand/micronuts), which depends on this crate for QR scanner communication via async USART6.
+
+| Subsystem | Status | Evidence | Notes |
+|-----------|--------|----------|-------|
+| **Scanner init** | PASS | Gm65 detected, firmware 0x87, settings 0x81 | USART6 at 115200 baud, auto-detect works |
+| **Trigger scan** | PASS | 23 bytes received from QR code scan | Aim laser enables/disables correctly |
+| **Ping** | PASS | ACK received after init | |
+| **Settings read** | PASS | 0x81 (ALWAYS_ON\|COMMAND mode) | |
+| **Settings write** | PASS | 0x05→0x01, 0x00→0x01 accepted | Aim laser toggle also works |
+| **HIL core tests (5/5)** | PASS | init_detects_scanner, ping, trigger_and_stop, read_scan_timeout, state_transitions | |
+| **HIL extended (2/3)** | 2 PASS, 1 known test bug | cancel_then_rescan PASS, rapid_triggers FAIL (test expectation wrong — trigger is idempotent), read_idle_no_trigger PASS |
+
+### Known Issues
+
+#### drain_uart() Data Loss (#12)
+
+`send_command()` calls `drain_uart()` before every protocol command. If scan data is in the UART RX FIFO when any command is issued (e.g., `stop_scan()`, `get_setting()`), the data is silently discarded.
+
+**Risk for micronuts**: LOW. The main loop uses cooperative async with single-threaded execution. `read_scan()` is only called from one place at a time. The race window is narrow. Higher risk if background polling is added in the future.
+
+#### BarType Register Not Persisted (#10)
+
+Register 0x002C (BarType) write is accepted but not persisted across GM65 reboots on firmware 0.87. GM65 hardware quirk — no fix possible.
+
+#### Settings Mode Comparison (#11)
+
+0x81 (ALWAYS_ON|COMMAND) vs 0xD1 (ALWAYS_ON|SOUND|AIM|COMMAND) — not yet compared. Current micronuts firmware uses 0x81.
+
+#### LCD GRAM Retention (#5)
+
+LCD retains previous frame briefly after power-cycle. Likely GRAM vs SDRAM behavior — not a scanner issue.
+
+#### Double-Buffering Breaks USB (#4)
+
+Using `set_layer_buffer_address()` to implement double-buffering breaks USB composite device on the old sync BSP. Using single-buffer workaround on the embassy BSP. Not a scanner issue.
+
 ## ST-LINK Lockup / "Interface is Busy" — Causes & Recovery
 
 ### Root Causes
