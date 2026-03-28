@@ -53,6 +53,11 @@ pub enum Register {
     SameBarcodeDelay = 0x0013,
     Version = 0x00E2,
     RawMode = 0x00BC,
+    /// Barcode type filter register.
+    ///
+    /// **Known issue on GM65 firmware 0x87**: Write is ACKed but not persisted.
+    /// Verify-read returns the original value. This is a firmware quirk — QR
+    /// scanning works regardless since the scanner auto-detects barcode types.
     BarType = 0x002C,
     QrEnable = 0x003F,
     FactoryReset = 0x00D9,
@@ -278,5 +283,134 @@ mod tests {
         assert_eq!(Register::SameBarcodeDelay.address_bytes(), [0x00, 0x13]);
         assert_eq!(Register::BarType.address_bytes(), [0x00, 0x2C]);
         assert_eq!(Register::QrEnable.address_bytes(), [0x00, 0x3F]);
+    }
+
+    #[test]
+    fn test_register_addresses_all() {
+        assert_eq!(Register::Settings.address_bytes(), [0x00, 0x00]);
+        assert_eq!(Register::ScanEnable.address_bytes(), [0x00, 0x02]);
+        assert_eq!(Register::Timeout.address_bytes(), [0x00, 0x06]);
+        assert_eq!(Register::ScanInterval.address_bytes(), [0x00, 0x05]);
+        assert_eq!(Register::SameBarcodeDelay.address_bytes(), [0x00, 0x13]);
+        assert_eq!(Register::SerialOutput.address_bytes(), [0x00, 0x0D]);
+        assert_eq!(Register::BaudRate.address_bytes(), [0x00, 0x2A]);
+        assert_eq!(Register::BarType.address_bytes(), [0x00, 0x2C]);
+        assert_eq!(Register::QrEnable.address_bytes(), [0x00, 0x3F]);
+        assert_eq!(Register::RawMode.address_bytes(), [0x00, 0xBC]);
+        assert_eq!(Register::FactoryReset.address_bytes(), [0x00, 0xD9]);
+        assert_eq!(Register::Version.address_bytes(), [0x00, 0xE2]);
+    }
+
+    #[test]
+    fn test_build_set_setting() {
+        let cmd = build_set_setting(Register::Settings.address_bytes(), 0x81);
+        assert_eq!(&cmd[..2], &[0x7E, 0x00]);
+        assert_eq!(cmd[2], 0x08);
+        assert_eq!(cmd[3], 0x01);
+        assert_eq!(cmd[6], 0x81);
+        assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_build_factory_reset() {
+        let cmd = build_factory_reset();
+        assert_eq!(&cmd[..2], &[0x7E, 0x00]);
+        assert_eq!(cmd[2], 0x08);
+        assert_eq!(cmd[4], 0x00);
+        assert_eq!(cmd[5], 0xD9);
+        assert_eq!(cmd[6], 0x55);
+        assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_build_trigger_scan() {
+        let cmd = build_trigger_scan();
+        assert_eq!(&cmd[..2], &[0x7E, 0x00]);
+        assert_eq!(cmd[2], 0x08);
+        assert_eq!(&cmd[4..6], Register::ScanEnable.address_bytes());
+        assert_eq!(cmd[6], 0x01);
+        assert_eq!(&cmd[7..], &[0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_parse_set_response() {
+        let resp = [0x02, 0x00, 0x00, 0x01, 0x00, 0x33, 0x31];
+        let parsed = Gm65Response::parse_set_response(&resp);
+        assert!(parsed.is_success());
+        assert_eq!(parsed, Gm65Response::Success);
+    }
+
+    #[test]
+    fn test_parse_set_response_invalid() {
+        let resp = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let parsed = Gm65Response::parse_set_response(&resp);
+        assert_eq!(parsed, Gm65Response::Invalid);
+    }
+
+    #[test]
+    fn test_is_success() {
+        assert!(Gm65Response::SuccessWithValue(0x87).is_success());
+        assert!(Gm65Response::Success.is_success());
+        assert!(!Gm65Response::Invalid.is_success());
+    }
+
+    #[test]
+    fn test_baud_rate_value() {
+        assert_eq!(BaudRate::Bps9600.value(), 0x00);
+        assert_eq!(BaudRate::Bps19200.value(), 0x01);
+        assert_eq!(BaudRate::Bps38400.value(), 0x02);
+        assert_eq!(BaudRate::Bps57600.value(), 0x03);
+        assert_eq!(BaudRate::Bps115200.value(), 0x1A);
+    }
+
+    #[test]
+    fn test_baud_rate_as_u32() {
+        assert_eq!(BaudRate::Bps9600.as_u32(), 9600);
+        assert_eq!(BaudRate::Bps19200.as_u32(), 19200);
+        assert_eq!(BaudRate::Bps38400.as_u32(), 38400);
+        assert_eq!(BaudRate::Bps57600.as_u32(), 57600);
+        assert_eq!(BaudRate::Bps115200.as_u32(), 115200);
+    }
+
+    #[test]
+    fn test_commands_convenience() {
+        let trigger = commands::trigger_scan();
+        assert_eq!(trigger.as_slice(), &build_trigger_scan());
+
+        let save = commands::save_settings();
+        assert_eq!(save.as_slice(), &build_save_settings());
+
+        let reset = commands::factory_reset();
+        assert_eq!(reset.as_slice(), &build_factory_reset());
+
+        let version = commands::query_version();
+        assert_eq!(
+            version.as_slice(),
+            &build_get_setting(Register::Version.address_bytes())
+        );
+
+        let qr = commands::set_qr_only();
+        assert_eq!(
+            qr.as_slice(),
+            &build_set_setting(Register::QrEnable.address_bytes(), 0x01)
+        );
+
+        let serial = commands::enable_serial_output();
+        assert_eq!(
+            serial.as_slice(),
+            &build_set_setting(Register::SerialOutput.address_bytes(), 0xA0)
+        );
+
+        let baud = commands::set_baud_rate(BaudRate::Bps115200);
+        assert_eq!(
+            baud.as_slice(),
+            &build_set_setting_2byte(Register::BaudRate.address_bytes(), [0x1A, 0x00])
+        );
+
+        let raw = commands::enable_raw_mode();
+        assert_eq!(
+            raw.as_slice(),
+            &build_set_setting(Register::RawMode.address_bytes(), 0x08)
+        );
     }
 }

@@ -17,13 +17,6 @@ This driver uses the real GM65 protocol as reverse-engineered from the [specter-
 | `defmt` | No | `defmt::Format` derives on all public types |
 | `hil-tests` | No | Hardware-in-the-loop tests (requires `defmt`) |
 
-### Backward Compatibility
-
-| Feature | Maps To |
-|---------|---------|
-| `embedded-hal` | `sync` |
-| `embedded-hal-async` | `async` |
-
 ## Architecture
 
 ```
@@ -55,10 +48,17 @@ This driver uses the real GM65 protocol as reverse-engineered from the [specter-
 │  │ embedded │               │ embedded   │         │
 │  │ _hal_02  │               │ _io_async  │         │
 │  │ blocking │               │ Read+Write │         │
-│  │ Read+    │               │ (spin-poll │         │
-│  │ Write    │               │  then      │         │
-│  │          │               │  yield)    │         │
+│  │ Read+    │               │            │         │
+│  │ Write    │               │            │         │
 │  └──────────┘               └────────────┘         │
+│                                                      │
+│  ┌──────────┐  ┌──────────────┐                     │
+│  │ decoder  │  │  driver/     │                     │
+│  │  .rs     │  │  types.rs    │                     │
+│  │ (payload │  │ (errors,     │                     │
+│  │  classify│  │  config,     │                     │
+│  │  UR multi)│  │  status)     │                     │
+│  └──────────┘  └──────────────┘                     │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -72,9 +72,6 @@ This driver uses the real GM65 protocol as reverse-engineered from the [specter-
 
 Both traits expose identical semantics — only the execution model differs.
 
-**AsyncUart Bridge Pattern** (see `examples/.../hil_test_async.rs`):
-The async driver wraps embassy-stm32's blocking UART (`Uart<'d, Blocking>`) to implement `embedded_io_async::Read`. The key insight is **spin-polling before yielding** — STM32F4 has a 1-byte RX buffer, so yielding to the executor after every `WouldBlock` causes overruns. The wrapper spins 100k iterations (a few ms at 168MHz) before yielding via `Timer::after_micros(100).await`. See [Issue #7](https://github.com/Amperstrand/gm65-scanner/issues/7) for the full troubleshooting story.
-
 **Settings Register 0x0000 Bit Layout**:
 ```
 Bit 7: ALWAYS_ON      Bit 3: (unused)
@@ -82,69 +79,13 @@ Bit 6: SOUND (buzzer)  Bit 2: LIGHT
 Bit 5: (unused)        Bit 1: Continuous scan (DO NOT USE)
 Bit 4: AIM (laser)     Bit 0: Command-triggered mode (USE THIS)
 ```
-Common value: `0xD1` = ALWAYS_ON | SOUND | AIM | COMMAND
-
-## Example Firmware
-
-The `examples/stm32f469i-disco/` directory contains two complete firmware examples for the STM32F469I-Discovery board:
-
-### Sync Example (`sync-mode` feature)
-
-Polling-based main loop with stm32f4xx-hal. Full-featured:
-
-| Component | Description |
-|-----------|-------------|
-| `main.rs` | Main loop: scanner + USB CDC + HID + touch + display |
-| `cdc.rs` | USB CDC-ACM with typed commands (scan, status, settings) |
-| `hid.rs` | USB HID keyboard wedge + POS barcode scanner |
-| `display.rs` | LCD scan result rendering (embedded-graphics) |
-| `qr_display.rs` | QR code generation and display |
-| `settings.rs` | Touch-based settings UI with toggle buttons |
-
-**Architecture**: Single-threaded polling loop. Each iteration: check scanner → process USB → check touch → update display.
-
-**Build**: `cargo build --release --target thumbv7em-none-eabihf --features sync-mode,defmt`
-
-### Async Example (`scanner-async` feature)
-
-Embassy executor-based with embassy-stm32. Focused on scanner + USB CDC:
-
-| Component | Description |
-|-----------|-------------|
-| `bin/async_firmware.rs` | Three concurrent embassy tasks: scanner, USB CDC, LED |
-| `bin/hil_test_sync.rs` | 5/5 sync HIL tests on hardware |
-| `bin/hil_test_async.rs` | 5/5 async HIL tests on hardware |
-
-**Architecture**: Three concurrent embassy tasks joined with `join3`:
-1. **Scanner task** — Init GM65, loop: trigger → read with 10s timeout → send via Channel
-2. **USB CDC task** — `usb_dev.run()` event loop
-3. **CDC I/O task** — Heartbeat every 3s + forward scan results as `[SCAN] <data>\r\n`
-
-Inter-task communication via `embassy_sync::Channel<CriticalSectionRawMutex, ScanResult, 4>`.
-
-**RCC config**: HSE 8MHz + PLL (VCO=336MHz, SYSCLK=168MHz, USB=48MHz via Q/7). See issue #7 for why 168MHz (not 180MHz) — exact 48MHz USB requires VCO divisible by 48.
-
-**Build**: `cargo build --release --target thumbv7em-none-eabihf --bin async_firmware --features scanner-async,defmt`
-
-### Hardware
-
-| Item | Value |
-|------|-------|
-| Board | STM32F469I-Discovery (STM32F469NIHx, 169-pin TFBGA) |
-| Scanner | GM65/M3Y, firmware v0x87 |
-| UART | USART6, PG14 (TX) / PG9 (RX), AF8, 115200 baud |
-| USB | USB OTG FS, PA12 (DP) / PA11 (DM) |
-| LED | PG6 (green), PD4 (orange), PD5 (red), PK3 (blue) |
-| Display | 480x800 LCD via LTDC + DSI + SDRAM (sync example only) |
-| Touch | FT6X06 on I2C1 (PB8/PB9), interrupt PC1 (sync only) |
-
-**Important**: Embassy chip feature must be `stm32f469ni` (169-pin TFBGA), NOT `stm32f469zg` (144-pin LQFP). The ZG variant doesn't expose PG14.
+Common values: `0x81` = ALWAYS_ON | COMMAND (this driver's default), `0xD1` = ALWAYS_ON | SOUND | AIM | COMMAND (specter-diy default)
 
 ## Usage
 
 ```toml
 [dependencies]
-gm65-scanner = { git = "https://github.com/Amperstrand/gm65-scanner", branch = "feat/async-sync-refactor" }
+gm65-scanner = "0.2"
 ```
 
 ### Sync (blocking)
@@ -167,7 +108,7 @@ if let Some(data) = scanner.try_read_scan() { /* ... */ }
 
 ```toml
 [dependencies]
-gm65-scanner = { git = "...", features = ["async", "defmt"] }
+gm65-scanner = { version = "0.2", features = ["async", "defmt"] }
 ```
 
 ```rust,ignore
@@ -179,73 +120,80 @@ scanner.trigger_scan().await?;
 if let Some(data) = scanner.read_scan().await { /* ... */ }
 ```
 
+## Testing
+
+```bash
+cargo test -p gm65-scanner --lib   # 88 unit tests
+cargo clippy -p gm65-scanner -- -D warnings
+cargo fmt --all -- --check
+```
+
+### Test Coverage
+
+| Module | Tests | What's Covered |
+|--------|-------|----------------|
+| `scanner_core.rs` | 28 | State machine, init sequence, settings, serial output fix |
+| `protocol.rs` | 17 | Command frames, response parsing, register addresses, convenience builders |
+| `buffer.rs` | 15 | Push, clear, EOL detection (\r\n, \r, \n), data stripping, overflow |
+| `decoder.rs` | 20 | Payload classification, UR fragment parsing, multi-part reassembly |
+| `driver/types.rs` | 8 | Display formatting, config defaults, status fields |
+
 ## HIL Tests
 
 The `hil-tests` feature provides on-device tests that verify real hardware behavior.
 
-### Sync (4/5 pass)
+### Sync (5/5 core pass on hardware; QR pending)
 
-```rust,ignore
-use gm65_scanner::Gm65Scanner;
-use gm65_scanner::driver::hil_tests::run_hil_tests;
+| Test | Description |
+|------|-------------|
+| `test_init_detects_scanner` | Scanner initializes, model detected |
+| `test_ping_after_init` | Ping returns true after init |
+| `test_trigger_and_stop` | Trigger ACK, stop ACK, state transitions |
+| `test_read_scan_timeout` | read_scan correctly times out with no QR |
+| `test_state_transitions` | Re-init resets to Ready state |
+| `run_hil_test_with_qr` | Trigger + read real QR code (5s timeout) |
 
-let mut scanner = Gm65Scanner::with_default_config(uart);
-let results = run_hil_tests(&mut scanner);
-```
+### Async (5/5 core + 2/3 extended pass on hardware; QR pending)
 
-| Test | Result |
-|------|--------|
-| `test_init_detects_scanner` | PASS |
-| `test_ping_after_init` | PASS |
-| `test_trigger_and_stop` | FLAKY (timing-sensitive) |
-| `test_read_scan_timeout` | PASS |
-| `test_state_transitions` | PASS |
+Core tests mirror sync. Extended tests:
 
-### Async (5/5 pass)
+| Test | Description | Status |
+|------|-------------|--------|
+| `test_cancel_then_rescan` | Cancel scan via timeout, re-trigger succeeds | PASS |
+| `test_rapid_triggers` | 5 rapid trigger/stop cycles, state remains valid | Known test bug (trigger is idempotent) |
+| `test_read_idle_no_trigger` | read_scan without trigger correctly times out | PASS |
+| `run_hil_test_with_qr` | Trigger + read real QR code with aim laser + LED blink | Pending flash |
 
-```rust,ignore
-use gm65_scanner::Gm65ScannerAsync;
-use gm65_scanner::driver::async_hil_tests::run_hil_tests;
+### drain_uart Protection (#12)
 
-let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
-let results = run_hil_tests(&mut scanner).await;
-```
+Both sync and async drivers skip UART draining when the scanner is in `Scanning` state, preventing in-flight scan data from being silently discarded.
 
-| Test | Result |
-|------|--------|
-| `test_init_detects_scanner` | PASS |
-| `test_ping_after_init` | PASS |
-| `test_trigger_and_stop` | PASS |
-| `test_read_scan_timeout` | PASS |
-| `test_state_transitions` | PASS |
+## Example Firmware
 
-### Interactive QR Test
+The `examples/stm32f469i-disco/` directory contains firmware for the STM32F469I-Discovery board.
 
-Both sync and async drivers provide `run_hil_test_with_qr()` for manual QR verification.
+### Sync (`sync-mode` feature)
 
-## Project Status
+Scanner + USB CDC + LCD display + QR rendering. Polling main loop.
 
-| Milestone | Status | Branch/Commit |
-|-----------|--------|---------------|
-| Phase 1-6: Library, sync driver, full firmware | DONE | `main` |
-| Phase 6.5: HIL tests, settings/touch port | DONE | `feat/async-sync-refactor` |
-| Phase 7: Async driver + embassy firmware | DONE | `feat/async-sync-refactor` |
-| Phase 8: Merge to main, update micronuts | TODO | — |
+### Async (`scanner-async` feature)
 
-### Known Issues
+Scanner + USB CDC + LED + LCD display + QR rendering. Embassy executor with concurrent tasks.
 
-- **`test_trigger_and_stop` flaky in sync** — Scanner may be actively scanning when stop command arrives. Passes reliably in async due to tighter timing.
-- **embassy-stm32 `check_rx_flags()` ORE bug** — On STM32F4 (usart_v2), clearing overrun requires reading SR then DR. Embassy's v2 path only buffers SR and never reads DR. Worked around in AsyncUart wrapper via raw pointer access.
-- **Double buffering breaks USB composite device** — Filed as issue #4, tabled.
+### Hardware
 
-## Testing
+| Item | Value |
+|------|-------|
+| Board | STM32F469I-Discovery (STM32F469NIHx) |
+| Scanner | GM65/M3Y, firmware v0x87 |
+| UART | USART6, PG14 (TX) / PG9 (RX), 115200 baud |
+| USB | USB OTG FS, PA12 (DP) / PA11 (DM) |
 
-```bash
-cargo test                           # Unit tests (protocol, state machine, core logic)
-cargo check --features sync          # Check sync feature (default)
-cargo check --features async         # Check async feature
-cargo check --features hil-tests     # Check HIL tests compile (requires defmt)
-```
+## Known Limitations
+
+- **BarType register (0x002C)**: Write is ACKed but not persisted on GM65 firmware 0.87. Not blocking — QR scanning works regardless.
+- **embassy-stm32 USART6 interrupt**: Must be explicitly disabled when using blocking UART with async wrapper. See `hil_test_async.rs` for the pattern.
+- **Ambient barcode detection**: In COMMAND mode, the scanner may detect random barcodes in the environment. The `read_scan_timeout` test intermittently fails because of this. This is expected behavior.
 
 ## License
 

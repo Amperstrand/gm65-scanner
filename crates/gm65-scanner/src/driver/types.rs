@@ -103,3 +103,71 @@ pub struct ScannerStatus {
     pub config: ScannerConfig,
     pub last_scan_len: Option<usize>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::format;
+
+    #[test]
+    fn test_scanner_model_display() {
+        assert_eq!(format!("{}", ScannerModel::Gm65), "GM65");
+        assert_eq!(format!("{}", ScannerModel::M3Y), "M3Y");
+        assert_eq!(format!("{}", ScannerModel::Generic), "Generic");
+        assert_eq!(format!("{}", ScannerModel::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn test_scanner_error_display() {
+        assert_eq!(
+            format!("{}", ScannerError::NotDetected),
+            "Scanner not detected"
+        );
+        assert_eq!(
+            format!("{}", ScannerError::Timeout),
+            "Communication timeout"
+        );
+        assert_eq!(
+            format!("{}", ScannerError::InvalidResponse),
+            "Invalid response"
+        );
+        assert_eq!(
+            format!("{}", ScannerError::BufferOverflow),
+            "Buffer overflow"
+        );
+        assert_eq!(
+            format!("{}", ScannerError::ConfigFailed),
+            "Configuration failed"
+        );
+        assert_eq!(
+            format!("{}", ScannerError::NotInitialized),
+            "Not initialized"
+        );
+        assert_eq!(format!("{}", ScannerError::UartError), "UART error");
+    }
+
+    #[test]
+    fn test_scanner_config_default() {
+        let config = ScannerConfig::default();
+        assert_eq!(config.model, ScannerModel::Unknown);
+        assert_eq!(config.baud_rate, 9600);
+        assert_eq!(config.mode, ScanMode::CommandTriggered);
+        assert!(config.raw_mode);
+    }
+
+    #[test]
+    fn test_scanner_status_fields() {
+        let config = ScannerConfig::default();
+        let status = ScannerStatus {
+            model: ScannerModel::Gm65,
+            connected: true,
+            initialized: true,
+            config: config.clone(),
+            last_scan_len: Some(42),
+        };
+        assert_eq!(status.model, ScannerModel::Gm65);
+        assert!(status.connected);
+        assert!(status.initialized);
+        assert_eq!(status.last_scan_len, Some(42));
+    }
+}

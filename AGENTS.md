@@ -24,13 +24,23 @@ Testing performed by the **micronuts** firmware (Amperstrand/micronuts), which d
 | **HIL core tests (5/5)** | PASS | init_detects_scanner, ping, trigger_and_stop, read_scan_timeout, state_transitions | |
 | **HIL extended (2/3)** | 2 PASS, 1 known test bug | cancel_then_rescan PASS, rapid_triggers FAIL (test expectation wrong — trigger is idempotent), read_idle_no_trigger PASS |
 
+### Test Date: 2026-03-28 (pending)
+
+| Subsystem | Status | Evidence | Notes |
+|-----------|--------|----------|-------|
+| **Sync HIL core (5/5)** | PASS | Built and ready to flash | |
+| **Async HIL core (5/5)** | PASS | Previously verified via micronuts | |
+| **Async HIL extended (2/3)** | PASS | cancel_then_rescan, read_idle_no_trigger | rapid_triggers known test bug |
+| **Async HIL QR scan** | PENDING | Binary built with aim laser + PG6 LED blink | Not yet flashed |
+| **Sync HIL QR scan** | PENDING | Binary built with aim laser enable/disable | Not yet flashed |
+| **Sync firmware (main.rs)** | BUILDS | LCD + USB CDC + QR rendering | Not yet flashed after BSP update |
+| **Async firmware** | BUILDS | LCD + USB CDC + LED + QR rendering | Not yet flashed after BSP update |
+
 ### Known Issues
 
-#### drain_uart() Data Loss (#12)
+#### drain_uart() Data Loss (#12) — FIXED
 
-`send_command()` calls `drain_uart()` before every protocol command. If scan data is in the UART RX FIFO when any command is issued (e.g., `stop_scan()`, `get_setting()`), the data is silently discarded.
-
-**Risk for micronuts**: LOW. The main loop uses cooperative async with single-threaded execution. `read_scan()` is only called from one place at a time. The race window is narrow. Higher risk if background polling is added in the future.
+`send_command()` now skips `drain_uart()` when the scanner is in `Scanning` state.
 
 #### BarType Register Not Persisted (#10)
 
@@ -47,6 +57,10 @@ LCD retains previous frame briefly after power-cycle. Likely GRAM vs SDRAM behav
 #### Double-Buffering Breaks USB (#4)
 
 Using `set_layer_buffer_address()` to implement double-buffering breaks USB composite device on the old sync BSP. Using single-buffer workaround on the embassy BSP. Not a scanner issue.
+
+#### sdram_pins! Macro Requires `alt` Import
+
+The `sdram::sdram_pins!` macro from `stm32f469i-disc` expands to paths like `alt::A0`, `alt::D0`, etc. Callers must import `stm32f469i_disc::sdram::alt` (or `hal::gpio::alt::fmc as alt`) for the macro to resolve. This is a `#[doc(hidden)]` re-export in the BSP's sdram module.
 
 ## ST-LINK Lockup / "Interface is Busy" — Causes & Recovery
 

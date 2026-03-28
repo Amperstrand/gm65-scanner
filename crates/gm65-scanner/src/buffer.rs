@@ -72,3 +72,142 @@ impl Default for ScanBuffer {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new() {
+        let buf = ScanBuffer::new();
+        assert_eq!(buf.len(), 0);
+        assert!(buf.is_empty());
+        assert_eq!(buf.as_slice(), &[]);
+    }
+
+    #[test]
+    fn test_default() {
+        let buf = ScanBuffer::default();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_push_and_len() {
+        let mut buf = ScanBuffer::new();
+        assert!(buf.push(b'a'));
+        assert_eq!(buf.len(), 1);
+        assert!(!buf.is_empty());
+        assert!(buf.push(b'b'));
+        assert_eq!(buf.len(), 2);
+    }
+
+    #[test]
+    fn test_as_slice() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'h');
+        buf.push(b'i');
+        assert_eq!(buf.as_slice(), &[b'h', b'i']);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'x');
+        buf.push(b'y');
+        buf.clear();
+        assert_eq!(buf.len(), 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_overflow() {
+        let mut buf = ScanBuffer::new();
+        for i in 0..MAX_SCAN_SIZE {
+            assert!(buf.push(i as u8));
+        }
+        assert_eq!(buf.len(), MAX_SCAN_SIZE);
+        assert!(!buf.push(0xFF));
+        assert_eq!(buf.len(), MAX_SCAN_SIZE);
+    }
+
+    #[test]
+    fn test_has_eol_empty() {
+        let buf = ScanBuffer::new();
+        assert!(!buf.has_eol());
+    }
+
+    #[test]
+    fn test_has_eol_crlf() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'd');
+        buf.push(b'\r');
+        buf.push(b'\n');
+        assert!(buf.has_eol());
+    }
+
+    #[test]
+    fn test_has_eol_cr_only() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'd');
+        buf.push(b'\r');
+        assert!(buf.has_eol());
+    }
+
+    #[test]
+    fn test_has_eol_lf_only() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'd');
+        buf.push(b'\n');
+        assert!(buf.has_eol());
+    }
+
+    #[test]
+    fn test_has_eol_no_eol() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'h');
+        buf.push(b'e');
+        buf.push(b'l');
+        buf.push(b'l');
+        buf.push(b'o');
+        assert!(!buf.has_eol());
+    }
+
+    #[test]
+    fn test_data_without_eol_crlf() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'd');
+        buf.push(b'\r');
+        buf.push(b'\n');
+        assert_eq!(buf.data_without_eol(), &[b'd']);
+    }
+
+    #[test]
+    fn test_data_without_eol_cr_only() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'd');
+        buf.push(b'\r');
+        assert_eq!(buf.data_without_eol(), &[b'd']);
+    }
+
+    #[test]
+    fn test_data_without_eol_lf_only() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'd');
+        buf.push(b'\n');
+        assert_eq!(buf.data_without_eol(), &[b'd']);
+    }
+
+    #[test]
+    fn test_data_without_eol_no_eol() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'h');
+        buf.push(b'i');
+        assert_eq!(buf.data_without_eol(), &[b'h', b'i']);
+    }
+
+    #[test]
+    fn test_data_without_eol_empty() {
+        let buf = ScanBuffer::new();
+        assert_eq!(buf.data_without_eol(), &[]);
+    }
+}

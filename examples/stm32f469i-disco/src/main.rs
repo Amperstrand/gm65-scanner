@@ -12,34 +12,27 @@ use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::*}
 use static_cell::ConstStaticCell;
 use stm32f469i_disc::{
     hal,
-    hal::gpio::alt::fmc as alt,
-    hal::ltdc::{Layer, LtdcFramebuffer, PixelFormat},
+    hal::ltdc::{Layer, LtdcFramebuffer},
     hal::pac::{self, CorePeripherals},
     hal::prelude::*,
     hal::rcc,
-    lcd, sdram, touch, usb,
+    lcd, sdram,
+    sdram::alt,
+    usb,
 };
 
 use hal::otg_fs::UsbBus;
 use hal::serial::Serial6;
 use usb_device::prelude::*;
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
-use usbd_hid::hid_class::HIDClass;
 
 use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings, ScannerState};
 
 mod cdc;
 mod display;
-mod hid;
 mod qr_display;
-mod settings;
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
-use hid::{BarcodeScannerReport, KeyboardWedgeState, HID_KBD_POLL_MS, HID_POS_POLL_MS};
-use settings::{
-    draw_settings_entry_button, hit_settings_entry, DeviceSettings, SettingsAction, SettingsScreen,
-};
 
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
 
@@ -62,9 +55,7 @@ fn main() -> ! {
     defmt::info!("GM65 Scanner firmware starting...");
 
     let gpioa = dp.GPIOA.split(&mut rcc);
-    let gpiob = dp.GPIOB.split(&mut rcc);
     let gpioc = dp.GPIOC.split(&mut rcc);
-    let ts_int = gpioc.pc1.into_pull_down_input();
     let gpiod = dp.GPIOD.split(&mut rcc);
     let gpioe = dp.GPIOE.split(&mut rcc);
     let gpiof = dp.GPIOF.split(&mut rcc);
@@ -93,32 +84,34 @@ fn main() -> ! {
         const HEAP_SIZE: usize = 64 * 1024;
         let heap_start = sdram.mem as *mut u8;
         unsafe {
-            let heap_ptr = heap_start.add(lcd::FB_SIZE * 2);
+            let heap_ptr = heap_start.add(lcd::DisplayOrientation::Portrait.fb_size());
             ALLOCATOR.lock().init(heap_ptr as *mut u8, HEAP_SIZE);
         }
     }
 
-    let fb_buffer: &'static mut [u16] =
-        unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem as *mut u16, lcd::FB_SIZE) };
-    let mut fb = LtdcFramebuffer::new(fb_buffer, lcd::WIDTH, lcd::HEIGHT);
+    let orientation = lcd::DisplayOrientation::Portrait;
+    let fb_buffer: &'static mut [u16] = unsafe {
+        &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem as *mut u16, orientation.fb_size())
+    };
+    let mut fb = LtdcFramebuffer::new(fb_buffer, orientation.width(), orientation.height());
 
     defmt::info!("Initializing display...");
 
-    let (mut display_ctrl, _controller) = lcd::init_display_full(
+    let (mut display_ctrl, _controller, _orient) = lcd::init_display_full(
         dp.DSI,
         dp.LTDC,
         dp.DMA2D,
         &mut rcc,
         &mut delay,
         lcd::BoardHint::Unknown,
-        PixelFormat::RGB565,
+        orientation,
     );
 
     fb.clear(Rgb565::CSS_BLACK).ok();
     display::render_status(&mut fb, "Initializing...");
 
     let fb_buffer = fb.into_inner();
-    display_ctrl.config_layer(Layer::L1, fb_buffer, PixelFormat::RGB565);
+    display_ctrl.config_layer(Layer::L1, fb_buffer, hal::ltdc::PixelFormat::RGB565);
     display_ctrl.enable_layer(Layer::L1);
     display_ctrl.reload();
 
@@ -126,13 +119,9 @@ fn main() -> ! {
         .layer_buffer_mut(Layer::L1)
         .expect("layer L1 buffer");
     let fb_buf: &'static mut [u16] = unsafe { core::mem::transmute(fb_ptr) };
-    let mut fb = LtdcFramebuffer::new(fb_buf, lcd::WIDTH, lcd::HEIGHT);
+    let mut fb = LtdcFramebuffer::new(fb_buf, orientation.width(), orientation.height());
 
     defmt::info!("Display initialized");
-
-    defmt::info!("Initializing touch...");
-    let mut touch_i2c = touch::init_i2c(dp.I2C1, gpiob.pb8, gpiob.pb9, &mut rcc);
-    let mut touch_ctrl = touch::init_ft6x06(&touch_i2c, ts_int);
 
     defmt::info!("Initializing USB...");
     let usb_periph = usb::init(
@@ -145,11 +134,8 @@ fn main() -> ! {
     let usb_bus = UsbBus::new(usb_periph, EP_MEMORY.take());
 
     let serial = usbd_serial::SerialPort::new(&usb_bus);
-    let mut hid_keyboard = HIDClass::new_ep_in(&usb_bus, KeyboardReport::desc(), HID_KBD_POLL_MS);
-    let mut hid_pos = HIDClass::new_ep_in(&usb_bus, BarcodeScannerReport::desc(), HID_POS_POLL_MS);
 
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .composite_with_iads()
         .strings(&[StringDescriptors::default()
             .manufacturer("gm65-scanner")
             .product("QR Barcode Scanner")
@@ -226,33 +212,17 @@ fn main() -> ! {
     } else {
         display::render_home(&mut fb, false, model_str);
     }
-    draw_settings_entry_button(&mut fb);
 
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
-    let mut device_settings = DeviceSettings::default();
-    let settings_screen = SettingsScreen::new();
-    let mut in_settings = false;
     let mut auto_scan: bool = scanner_connected;
-    let mut kbd_state = KeyboardWedgeState::default();
-    let mut pos_pending: Option<[u8; 32]> = None;
-    let mut touch_active = false;
 
     loop {
-        if usb_dev.poll(&mut [cdc_port.serial_mut(), &mut hid_keyboard, &mut hid_pos]) {
+        if usb_dev.poll(&mut [cdc_port.serial_mut()]) {
             if let Some(frame) = cdc_port.receive_frame() {
                 if frame.command == Command::SetSettings || frame.command == Command::ScannerTrigger
                 {
                     auto_scan = false;
-                }
-                if frame.command == Command::EnterSettings {
-                    in_settings = true;
-                    auto_scan = false;
-                    scanner.stop_scan();
-                }
-                if frame.command == Command::ScannerTrigger {
-                    last_scan_data = None;
-                    last_scan_len = 0;
                 }
                 let was_auto = auto_scan;
                 auto_scan = false;
@@ -268,66 +238,14 @@ fn main() -> ! {
                 if was_auto {
                     auto_scan = true;
                 }
-                if in_settings {
-                    settings_screen.draw(&mut fb, &device_settings);
-                }
             }
         }
 
-        if in_settings {
-            if let Some(t) = touch_ctrl.as_mut() {
-                let touching = t.td_status(&mut touch_i2c).unwrap_or(0) > 0;
-                if touching && !touch_active {
-                    touch_active = true;
-                    if let Ok(point) = t.get_touch(&mut touch_i2c, 1) {
-                        let action =
-                            settings_screen.handle_touch(point.x, point.y, &mut device_settings);
-                        match action {
-                            SettingsAction::Back => {
-                                in_settings = false;
-                                auto_scan = scanner_connected;
-                                if scanner_connected {
-                                    if let Some(s) = scanner.get_scanner_settings() {
-                                        display::render_scanner_settings(&mut fb, s);
-                                    }
-                                } else {
-                                    display::render_home(&mut fb, false, model_str);
-                                }
-                                draw_settings_entry_button(&mut fb);
-                            }
-                            SettingsAction::Apply(idx) => {
-                                settings_screen.draw_button(&mut fb, idx, &device_settings);
-                            }
-                            SettingsAction::None => {}
-                        }
-                    }
-                } else if !touching {
-                    touch_active = false;
-                }
-            }
-        } else {
-            if let Some(t) = touch_ctrl.as_mut() {
-                let touching = t.td_status(&mut touch_i2c).unwrap_or(0) > 0;
-                if touching && !touch_active {
-                    touch_active = true;
-                    if let Ok(point) = t.get_touch(&mut touch_i2c, 1) {
-                        if hit_settings_entry(point.x, point.y) {
-                            in_settings = true;
-                            auto_scan = false;
-                            scanner.stop_scan();
-                            settings_screen.draw(&mut fb, &device_settings);
-                        }
-                    }
-                } else if !touching {
-                    touch_active = false;
-                }
-            }
-            if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
-                let _ = scanner.trigger_scan();
-            }
+        if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
+            let _ = scanner.trigger_scan();
         }
 
-        if !in_settings {
+        if !scanner.data_ready() {
             for _ in 0..8 {
                 if let Some(data) = scanner.try_read_scan() {
                     defmt::info!("Scan data received: {} bytes", data.len());
@@ -341,23 +259,9 @@ fn main() -> ! {
                     buf[..copy_len].copy_from_slice(&data[..copy_len]);
                     last_scan_data = Some(buf);
                     last_scan_len = copy_len;
-                    kbd_state.start(&buf[..copy_len]);
-                    {
-                        let mut pos_data = [0u8; 32];
-                        let pos_len = copy_len.min(32);
-                        pos_data[..pos_len].copy_from_slice(&buf[..pos_len]);
-                        pos_pending = Some(pos_data);
-                    }
                     break;
                 }
             }
-        }
-
-        kbd_state.send_next(&mut hid_keyboard);
-
-        if let Some(data) = pos_pending.take() {
-            let report = BarcodeScannerReport { barcode_data: data };
-            let _ = hid_pos.push_input(&report);
         }
     }
 }
@@ -377,10 +281,7 @@ fn handle_command(
         Command::GetSettings => handle_get_settings(scanner, fb),
         Command::SetSettings => handle_set_settings(scanner, payload, fb),
         Command::DisplayQr => handle_display_qr(payload, fb),
-        Command::EnterSettings => {
-            defmt::info!("ENTER_SETTINGS");
-            Response::new(Status::Ok)
-        }
+        Command::EnterSettings => Response::new(Status::Ok),
     }
 }
 

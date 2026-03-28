@@ -11,7 +11,7 @@ use cortex_m_rt::entry;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use gm65_scanner::{driver::hil_tests, Gm65Scanner};
+use gm65_scanner::{driver::hil_tests, Gm65Scanner, ScannerSettings};
 use linked_list_allocator::LockedHeap;
 use stm32f469i_disc::{hal::pac, hal::prelude::*, hal::rcc, hal::serial::Serial6};
 
@@ -50,8 +50,26 @@ fn main() -> ! {
 
     if results.all_passed() {
         defmt::info!("All HIL tests passed!");
+
+        defmt::info!("========================================");
+        defmt::info!("QR Scan Test");
+        defmt::info!("========================================");
+        defmt::info!("Present a QR code to the scanner now...");
+
+        let aim_settings =
+            ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND | ScannerSettings::AIM;
+        let _ = scanner.set_scanner_settings(aim_settings);
+        let qr_result = hil_tests::run_hil_test_with_qr(&mut scanner);
+        let _ = scanner.set_scanner_settings(ScannerSettings::default());
+
+        if qr_result {
+            defmt::info!("QR SCAN TEST PASSED!");
+        } else {
+            defmt::error!("QR SCAN TEST FAILED");
+        }
     } else {
         defmt::error!("HIL tests failed: {}/5", results.passed_count());
+        defmt::info!("Skipping QR scan test.");
     }
 
     loop {}

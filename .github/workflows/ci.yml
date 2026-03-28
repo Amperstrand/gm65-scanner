@@ -18,7 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test -p gm65-scanner --lib
 
   check-features:
     name: Check Features
@@ -33,6 +33,28 @@ jobs:
         run: cargo check -p gm65-scanner --features async
       - name: Check defmt
         run: cargo check -p gm65-scanner --features defmt
+      - name: Check async + defmt
+        run: cargo check -p gm65-scanner --features async,defmt
+      - name: Check std
+        run: cargo check -p gm65-scanner --features std
+
+  cross-compile:
+    name: Cross-compile (ARM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      - name: Build sync firmware
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --features sync-mode,defmt
+      - name: Build async firmware
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --features scanner-async,defmt
+      - name: Build sync HIL test
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_sync --features sync-mode,defmt
+      - name: Build async HIL test
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_async --features scanner-async,defmt
 
   lint:
     name: Lint
@@ -46,4 +68,4 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy -p gm65-scanner -- -D warnings

@@ -418,16 +418,15 @@ dependencies = [
 [[package]]
 name = "embassy-stm32f469i-disco"
 version = "0.1.0"
-source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco#6b620e527ef3b463edea5ccf9e606acf8a8ab30d"
+source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=890a4d1#890a4d1e2a9c8af31f45a0c825e244beffb2b304"
 dependencies = [
  "cortex-m",
- "defmt 1.0.1",
  "embassy-stm32",
  "embassy-time",
  "embedded-display-controller",
  "embedded-graphics",
  "embedded-hal 1.0.0",
- "nt35510",
+ "nt35510 0.1.0",
  "stm32-fmc",
 ]
 
@@ -710,12 +709,10 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 [[package]]
 name = "ft6x06"
 version = "0.1.2"
-source = "git+https://github.com/DougAnderson444/ft6x06?rev=cc352f80b12fd985da4c4847771a26ebc03ece62#cc352f80b12fd985da4c4847771a26ebc03ece62"
+source = "git+https://github.com/Amperstrand/ft6x06?rev=2ed36f74d6b52e8ff68533c01a50d81800ae10b4#2ed36f74d6b52e8ff68533c01a50d81800ae10b4"
 dependencies = [
  "cortex-m",
  "embedded-hal 0.2.7",
- "panic-probe 0.2.1",
- "rtt-target",
 ]
 
 [[package]]
@@ -950,6 +947,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nt35510"
+version = "0.2.0"
+source = "git+https://github.com/Amperstrand/nt35510?rev=7d588ef40d94f51f2ed2df33acbb04a920a4ae0b#7d588ef40d94f51f2ed2df33acbb04a920a4ae0b"
+dependencies = [
+ "embedded-display-controller",
+ "embedded-hal 1.0.0",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1040,16 +1046,6 @@ checksum = "e56059a2e83de4409e5fa0854d3ae891b0f949af86c74ccf76a8bffe4ce6dc6d"
 dependencies = [
  "embedded-display-controller",
  "embedded-hal 0.2.7",
-]
-
-[[package]]
-name = "panic-probe"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a0fa226f55c70d0d70ad373802f0d65a775478afec75c0f3eee1de5d39057c9"
-dependencies = [
- "cortex-m",
- "rtt-target",
 ]
 
 [[package]]
@@ -1172,16 +1168,6 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
-
-[[package]]
-name = "rtt-target"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "065d6058bb1204f51a562a67209e1817cf714759d5cf845aa45c75fa7b0b9d9b"
-dependencies = [
- "cortex-m",
- "ufmt-write",
-]
 
 [[package]]
 name = "rustc_version"
@@ -1358,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=fa6dc86#fa6dc86c887da4c6a567981207ebbf69027f880a"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=9f52a58#9f52a582e795bd07b9ecf2aaf7edcf5ef2d4f0f5"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -1367,7 +1353,7 @@ dependencies = [
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "ft6x06",
- "nt35510",
+ "nt35510 0.2.0",
  "otm8009a",
  "stm32-fmc",
  "stm32f4xx-hal",
@@ -1399,22 +1385,21 @@ dependencies = [
  "heapless 0.8.0",
  "linked_list_allocator",
  "nb 1.1.0",
- "nt35510",
- "panic-probe 1.0.0",
+ "nt35510 0.1.0",
+ "panic-probe",
  "qrcodegen-no-heap",
  "static_cell",
  "stm32-fmc",
  "stm32f4",
  "stm32f469i-disc",
  "usb-device",
- "usbd-hid",
  "usbd-serial",
 ]
 
 [[package]]
 name = "stm32f4xx-hal"
 version = "0.23.0"
-source = "git+https://github.com/Amperstrand/stm32f4xx-hal?rev=789e5e86f5d93ae80b2f50e861c3c76980733bca#789e5e86f5d93ae80b2f50e861c3c76980733bca"
+source = "git+https://github.com/Amperstrand/stm32f4xx-hal?rev=b72958b7099878567cf80acf66afe0485b5e8309#b72958b7099878567cf80acf66afe0485b5e8309"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m",
@@ -1603,12 +1588,6 @@ dependencies = [
  "quote",
  "syn 1.0.109",
 ]
-
-[[package]]
-name = "ufmt-write"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e87a2ed6b42ec5e28cc3b94c09982969e9227600b2e3dcbc1db927a84c06bd69"
 
 [[package]]
 name = "unicode-ident"

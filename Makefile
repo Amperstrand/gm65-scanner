@@ -56,14 +56,14 @@ test-sync: build-sync
 	source $(FLASH_HELPERS); \
 	PORT=$$(ensure_flash_ready); \
 	echo "---"; \
-	python3 scripts/cdc-test.py --port "$$PORT" --verbose
+	python3 $(EXAMPLE_DIR)/tests/hil_test.py --port "$$PORT" protocol
 
 test-async: build-async
 	@export BINARY=$(ASYNC_BINARY); \
 	source $(FLASH_HELPERS); \
 	PORT=$$(ensure_flash_ready); \
 	echo "---"; \
-	python3 scripts/cdc-test.py --port "$$PORT" --verbose
+	python3 $(EXAMPLE_DIR)/tests/hil_test.py --port "$$PORT" protocol
 
 # ── Test CDC against already-running firmware ──────────────────────────────
 
@@ -73,7 +73,7 @@ test-cdc:
 	if [[ -z "$$PORT" ]]; then \
 		echo "No CDC device found"; exit 1; \
 	fi; \
-	python3 scripts/cdc-test.py --port "$$PORT" --verbose
+	python3 $(EXAMPLE_DIR)/tests/hil_test.py --port "$$PORT" protocol
 
 # ── Recovery / utility ─────────────────────────────────────────────────────
 

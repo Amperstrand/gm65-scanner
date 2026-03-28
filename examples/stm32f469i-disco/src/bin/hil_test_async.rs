@@ -17,7 +17,11 @@ use panic_probe as _;
 #[cfg(feature = "scanner-async")]
 use embassy_executor::Spawner;
 #[cfg(feature = "scanner-async")]
-use embassy_stm32::{interrupt::InterruptExt, usart, Config};
+use embassy_stm32::{
+    gpio::{Level, Output, Speed},
+    interrupt::InterruptExt,
+    usart, Config,
+};
 #[cfg(feature = "scanner-async")]
 use embassy_time::Timer;
 #[cfg(feature = "scanner-async")]
@@ -25,7 +29,7 @@ use embedded_hal_02::blocking::serial::Write as _;
 #[cfg(feature = "scanner-async")]
 use embedded_io::ErrorType;
 #[cfg(feature = "scanner-async")]
-use gm65_scanner::{driver::async_hil_tests as hil_tests, Gm65ScannerAsync};
+use gm65_scanner::{driver::async_hil_tests as hil_tests, Gm65ScannerAsync, ScannerSettings};
 #[cfg(feature = "scanner-async")]
 use linked_list_allocator::LockedHeap;
 
@@ -135,6 +139,16 @@ impl<'d> embedded_io_async::Write for AsyncUart<'d> {
 }
 
 #[cfg(feature = "scanner-async")]
+async fn blink_led(led: &mut Output<'_>, count: u32, on_ms: u64, off_ms: u64) {
+    for _ in 0..count {
+        led.set_low();
+        Timer::after_millis(on_ms).await;
+        led.set_high();
+        Timer::after_millis(off_ms).await;
+    }
+}
+
+#[cfg(feature = "scanner-async")]
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     unsafe {
@@ -158,24 +172,63 @@ async fn main(_spawner: Spawner) {
     let async_uart = AsyncUart { inner: uart };
     let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 
+    let mut led = Output::new(p.PG6, Level::High, Speed::Low);
+
     let results = hil_tests::run_hil_tests(&mut scanner).await;
 
     if results.all_passed() {
         defmt::info!("All async HIL tests passed!");
     } else {
         defmt::error!("Async HIL tests: {}/5 passed", results.passed_count());
+        defmt::info!("Skipping QR scan test.");
+        defmt::info!("Done. Looping forever.");
+        loop {}
     }
 
-    if results.all_passed() {
-        defmt::info!("========================================");
-        defmt::info!("QR Scan Test - present QR code now!");
-        defmt::info!("========================================");
-        let qr_result = hil_tests::run_hil_test_with_qr(&mut scanner).await;
-        if qr_result {
-            defmt::info!("QR SCAN TEST PASSED!");
-        } else {
-            defmt::error!("QR SCAN TEST FAILED");
+    // Enable aim laser so user can see when to scan
+    let aim_settings = ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND | ScannerSettings::AIM;
+    if scanner.set_scanner_settings(aim_settings).await {
+        defmt::info!("Aim laser enabled - point at QR code now!");
+    } else {
+        defmt::warn!("Failed to enable aim laser");
+    }
+
+    defmt::info!("========================================");
+    defmt::info!("QR Scan Test");
+    defmt::info!("========================================");
+    defmt::info!("Aim laser is ON. Point scanner at QR code.");
+    defmt::info!("You have 10 seconds. LED blinks fast while waiting.");
+    defmt::info!("On success: LED blinks fast 3 times.");
+
+    // Blink fast while waiting for scan
+    let qr_result = {
+        let led_task = async {
+            loop {
+                led.set_low();
+                Timer::after_millis(100).await;
+                led.set_high();
+                Timer::after_millis(100).await;
+            }
+        };
+        let scan_task = hil_tests::run_hil_test_with_qr(&mut scanner);
+
+        match embassy_futures::select::select(scan_task, led_task).await {
+            embassy_futures::select::Either::First(result) => result,
+            embassy_futures::select::Either::Second(_) => unreachable!(),
         }
+    };
+
+    // Restore original settings (disable aim)
+    let _ = scanner
+        .set_scanner_settings(ScannerSettings::default())
+        .await;
+
+    if qr_result {
+        defmt::info!("QR SCAN TEST PASSED!");
+        blink_led(&mut led, 3, 100, 100).await;
+    } else {
+        defmt::error!("QR SCAN TEST FAILED");
+        blink_led(&mut led, 1, 500, 500).await;
     }
 
     defmt::info!("Done. Looping forever.");
@@ -183,7 +236,11 @@ async fn main(_spawner: Spawner) {
 }
 
 #[cfg(not(feature = "scanner-async"))]
+use cortex_m_rt::entry;
+#[cfg(not(feature = "scanner-async"))]
 use defmt_rtt as _;
+#[cfg(not(feature = "scanner-async"))]
+use panic_probe as _;
 
 #[cfg(not(feature = "scanner-async"))]
 #[entry]
