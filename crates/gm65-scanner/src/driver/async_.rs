@@ -89,7 +89,7 @@ impl<UART> Gm65ScannerAsync<UART> {
     {
         self.get_setting(Register::Settings)
             .await
-            .and_then(|v| ScannerSettings::from_bits(v))
+            .and_then(ScannerSettings::from_bits)
     }
 
     /// Set scanner settings from bitflags.
@@ -222,15 +222,12 @@ impl<UART> Gm65ScannerAsync<UART> {
             let mut result = None;
             for _attempt in 0..3u32 {
                 self.drain_uart().await;
-                match self.get_setting(Register::SerialOutput).await {
-                    Some(v) => {
-                        result = Some(v);
-                        break;
-                    }
-                    None => {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("SerialOutput read failed, retry...");
-                    }
+                if let Some(v) = self.get_setting(Register::SerialOutput).await {
+                    result = Some(v);
+                    break;
+                } else {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("SerialOutput read failed, retry...");
                 }
             }
             match result {

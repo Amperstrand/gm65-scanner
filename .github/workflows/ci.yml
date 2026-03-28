@@ -37,6 +37,8 @@ jobs:
         run: cargo check -p gm65-scanner --features async,defmt
       - name: Check std
         run: cargo check -p gm65-scanner --features std
+      - name: Check all features
+        run: cargo check -p gm65-scanner --all-features
 
   cross-compile:
     name: Cross-compile (ARM)
@@ -67,5 +69,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Clippy
+      - name: Clippy (sync, default)
         run: cargo clippy -p gm65-scanner -- -D warnings
+      - name: Clippy (async)
+        run: cargo clippy -p gm65-scanner --features async -- -D warnings
+      - name: Clippy (async + defmt)
+        run: cargo clippy -p gm65-scanner --features async,defmt -- -D warnings
+      - name: Clippy (std)
+        run: cargo clippy -p gm65-scanner --features std -- -D warnings
+
+  publish-dry-run:
+    name: Publish dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify manifest
+        run: |
+          cd crates/gm65-scanner
+          cargo check --all-features
+          echo "NOTE: Full publish dry-run cannot run in this workspace because the"
+          echo "example firmware pins embassy to a git rev that conflicts with"
+          echo "crates.io embassy-time versions. Publish from an isolated environment."
