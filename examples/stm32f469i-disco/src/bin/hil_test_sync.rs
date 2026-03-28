@@ -7,11 +7,12 @@
 
 extern crate alloc;
 
+use cortex_m::asm::delay;
 use cortex_m_rt::entry;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use gm65_scanner::{driver::hil_tests, Gm65Scanner, ScannerSettings};
+use gm65_scanner::{driver::hil_tests, Gm65Scanner, ScannerDriverSync, ScannerSettings};
 use linked_list_allocator::LockedHeap;
 use stm32f469i_disc::{hal::pac, hal::prelude::*, hal::rcc, hal::serial::Serial6};
 
@@ -55,18 +56,31 @@ fn main() -> ! {
         defmt::info!("QR Scan Test");
         defmt::info!("========================================");
         defmt::info!("Present a QR code to the scanner now...");
+        defmt::info!("You have 5 seconds. Aim laser is ON.");
 
         let aim_settings =
             ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND | ScannerSettings::AIM;
         let _ = scanner.set_scanner_settings(aim_settings);
-        let qr_result = hil_tests::run_hil_test_with_qr(&mut scanner);
-        let _ = scanner.set_scanner_settings(ScannerSettings::default());
 
-        if qr_result {
-            defmt::info!("QR SCAN TEST PASSED!");
-        } else {
+        let max_retries: u32 = 50;
+        let mut qr_result = false;
+        for i in 0..max_retries {
+            let _ = scanner.trigger_scan();
+            if let Some(_data) = scanner.read_scan() {
+                defmt::info!("QR SCAN TEST PASSED!");
+                qr_result = true;
+                break;
+            }
+            if i < max_retries - 1 {
+                delay(100 * 180_000);
+            }
+        }
+
+        if !qr_result {
             defmt::error!("QR SCAN TEST FAILED");
         }
+
+        let _ = scanner.set_scanner_settings(ScannerSettings::default());
     } else {
         defmt::error!("HIL tests failed: {}/5", results.passed_count());
         defmt::info!("Skipping QR scan test.");
