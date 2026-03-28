@@ -50,13 +50,13 @@ jobs:
           targets: thumbv7em-none-eabihf
       - uses: Swatinem/rust-cache@v2
       - name: Build sync firmware
-        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --features sync-mode,defmt
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin stm32f469i-disco-scanner --features sync-mode,defmt
       - name: Build async firmware
-        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --features scanner-async,defmt
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin async_firmware --no-default-features --features scanner-async,defmt
       - name: Build sync HIL test
         run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_sync --features sync-mode,defmt
       - name: Build async HIL test
-        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_async --features scanner-async,defmt
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_async --no-default-features --features scanner-async,defmt
 
   lint:
     name: Lint
