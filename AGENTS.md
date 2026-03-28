@@ -8,7 +8,7 @@ All testing performed on STM32F469I-Discovery board with GM65 module connected v
 
 | Commit | Notes |
 |--------|-------|
-| `85734ba` (main HEAD) | Extended HIL tests (drain/cancel/rapid-trigger/idle). **Used by micronuts firmware** |
+| `f1d694d` (main HEAD) | Full HIL verification: sync 6/6, async 9/9, QR scans on both |
 
 ### Test Date: 2026-03-26
 
@@ -24,17 +24,34 @@ Testing performed by the **micronuts** firmware (Amperstrand/micronuts), which d
 | **HIL core tests (5/5)** | PASS | init_detects_scanner, ping, trigger_and_stop, read_scan_timeout, state_transitions | |
 | **HIL extended (2/3)** | 2 PASS, 1 known test bug | cancel_then_rescan PASS, rapid_triggers FAIL (test expectation wrong — trigger is idempotent), read_idle_no_trigger PASS |
 
-### Test Date: 2026-03-28 (pending)
+### Test Date: 2026-03-28
 
-| Subsystem | Status | Evidence | Notes |
-|-----------|--------|----------|-------|
-| **Sync HIL core (5/5)** | PASS | Built and ready to flash | |
-| **Async HIL core (5/5)** | PASS | Previously verified via micronuts | |
-| **Async HIL extended (2/3)** | PASS | cancel_then_rescan, read_idle_no_trigger | rapid_triggers known test bug |
-| **Async HIL QR scan** | PENDING | Binary built with aim laser + PG6 LED blink | Not yet flashed |
-| **Sync HIL QR scan** | PENDING | Binary built with aim laser enable/disable | Not yet flashed |
-| **Sync firmware (main.rs)** | BUILDS | LCD + USB CDC + QR rendering | Not yet flashed after BSP update |
-| **Async firmware** | BUILDS | LCD + USB CDC + LED + QR rendering | Not yet flashed after BSP update |
+Native HIL test binaries (not via micronuts). Both sync and async drivers verified end-to-end with real QR code scans.
+
+#### Async HIL: 9/9 PASS
+
+| Test | Status | Evidence |
+|------|--------|----------|
+| init_detects_scanner | PASS | GM65 detected, fw 0x87, settings 0x81 |
+| ping_after_init | PASS | ACK received |
+| trigger_and_stop | PASS | Trigger ACK, stop ACK |
+| read_scan_timeout | PASS | Ambient barcode tolerated (scanner working correctly) |
+| state_transitions | PASS | Re-init resets to Ready |
+| cancel_then_rescan | PASS | Cancel + re-trigger, 25 bytes from rescan |
+| rapid_triggers | PASS | 5 rapid trigger/stop cycles, state Error(Timeout) |
+| read_idle_no_trigger | PASS | Correctly times out without trigger |
+| **run_hil_test_with_qr** | **PASS** | **25 bytes scanned with aim laser + PG6 LED blink** |
+
+#### Sync HIL: 6/6 PASS
+
+| Test | Status | Evidence |
+|------|--------|----------|
+| init_detects_scanner | PASS | GM65 detected, fw 0x87, settings 0x81 |
+| ping_after_init | PASS | ACK received |
+| trigger_and_stop | PASS | Trigger ACK, stop ACK |
+| read_scan_timeout | PASS | Ambient barcode tolerated |
+| state_transitions | PASS | Re-init resets to Ready |
+| **run_hil_test_with_qr** | **PASS** | **Scanned with aim laser, 50-retry loop (5s window)** |
 
 ### Known Issues
 

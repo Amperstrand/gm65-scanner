@@ -17,6 +17,26 @@ This driver uses the real GM65 protocol as reverse-engineered from the [specter-
 | `defmt` | No | `defmt::Format` derives on all public types |
 | `hil-tests` | No | Hardware-in-the-loop tests (requires `defmt`) |
 
+## Sync vs Async
+
+Both drivers share `ScannerCore` — the same state machine, protocol logic, and buffer handling. The I/O layer is the only difference.
+
+### `Gm65Scanner<UART>` (sync)
+
+- Uses `embedded-hal 0.2` blocking `Read`/`Write` traits
+- All methods are plain `fn` — no executor needed
+- `read_scan()` uses a tight spin-loop that completes in ~1-2ms at 180MHz
+- Best for simple polling firmware or HIL test binaries
+
+### `Gm65ScannerAsync<UART>` (async)
+
+- Uses `embedded-io-async` async `Read`/`Write` traits
+- Methods are `async fn` with RPITIT — requires an executor (embassy)
+- Timeouts via `embassy_time::with_timeout` (real wall-clock deadlines)
+- Best for firmware with concurrent tasks (USB + display + scanner)
+
+**Recommendation**: Use async if your firmware already uses embassy. The wall-clock timeouts make human-interaction scanning natural (e.g., 5-second QR scan window). The sync driver's spin-loop timeout is too fast for human interaction without a retry loop.
+
 ## Architecture
 
 ```
@@ -34,8 +54,8 @@ This driver uses the real GM65 protocol as reverse-engineered from the [specter-
 │              ┌────────┴────────┐                    │
 │              │  driver/traits  │                    │
 │              │     .rs        │                    │
-│              │ (ScannerDriver │                    │
-│              │  Sync + Driver) │                    │
+│              │ (ScannerDriverSync│                  │
+│              │  + ScannerDriver)│                   │
 │              └──┬─────────┬───┘                    │
 │                 │         │                        │
 │       ┌─────────┘         └─────────┐              │
@@ -91,16 +111,13 @@ gm65-scanner = "0.2"
 ### Sync (blocking)
 
 ```rust,ignore
-use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerConfig};
+use gm65_scanner::{Gm65Scanner, ScannerDriverSync};
 
 let mut scanner = Gm65Scanner::with_default_config(uart);
 scanner.init()?;
 scanner.trigger_scan()?;
 
-// Blocking read
 if let Some(data) = scanner.read_scan() { /* ... */ }
-
-// Non-blocking: call repeatedly in main loop
 if let Some(data) = scanner.try_read_scan() { /* ... */ }
 ```
 
@@ -112,7 +129,7 @@ gm65-scanner = { version = "0.2", features = ["async", "defmt"] }
 ```
 
 ```rust,ignore
-use gm65_scanner::{Gm65ScannerAsync, ScannerDriver, ScannerConfig};
+use gm65_scanner::{Gm65ScannerAsync, ScannerDriver};
 
 let mut scanner = Gm65ScannerAsync::with_default_config(uart);
 scanner.init().await?;
@@ -142,31 +159,34 @@ cargo fmt --all -- --check
 
 The `hil-tests` feature provides on-device tests that verify real hardware behavior.
 
-### Sync (5/5 core pass on hardware; QR pending)
+### Sync: 6/6 PASS on hardware
 
 | Test | Description |
 |------|-------------|
 | `test_init_detects_scanner` | Scanner initializes, model detected |
 | `test_ping_after_init` | Ping returns true after init |
 | `test_trigger_and_stop` | Trigger ACK, stop ACK, state transitions |
-| `test_read_scan_timeout` | read_scan correctly times out with no QR |
+| `test_read_scan_timeout` | read_scan times out (ambient barcode tolerated) |
 | `test_state_transitions` | Re-init resets to Ready state |
-| `run_hil_test_with_qr` | Trigger + read real QR code (5s timeout) |
+| `run_hil_test_with_qr` | Trigger + read real QR code (5s retry loop, aim laser) |
 
-### Async (5/5 core + 2/3 extended pass on hardware; QR pending)
+### Async: 9/9 PASS on hardware
 
-Core tests mirror sync. Extended tests:
+| Test | Description |
+|------|-------------|
+| `test_init_detects_scanner` | Scanner initializes, model detected |
+| `test_ping_after_init` | Ping returns true after init |
+| `test_trigger_and_stop` | Trigger ACK, stop ACK, state transitions |
+| `test_read_scan_timeout` | read_scan times out (ambient barcode tolerated) |
+| `test_state_transitions` | Re-init resets to Ready state |
+| `test_cancel_then_rescan` | Cancel scan, re-trigger succeeds |
+| `test_rapid_triggers` | 5 rapid trigger/stop cycles |
+| `test_read_idle_no_trigger` | read_scan without trigger times out |
+| `run_hil_test_with_qr` | Trigger + read QR code (5s timeout, aim laser + LED blink) |
 
-| Test | Description | Status |
-|------|-------------|--------|
-| `test_cancel_then_rescan` | Cancel scan via timeout, re-trigger succeeds | PASS |
-| `test_rapid_triggers` | 5 rapid trigger/stop cycles, state remains valid | Known test bug (trigger is idempotent) |
-| `test_read_idle_no_trigger` | read_scan without trigger correctly times out | PASS |
-| `run_hil_test_with_qr` | Trigger + read real QR code with aim laser + LED blink | Pending flash |
+### drain_uart Protection
 
-### drain_uart Protection (#12)
-
-Both sync and async drivers skip UART draining when the scanner is in `Scanning` state, preventing in-flight scan data from being silently discarded.
+Both drivers skip UART draining when in `Scanning` state, preventing in-flight scan data loss.
 
 ## Example Firmware
 
@@ -193,7 +213,8 @@ Scanner + USB CDC + LED + LCD display + QR rendering. Embassy executor with conc
 
 - **BarType register (0x002C)**: Write is ACKed but not persisted on GM65 firmware 0.87. Not blocking — QR scanning works regardless.
 - **embassy-stm32 USART6 interrupt**: Must be explicitly disabled when using blocking UART with async wrapper. See `hil_test_async.rs` for the pattern.
-- **Ambient barcode detection**: In COMMAND mode, the scanner may detect random barcodes in the environment. The `read_scan_timeout` test intermittently fails because of this. This is expected behavior.
+- **Ambient barcode detection**: In COMMAND mode, the scanner may detect random barcodes in the environment. HIL timeout tests tolerate this as a pass condition.
+- **Sync read_scan timeout**: The spin-loop completes in ~1-2ms, too fast for human QR scanning. Use a retry loop with `cortex_m::asm::delay` in test code, or prefer the async driver.
 
 ## License
 

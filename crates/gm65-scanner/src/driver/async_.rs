@@ -580,7 +580,9 @@ pub mod hil_tests {
         if timed_out {
             matches!(scanner.state(), ScannerState::Error(ScannerError::Timeout))
         } else {
-            defmt::warn!("HIL: read_scan_timeout: ambient barcode detected (scanner working, not a failure)");
+            defmt::warn!(
+                "HIL: read_scan_timeout: ambient barcode detected (scanner working, not a failure)"
+            );
             true
         }
     }
