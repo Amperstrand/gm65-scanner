@@ -155,6 +155,10 @@ impl UrDecoder {
     pub fn feed(&mut self, data: &[u8]) -> Option<Vec<u8>> {
         let fragment = parse_ur_fragment(data)?;
 
+        if fragment.index == 0 {
+            return None;
+        }
+
         if self.total.is_none() {
             self.total = Some(fragment.total);
             self.hash = Some(fragment.hash.clone());
@@ -386,5 +390,22 @@ mod tests {
         let result = decoder.feed(b"ur:bytes/1-2/hash1/part-a");
         assert!(result.is_none());
         assert_eq!(decoder.progress(), (1, 2));
+    }
+
+    #[test]
+    fn test_ur_decoder_index_zero_rejected() {
+        let mut decoder = UrDecoder::new();
+        let result = decoder.feed(b"ur:bytes/0-3/hash1/part-a");
+        assert!(result.is_none());
+        assert!(!decoder.is_active());
+    }
+
+    #[test]
+    fn test_ur_decoder_mismatched_total_ignored() {
+        let mut decoder = UrDecoder::new();
+        decoder.feed(b"ur:bytes/1-3/hash1/part-a");
+        let result = decoder.feed(b"ur:bytes/2-5/hash1/part-b");
+        assert!(result.is_none());
+        assert_eq!(decoder.progress(), (2, 3));
     }
 }
