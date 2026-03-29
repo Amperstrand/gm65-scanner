@@ -1,7 +1,9 @@
+#[cfg(not(feature = "scanner-async"))]
 use stm32f469i_disc::hal::otg_fs::UsbBusType;
 
 pub const MAX_PAYLOAD_SIZE: usize = 256;
 
+#[cfg(not(feature = "scanner-async"))]
 const RX_BUF_SIZE: usize = 3 + MAX_PAYLOAD_SIZE;
 
 #[repr(u8)]
@@ -81,6 +83,7 @@ impl Frame {
     }
 }
 
+#[cfg(not(feature = "scanner-async"))]
 #[derive(Debug, Clone)]
 pub struct Response {
     pub status: Status,
@@ -88,6 +91,7 @@ pub struct Response {
     pub payload: [u8; MAX_PAYLOAD_SIZE],
 }
 
+#[cfg(not(feature = "scanner-async"))]
 impl Response {
     pub fn new(status: Status) -> Self {
         Self {
@@ -215,12 +219,14 @@ impl Default for FrameDecoder {
     }
 }
 
+#[cfg(not(feature = "scanner-async"))]
 pub struct CdcPort<'a> {
     serial: usbd_serial::SerialPort<'a, UsbBusType>,
     decoder: FrameDecoder,
     tx_buf: [u8; RX_BUF_SIZE],
 }
 
+#[cfg(not(feature = "scanner-async"))]
 impl<'a> CdcPort<'a> {
     pub fn new(serial: usbd_serial::SerialPort<'a, UsbBusType>) -> Self {
         Self {

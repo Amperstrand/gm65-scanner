@@ -57,3 +57,6 @@ pub use async_::Gm65ScannerAsync;
 
 #[cfg(all(feature = "async", feature = "hil-tests"))]
 pub use async_::hil_tests as async_hil_tests;
+
+#[cfg(all(feature = "async", feature = "hil-tests"))]
+pub use async_::run_extended_hil_tests;

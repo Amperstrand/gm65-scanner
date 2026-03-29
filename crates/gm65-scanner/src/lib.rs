@@ -58,7 +58,6 @@ pub mod decoder;
 pub mod driver;
 pub mod protocol;
 pub mod scanner_core;
-pub mod state_machine;
 
 pub use buffer::ScanBuffer;
 pub use decoder::{
@@ -74,7 +73,7 @@ pub use protocol::{
     build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register, RESPONSE_LEN,
     RESPONSE_PREFIX,
 };
-pub use state_machine::ScannerSettings;
+pub use scanner_core::ScannerSettings;
 
 // Re-export scanner core types
 #[cfg(feature = "hil-tests")]

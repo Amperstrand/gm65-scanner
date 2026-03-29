@@ -28,8 +28,15 @@ use usb_device::prelude::*;
 use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings, ScannerState};
 
 mod cdc;
-mod display;
-mod qr_display;
+mod display_utils;
+mod display {
+    const DISPLAY_CENTER_X: i32 = 400;
+    const DISPLAY_MAX_Y: u32 = 480;
+    include!("display.rs");
+}
+mod qr_display {
+    include!("qr_display.rs");
+}
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;

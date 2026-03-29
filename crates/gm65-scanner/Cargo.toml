@@ -40,7 +40,6 @@ embassy-time = { workspace = true, optional = true }
 bitflags = "2.6"
 
 [dev-dependencies]
-embedded-hal-mock = "0.10"
 
 [package.metadata.docs.rs]
 all-features = true

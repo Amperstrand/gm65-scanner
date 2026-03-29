@@ -1,22 +1,22 @@
 use embedded_graphics::{
+    draw_target::DrawTarget,
     mono_font::{ascii::FONT_10X20, MonoTextStyle},
     pixelcolor::Rgb565,
     prelude::*,
     text::{Alignment, Text, TextStyleBuilder},
 };
-use stm32f469i_disc::hal::ltdc::LtdcFramebuffer;
 
 use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings};
 
-pub const HEIGHT: u32 = 480;
+use crate::display_utils::{format_byte, format_u32_len, truncate_str};
 
-pub fn render_status(fb: &mut LtdcFramebuffer<u16>, message: &str) {
-    fb.clear(Rgb565::BLACK).ok();
+pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
+    let _ = fb.clear(Rgb565::BLACK);
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
         truncate_str(message, 60),
-        Point::new(400, 240),
+        Point::new(DISPLAY_CENTER_X, 240),
         style,
         center_text,
     )
@@ -24,8 +24,8 @@ pub fn render_status(fb: &mut LtdcFramebuffer<u16>, message: &str) {
     .ok();
 }
 
-pub fn render_home(fb: &mut LtdcFramebuffer<u16>, scanner_connected: bool, model: &str) {
-    fb.clear(Rgb565::BLACK).ok();
+pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: bool, model: &str) {
+    let _ = fb.clear(Rgb565::BLACK);
 
     let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
@@ -33,13 +33,23 @@ pub fn render_home(fb: &mut LtdcFramebuffer<u16>, scanner_connected: bool, model
     let err_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_RED);
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
 
-    Text::with_text_style("QR Scanner", Point::new(400, 80), title_style, center_text)
-        .draw(fb)
-        .ok();
+    Text::with_text_style(
+        "QR Scanner",
+        Point::new(DISPLAY_CENTER_X, 80),
+        title_style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
 
-    Text::with_text_style("Ready", Point::new(400, 120), style, center_text)
-        .draw(fb)
-        .ok();
+    Text::with_text_style(
+        "Ready",
+        Point::new(DISPLAY_CENTER_X, 120),
+        style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
 
     Text::new("Scanner:", Point::new(20, 200), style)
         .draw(fb)
@@ -57,7 +67,7 @@ pub fn render_home(fb: &mut LtdcFramebuffer<u16>, scanner_connected: bool, model
 
     Text::with_text_style(
         "Scan a QR code or send USB command...",
-        Point::new(400, 350),
+        Point::new(DISPLAY_CENTER_X, 350),
         style,
         center_text,
     )
@@ -65,17 +75,22 @@ pub fn render_home(fb: &mut LtdcFramebuffer<u16>, scanner_connected: bool, model
     .ok();
 }
 
-pub fn render_error(fb: &mut LtdcFramebuffer<u16>, message: &str) {
-    fb.clear(Rgb565::BLACK).ok();
+pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
+    let _ = fb.clear(Rgb565::BLACK);
     let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::RED);
     let msg_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
-    Text::with_text_style("ERROR", Point::new(400, 200), title_style, center_text)
-        .draw(fb)
-        .ok();
+    Text::with_text_style(
+        "ERROR",
+        Point::new(DISPLAY_CENTER_X, 200),
+        title_style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
     Text::with_text_style(
         truncate_str(message, 60),
-        Point::new(400, 240),
+        Point::new(DISPLAY_CENTER_X, 240),
         msg_style,
         center_text,
     )
@@ -83,8 +98,11 @@ pub fn render_error(fb: &mut LtdcFramebuffer<u16>, message: &str) {
     .ok();
 }
 
-pub fn render_scanner_settings(fb: &mut LtdcFramebuffer<u16>, settings: ScannerSettings) {
-    fb.clear(Rgb565::BLACK).ok();
+pub fn render_scanner_settings(
+    fb: &mut impl DrawTarget<Color = Rgb565>,
+    settings: ScannerSettings,
+) {
+    let _ = fb.clear(Rgb565::BLACK);
 
     let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
     let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_YELLOW);
@@ -94,7 +112,7 @@ pub fn render_scanner_settings(fb: &mut LtdcFramebuffer<u16>, settings: ScannerS
 
     Text::with_text_style(
         "Scanner Settings",
-        Point::new(400, 30),
+        Point::new(DISPLAY_CENTER_X, 30),
         title_style,
         TextStyleBuilder::new().alignment(Alignment::Center).build(),
     )
@@ -192,35 +210,13 @@ pub fn render_scanner_settings(fb: &mut LtdcFramebuffer<u16>, settings: ScannerS
         .ok();
 }
 
-fn draw_toggle(
-    fb: &mut LtdcFramebuffer<u16>,
-    x_label: i32,
-    x_value: i32,
-    y: i32,
-    name: &str,
-    enabled: bool,
-    label_style: &MonoTextStyle<'_, Rgb565>,
-    on_style: &MonoTextStyle<'_, Rgb565>,
-    off_style: &MonoTextStyle<'_, Rgb565>,
-) {
-    Text::new(name, Point::new(x_label, y), *label_style)
-        .draw(fb)
-        .ok();
-    let (text, style) = if enabled {
-        ("ON", *on_style)
-    } else {
-        ("OFF", *off_style)
-    };
-    Text::new(text, Point::new(x_value, y), style).draw(fb).ok();
-}
-
-pub fn render_scan_result(fb: &mut LtdcFramebuffer<u16>, data: &[u8]) {
+pub fn render_scan_result(fb: &mut impl DrawTarget<Color = Rgb565>, data: &[u8]) {
     let payload = gm65_scanner::decode_payload(data);
     render_decoded_scan(fb, &payload);
 }
 
-pub fn render_decoded_scan(fb: &mut LtdcFramebuffer<u16>, payload: &DecodedPayload) {
-    fb.clear(Rgb565::BLACK).ok();
+pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &DecodedPayload) {
+    let _ = fb.clear(Rgb565::BLACK);
 
     let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
     let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_YELLOW);
@@ -229,12 +225,17 @@ pub fn render_decoded_scan(fb: &mut LtdcFramebuffer<u16>, payload: &DecodedPaylo
     let dim_style = MonoTextStyle::new(&FONT_10X20, Rgb565::new(0x40, 0x40, 0x40));
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
 
-    Text::with_text_style("Scan Result", Point::new(400, 30), title_style, center_text)
-        .draw(fb)
-        .ok();
+    Text::with_text_style(
+        "Scan Result",
+        Point::new(DISPLAY_CENTER_X, 30),
+        title_style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
 
-    let type_name = type_name(&payload.payload_type);
-    Text::with_text_style(type_name, Point::new(400, 60), ok_style, center_text)
+    let tn = type_name(&payload.payload_type);
+    Text::with_text_style(tn, Point::new(DISPLAY_CENTER_X, 60), ok_style, center_text)
         .draw(fb)
         .ok();
 
@@ -302,8 +303,30 @@ pub fn render_decoded_scan(fb: &mut LtdcFramebuffer<u16>, payload: &DecodedPaylo
     }
 }
 
+fn draw_toggle(
+    fb: &mut impl DrawTarget<Color = Rgb565>,
+    x_label: i32,
+    x_value: i32,
+    y: i32,
+    name: &str,
+    enabled: bool,
+    label_style: &MonoTextStyle<'_, Rgb565>,
+    on_style: &MonoTextStyle<'_, Rgb565>,
+    off_style: &MonoTextStyle<'_, Rgb565>,
+) {
+    Text::new(name, Point::new(x_label, y), *label_style)
+        .draw(fb)
+        .ok();
+    let (text, style) = if enabled {
+        ("ON", *on_style)
+    } else {
+        ("OFF", *off_style)
+    };
+    Text::new(text, Point::new(x_value, y), style).draw(fb).ok();
+}
+
 fn render_raw_data(
-    fb: &mut LtdcFramebuffer<u16>,
+    fb: &mut impl DrawTarget<Color = Rgb565>,
     raw: &[u8],
     start_y: u32,
     label_style: &MonoTextStyle<'_, Rgb565>,
@@ -320,12 +343,15 @@ fn render_raw_data(
     let data_str = core::str::from_utf8(raw).unwrap_or("<binary data>");
     let chars_per_line = 76;
     let mut offset = 0;
-    while offset < data_str.len() && y < HEIGHT - 20 {
+    while offset < data_str.len() && y < DISPLAY_MAX_Y - 20 {
         let end = core::cmp::min(offset + chars_per_line, data_str.len());
-        let line = &data_str[offset..end];
-        Text::new(line, Point::new(20, y as i32), *value_style)
-            .draw(fb)
-            .ok();
+        Text::new(
+            &data_str[offset..end],
+            Point::new(20, y as i32),
+            *value_style,
+        )
+        .draw(fb)
+        .ok();
         offset = end;
         y += 22;
     }
@@ -339,49 +365,5 @@ fn type_name(pt: &PayloadType) -> &'static str {
         PayloadType::Url => "URL",
         PayloadType::PlainText => "Plain Text",
         PayloadType::Binary => "Binary Data",
-    }
-}
-
-fn format_u32_len(len: usize) -> heapless::String<16> {
-    let mut s = heapless::String::new();
-    if len < 10 {
-        let _ = s.push((b'0' + len as u8) as char);
-    } else if len < 100 {
-        let _ = s.push((b'0' + (len / 10) as u8) as char);
-        let _ = s.push((b'0' + (len % 10) as u8) as char);
-    } else if len < 1000 {
-        let _ = s.push((b'0' + (len / 100) as u8) as char);
-        let _ = s.push((b'0' + ((len / 10) % 10) as u8) as char);
-        let _ = s.push((b'0' + (len % 10) as u8) as char);
-    } else {
-        let mut n = len;
-        let mut digits = [0u8; 8];
-        let mut i = 0;
-        while n > 0 && i < 8 {
-            digits[i] = (n % 10) as u8;
-            n /= 10;
-            i += 1;
-        }
-        for j in (0..i).rev() {
-            let _ = s.push(digits[j] as char);
-        }
-    }
-    let _ = s.push_str(" bytes");
-    s
-}
-
-fn format_byte(b: u8) -> heapless::String<4> {
-    let mut s = heapless::String::new();
-    let hex = b"0123456789ABCDEF";
-    let _ = s.push(hex[(b >> 4) as usize] as char);
-    let _ = s.push(hex[(b & 0x0F) as usize] as char);
-    s
-}
-
-fn truncate_str(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len {
-        s
-    } else {
-        &s[..max_len]
     }
 }

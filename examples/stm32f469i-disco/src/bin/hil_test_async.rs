@@ -2,6 +2,12 @@
 //!
 //! Uses embassy executor + AsyncUart wrapper around embassy-stm32 blocking UART.
 //!
+//! LED feedback:
+//!   Green  (LD1, PG6) — scanner detected, test pass, QR success
+//!   Orange (LD2, PD4) — test running, QR scan waiting
+//!   Red    (LD3, PD5) — scanner not detected, test fail
+//!   Blue   (LD4, PK3) — extended tests running, all pass
+//!
 //! Run: cargo run --release --target thumbv7em-none-eabihf --bin hil_test_async --features scanner-async,defmt
 
 #![no_std]
@@ -25,13 +31,17 @@ use embassy_stm32::{
 #[cfg(feature = "scanner-async")]
 use embassy_time::Timer;
 #[cfg(feature = "scanner-async")]
-use embedded_hal_02::blocking::serial::Write as _;
-#[cfg(feature = "scanner-async")]
-use embedded_io::ErrorType;
-#[cfg(feature = "scanner-async")]
-use gm65_scanner::{driver::async_hil_tests as hil_tests, Gm65ScannerAsync, ScannerSettings};
+use gm65_scanner::{
+    driver::{async_hil_tests as hil_tests, run_extended_hil_tests},
+    Gm65ScannerAsync, ScannerSettings,
+};
 #[cfg(feature = "scanner-async")]
 use linked_list_allocator::LockedHeap;
+
+mod async_shared {
+    #[cfg(feature = "scanner-async")]
+    include!("../async_shared.rs");
+}
 
 #[cfg(feature = "scanner-async")]
 const HEAP_SIZE: usize = 32 * 1024;
@@ -42,108 +52,11 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 #[cfg(feature = "scanner-async")]
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "C" fn LTDC() {
-    cortex_m::asm::nop();
-}
-#[cfg(feature = "scanner-async")]
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "C" fn LTDC_ER() {
-    cortex_m::asm::nop();
-}
-#[cfg(feature = "scanner-async")]
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "C" fn DSI() {
-    cortex_m::asm::nop();
-}
-#[cfg(feature = "scanner-async")]
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "C" fn DSIHOST() {
-    cortex_m::asm::nop();
-}
-#[cfg(feature = "scanner-async")]
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "C" fn DMA2D() {
-    cortex_m::asm::nop();
-}
-#[cfg(feature = "scanner-async")]
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "C" fn FMC() {
-    cortex_m::asm::nop();
-}
-
-#[cfg(feature = "scanner-async")]
-struct AsyncUart<'d> {
-    inner: usart::Uart<'d, embassy_stm32::mode::Blocking>,
-}
-
-#[cfg(feature = "scanner-async")]
-impl<'d> ErrorType for AsyncUart<'d> {
-    type Error = usart::Error;
-}
-
-#[cfg(feature = "scanner-async")]
-impl<'d> embedded_io_async::Read for AsyncUart<'d> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        let mut total = 0usize;
-        for slot in buf.iter_mut() {
-            let mut spins = 0u32;
-            loop {
-                match embedded_hal_02::serial::Read::read(&mut self.inner) {
-                    Ok(byte) => {
-                        *slot = byte;
-                        total += 1;
-                        break;
-                    }
-                    Err(nb::Error::WouldBlock) => {
-                        spins += 1;
-                        if spins < 100_000 {
-                            continue;
-                        }
-                        Timer::after_micros(100).await;
-                    }
-                    Err(nb::Error::Other(_e)) => {
-                        unsafe {
-                            const USART6_BASE: usize = 0x4001_1400;
-                            let _sr = core::ptr::read_volatile(USART6_BASE as *const u32);
-                            let _dr = core::ptr::read_volatile((USART6_BASE + 0x04) as *const u32);
-                        }
-                        Timer::after_micros(10).await;
-                    }
-                }
-            }
-        }
-        Ok(total)
-    }
-}
-
-#[cfg(feature = "scanner-async")]
-impl<'d> embedded_io_async::Write for AsyncUart<'d> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.inner.bwrite_all(buf)?;
-        Ok(buf.len())
-    }
-
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner.bflush()
-    }
-}
-
-#[cfg(feature = "scanner-async")]
-async fn blink_led(led: &mut Output<'_>, count: u32, on_ms: u64, off_ms: u64) {
+async fn blink(led: &mut Output<'_>, count: u32, on_ms: u64, off_ms: u64) {
     for _ in 0..count {
-        led.set_low();
-        Timer::after_millis(on_ms).await;
         led.set_high();
+        Timer::after_millis(on_ms).await;
+        led.set_low();
         Timer::after_millis(off_ms).await;
     }
 }
@@ -169,23 +82,104 @@ async fn main(_spawner: Spawner) {
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
     embassy_stm32::interrupt::USART6.disable();
 
-    let async_uart = AsyncUart { inner: uart };
+    let async_uart = async_shared::AsyncUart {
+        inner: uart,
+        yield_threshold: 100_000,
+    };
     let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 
-    let mut led = Output::new(p.PG6, Level::High, Speed::Low);
+    let mut led_green = Output::new(p.PG6, Level::Low, Speed::Low);
+    let mut led_orange = Output::new(p.PD4, Level::Low, Speed::Low);
+    let mut led_red = Output::new(p.PD5, Level::Low, Speed::Low);
+    let mut led_blue = Output::new(p.PK3, Level::Low, Speed::Low);
+
+    blink(&mut led_green, 2, 200, 200).await;
+
+    defmt::info!("Running 5 core HIL tests...");
+    led_orange.set_high();
 
     let results = hil_tests::run_hil_tests(&mut scanner).await;
 
-    if results.all_passed() {
-        defmt::info!("All async HIL tests passed!");
+    led_orange.set_low();
+
+    if results.init_detects_scanner {
+        defmt::info!("[1/5] init_detects_scanner: PASS");
+        blink(&mut led_green, 1, 100, 100).await;
     } else {
-        defmt::error!("Async HIL tests: {}/5 passed", results.passed_count());
-        defmt::info!("Skipping QR scan test.");
-        defmt::info!("Done. Looping forever.");
+        defmt::error!("[1/5] init_detects_scanner: FAIL");
+        led_red.set_high();
         loop {}
     }
 
-    // Enable aim laser so user can see when to scan
+    if results.ping_after_init {
+        defmt::info!("[2/5] ping_after_init: PASS");
+        blink(&mut led_green, 1, 100, 100).await;
+    } else {
+        defmt::error!("[2/5] ping_after_init: FAIL");
+        led_red.set_high();
+        loop {}
+    }
+
+    if results.trigger_and_stop {
+        defmt::info!("[3/5] trigger_and_stop: PASS");
+        blink(&mut led_green, 1, 100, 100).await;
+    } else {
+        defmt::error!("[3/5] trigger_and_stop: FAIL");
+        led_red.set_high();
+        loop {}
+    }
+
+    if results.read_scan_timeout {
+        defmt::info!("[4/5] read_scan_timeout: PASS");
+        blink(&mut led_green, 1, 100, 100).await;
+    } else {
+        defmt::error!("[4/5] read_scan_timeout: FAIL");
+        led_red.set_high();
+        loop {}
+    }
+
+    if results.state_transitions {
+        defmt::info!("[5/5] state_transitions: PASS");
+        blink(&mut led_green, 1, 100, 100).await;
+    } else {
+        defmt::error!("[5/5] state_transitions: FAIL");
+        led_red.set_high();
+        loop {}
+    }
+
+    defmt::info!("All 5 core HIL tests passed!");
+    led_green.set_high();
+
+    defmt::info!("========================================");
+    defmt::info!("Extended HIL Tests");
+    defmt::info!("========================================");
+    defmt::info!("Running 3 extended tests...");
+    led_green.set_low();
+    led_blue.set_high();
+
+    let ext_pass = run_extended_hil_tests(&mut scanner).await;
+
+    led_blue.set_low();
+
+    if ext_pass {
+        defmt::info!("All 3 extended tests passed!");
+        blink(&mut led_blue, 2, 100, 100).await;
+    } else {
+        defmt::error!("Extended HIL tests FAILED");
+        led_red.set_high();
+        loop {}
+    }
+
+    defmt::info!("All 8 HIL tests passed!");
+    led_green.set_high();
+
+    defmt::info!("========================================");
+    defmt::info!("QR Scan Test");
+    defmt::info!("========================================");
+    defmt::info!("Aim laser is ON. Point scanner at QR code.");
+    defmt::info!("Orange LED blinks while waiting.");
+    defmt::info!("You have 10 seconds.");
+
     let aim_settings = ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND | ScannerSettings::AIM;
     if scanner.set_scanner_settings(aim_settings).await {
         defmt::info!("Aim laser enabled - point at QR code now!");
@@ -193,42 +187,39 @@ async fn main(_spawner: Spawner) {
         defmt::warn!("Failed to enable aim laser");
     }
 
-    defmt::info!("========================================");
-    defmt::info!("QR Scan Test");
-    defmt::info!("========================================");
-    defmt::info!("Aim laser is ON. Point scanner at QR code.");
-    defmt::info!("You have 10 seconds. LED blinks fast while waiting.");
-    defmt::info!("On success: LED blinks fast 3 times.");
-
-    // Blink fast while waiting for scan
     let qr_result = {
-        let led_task = async {
+        let blink_task = async {
             loop {
-                led.set_low();
+                led_orange.set_high();
                 Timer::after_millis(100).await;
-                led.set_high();
+                led_orange.set_low();
                 Timer::after_millis(100).await;
             }
         };
         let scan_task = hil_tests::run_hil_test_with_qr(&mut scanner);
 
-        match embassy_futures::select::select(scan_task, led_task).await {
+        match embassy_futures::select::select(scan_task, blink_task).await {
             embassy_futures::select::Either::First(result) => result,
             embassy_futures::select::Either::Second(_) => unreachable!(),
         }
     };
 
-    // Restore original settings (disable aim)
     let _ = scanner
         .set_scanner_settings(ScannerSettings::default())
         .await;
 
     if qr_result {
         defmt::info!("QR SCAN TEST PASSED!");
-        blink_led(&mut led, 3, 100, 100).await;
+        blink(&mut led_green, 3, 100, 100).await;
+        defmt::info!("========================================");
+        defmt::info!("ALL 9 TESTS PASSED");
+        defmt::info!("========================================");
+        led_green.set_high();
+        led_orange.set_high();
+        led_blue.set_high();
     } else {
         defmt::error!("QR SCAN TEST FAILED");
-        blink_led(&mut led, 1, 500, 500).await;
+        blink(&mut led_red, 1, 500, 500).await;
     }
 
     defmt::info!("Done. Looping forever.");

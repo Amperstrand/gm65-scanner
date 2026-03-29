@@ -660,3 +660,428 @@ pub mod hil_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::rc::Rc;
+    use alloc::vec::Vec;
+    use core::cell::RefCell;
+
+    use embedded_hal_02::serial::Read as _;
+    use embedded_hal_02::serial::Write as _;
+
+    struct MockInner {
+        read_queue: Vec<u8>,
+        written: Vec<u8>,
+        pending_responses: Vec<Vec<u8>>,
+    }
+
+    struct MockUart {
+        inner: Rc<RefCell<MockInner>>,
+    }
+
+    impl MockUart {
+        fn new() -> Self {
+            Self {
+                inner: Rc::new(RefCell::new(MockInner {
+                    read_queue: Vec::new(),
+                    written: Vec::new(),
+                    pending_responses: Vec::new(),
+                })),
+            }
+        }
+
+        fn with_responses(responses: &[u8]) -> Self {
+            Self {
+                inner: Rc::new(RefCell::new(MockInner {
+                    read_queue: Vec::new(),
+                    written: Vec::new(),
+                    pending_responses: Vec::from([Vec::from(responses)]),
+                })),
+            }
+        }
+
+        fn with_response_sequence(responses: &[&[u8]]) -> Self {
+            Self {
+                inner: Rc::new(RefCell::new(MockInner {
+                    read_queue: Vec::new(),
+                    written: Vec::new(),
+                    pending_responses: responses.iter().map(|r| Vec::from(*r)).collect(),
+                })),
+            }
+        }
+
+        fn written_bytes(&self) -> Vec<u8> {
+            self.inner.borrow().written.clone()
+        }
+
+        fn push_response(&self, data: &[u8]) {
+            self.inner
+                .borrow_mut()
+                .pending_responses
+                .push(Vec::from(data));
+        }
+
+        fn load_read_queue(&self, data: &[u8]) {
+            self.inner.borrow_mut().read_queue.extend_from_slice(data);
+        }
+    }
+
+    impl Clone for MockUart {
+        fn clone(&self) -> Self {
+            Self {
+                inner: Rc::clone(&self.inner),
+            }
+        }
+    }
+
+    impl embedded_hal_02::serial::Write<u8> for MockUart {
+        type Error = ();
+
+        fn write(&mut self, byte: u8) -> Result<(), nb::Error<Self::Error>> {
+            self.inner.borrow_mut().written.push(byte);
+            Ok(())
+        }
+
+        fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
+            let mut inner = self.inner.borrow_mut();
+            if !inner.pending_responses.is_empty() {
+                let resp = inner.pending_responses.remove(0);
+                inner.read_queue.extend_from_slice(&resp);
+            }
+            Ok(())
+        }
+    }
+
+    impl embedded_hal_02::serial::Read<u8> for MockUart {
+        type Error = ();
+
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            let mut inner = self.inner.borrow_mut();
+            if inner.read_queue.is_empty() {
+                Err(nb::Error::WouldBlock)
+            } else {
+                Ok(inner.read_queue.remove(0))
+            }
+        }
+    }
+
+    fn success_response(value: u8) -> [u8; 7] {
+        [0x02, 0x00, 0x00, 0x01, value, 0x33, 0x31]
+    }
+
+    fn init_response_sequence() -> ([u8; 7 * 20], usize) {
+        let mut buf = [0u8; 7 * 20];
+        let mut idx = 0usize;
+
+        let r = |buf: &mut [u8], idx: &mut usize, v: u8| {
+            let resp = success_response(v);
+            buf[*idx..*idx + 7].copy_from_slice(&resp);
+            *idx += 7;
+        };
+
+        r(&mut buf, &mut idx, 0xA0);
+        r(&mut buf, &mut idx, 0xA0);
+        r(&mut buf, &mut idx, 0x81);
+
+        let targets: [u8; 5] = [0x00, 0x01, 0x85, 0x01, 0x01];
+        for _ in 0..5 {
+            r(&mut buf, &mut idx, 0xFF);
+        }
+        for t in &targets {
+            r(&mut buf, &mut idx, *t);
+        }
+        for t in &targets {
+            r(&mut buf, &mut idx, *t);
+        }
+
+        r(&mut buf, &mut idx, 0x87);
+        r(&mut buf, &mut idx, 0x00);
+
+        (buf, idx)
+    }
+
+    #[test]
+    fn test_mock_uart_write_read() {
+        let mut mock = MockUart::new();
+        mock.write(0xAA).unwrap();
+        mock.write(0xBB).unwrap();
+        assert!(mock.read().is_err());
+        mock.flush().unwrap();
+        assert!(mock.read().is_err());
+    }
+
+    #[test]
+    fn test_mock_uart_flush_loads_response() {
+        let mock = MockUart::with_responses(&[0x01, 0x02, 0x03]);
+        let mut mock = mock;
+        assert!(mock.read().is_err());
+        mock.flush().unwrap();
+        assert_eq!(mock.read().unwrap(), 0x01);
+        assert_eq!(mock.read().unwrap(), 0x02);
+        assert_eq!(mock.read().unwrap(), 0x03);
+        assert!(mock.read().is_err());
+    }
+
+    #[test]
+    fn test_mock_uart_empty_read_returns_wouldblock() {
+        let mut mock = MockUart::new();
+        match mock.read() {
+            Err(nb::Error::WouldBlock) => {}
+            _ => panic!("expected WouldBlock"),
+        }
+    }
+
+    #[test]
+    fn test_initial_state_uninitialized() {
+        let mock = MockUart::new();
+        let scanner = Gm65Scanner::with_default_config(mock);
+        assert_eq!(scanner.state(), ScannerState::Uninitialized);
+        assert!(!scanner.data_ready());
+        let status = scanner.status();
+        assert!(!status.connected);
+        assert!(!status.initialized);
+    }
+
+    #[test]
+    fn test_ping_success() {
+        let resp = success_response(0xA0);
+        let mock = MockUart::with_responses(&resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert!(scanner.ping());
+    }
+
+    #[test]
+    fn test_ping_failure_no_response() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert!(!scanner.ping());
+    }
+
+    #[test]
+    fn test_ping_command_bytes_on_wire() {
+        let resp = success_response(0xA0);
+        let mock = MockUart::with_responses(&resp);
+        let handle = mock.clone();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        scanner.ping();
+        let written = handle.written_bytes();
+        let expected = protocol::build_get_setting(Register::SerialOutput.address_bytes());
+        assert_eq!(
+            &written[..],
+            &expected[..],
+            "ping should send get_setting(SerialOutput)"
+        );
+    }
+
+    #[test]
+    fn test_get_setting_returns_value() {
+        let resp = success_response(0x42);
+        let mock = MockUart::with_responses(&resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.get_setting(Register::Timeout);
+        assert_eq!(result, Some(0x42));
+    }
+
+    #[test]
+    fn test_get_setting_invalid_response_returns_none() {
+        let bad_resp: [u8; 7] = [0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let mock = MockUart::with_responses(&bad_resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.get_setting(Register::Timeout);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_setting_no_response_returns_none() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.get_setting(Register::Timeout);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_setting_command_bytes() {
+        let resp = success_response(0x00);
+        let mock = MockUart::with_responses(&resp);
+        let handle = mock.clone();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        scanner.get_setting(Register::Version);
+        let written = handle.written_bytes();
+        let expected = protocol::build_get_setting(Register::Version.address_bytes());
+        assert_eq!(&written[..], &expected[..]);
+    }
+
+    #[test]
+    fn test_set_setting_success() {
+        let resp = success_response(0x81);
+        let mock = MockUart::with_responses(&resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.set_setting(Register::Settings, 0x81);
+        assert!(result);
+    }
+
+    #[test]
+    fn test_set_setting_command_bytes() {
+        let resp = success_response(0x01);
+        let mock = MockUart::with_responses(&resp);
+        let handle = mock.clone();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        scanner.set_setting(Register::Settings, 0x81);
+        let written = handle.written_bytes();
+        let expected = protocol::build_set_setting(Register::Settings.address_bytes(), 0x81);
+        assert_eq!(&written[..], &expected[..]);
+    }
+
+    #[test]
+    fn test_get_scanner_settings_valid() {
+        let resp = success_response(0x81);
+        let mock = MockUart::with_responses(&resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let settings = scanner.get_scanner_settings();
+        assert!(settings.is_some());
+        let s = settings.unwrap();
+        assert!(s.contains(ScannerSettings::COMMAND));
+        assert!(s.contains(ScannerSettings::ALWAYS_ON));
+    }
+
+    #[test]
+    fn test_get_scanner_settings_invalid_bits() {
+        let resp = success_response(0x00);
+        let mock = MockUart::with_responses(&resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let settings = scanner.get_scanner_settings();
+        assert!(settings.is_some());
+    }
+
+    #[test]
+    fn test_set_scanner_settings() {
+        let resp = success_response(0x81);
+        let mock = MockUart::with_responses(&resp);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let settings = ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND;
+        let result = scanner.set_scanner_settings(settings);
+        assert!(result);
+    }
+
+    #[test]
+    fn test_release_returns_uart() {
+        let mock = MockUart::new();
+        let scanner = Gm65Scanner::with_default_config(mock);
+        let _mock = scanner.release();
+    }
+
+    #[test]
+    fn test_into_parts() {
+        let mock = MockUart::new();
+        let scanner = Gm65Scanner::with_default_config(mock);
+        let (_uart, state, initialized, model) = scanner.into_parts();
+        assert_eq!(state, ScannerState::Uninitialized);
+        assert!(!initialized);
+        assert_eq!(model, ScannerModel::Unknown);
+    }
+
+    #[test]
+    fn test_poll_uart_returns_byte() {
+        let mock = MockUart::new();
+        mock.load_read_queue(&[0xAB]);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert_eq!(scanner.poll_uart(), Some(0xAB));
+    }
+
+    #[test]
+    fn test_poll_uart_returns_none_when_empty() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert_eq!(scanner.poll_uart(), None);
+    }
+
+    #[test]
+    fn test_try_read_scan_uninitialized_returns_none() {
+        let mock = MockUart::with_responses(&[0x01, 0x02, 0x03]);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert_eq!(scanner.try_read_scan(), None);
+    }
+
+    #[test]
+    fn test_init_success() {
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let mock = MockUart::with_response_sequence(&chunks);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.init();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ScannerModel::Gm65);
+        assert_eq!(scanner.state(), ScannerState::Ready);
+    }
+
+    #[test]
+    fn test_init_not_detected() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.init();
+        assert_eq!(result, Err(ScannerError::NotDetected));
+        assert!(matches!(
+            scanner.state(),
+            ScannerState::Error(ScannerError::NotDetected)
+        ));
+    }
+
+    #[test]
+    fn test_reinit_resets_state() {
+        let (buf1, len1) = init_response_sequence();
+        let (buf2, len2) = init_response_sequence();
+        let chunks1: Vec<&[u8]> = (0..len1).step_by(7).map(|i| &buf1[i..i + 7]).collect();
+        let chunks2: Vec<&[u8]> = (0..len2).step_by(7).map(|i| &buf2[i..i + 7]).collect();
+        let mut all_chunks = chunks1;
+        all_chunks.extend(chunks2);
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert!(scanner.init().is_ok());
+        assert!(scanner.init().is_ok());
+        assert_eq!(scanner.state(), ScannerState::Ready);
+    }
+
+    #[test]
+    fn test_trigger_scan_not_initialized() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let result = scanner.trigger_scan();
+        assert_eq!(result, Err(ScannerError::NotInitialized));
+    }
+
+    #[test]
+    fn test_stop_scan_not_initialized() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert!(!scanner.stop_scan());
+    }
+
+    #[test]
+    fn test_read_scan_not_initialized() {
+        let mock = MockUart::new();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert_eq!(scanner.read_scan(), None);
+    }
+
+    #[test]
+    fn test_trigger_and_stop_after_init() {
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+
+        let trigger_resp = success_response(0x01);
+        let stop_resp = success_response(0x00);
+
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+        all_chunks.push(&stop_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+        assert_eq!(scanner.state(), ScannerState::Scanning);
+        assert!(scanner.stop_scan());
+    }
+}
