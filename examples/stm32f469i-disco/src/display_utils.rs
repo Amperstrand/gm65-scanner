@@ -2,7 +2,8 @@ pub fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s
     } else {
-        &s[..max_len]
+        let boundary = s.floor_char_boundary(max_len);
+        &s[..boundary]
     }
 }
 
