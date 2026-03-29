@@ -33,6 +33,11 @@ use alloc::vec::Vec;
 
 pub const HEADER: [u8; 2] = [0x7E, 0x00];
 pub const CRC_NO_CHECKSUM: [u8; 2] = [0xAB, 0xCD];
+/// Sentinel suffix for the save-settings command (CMD_SAVE).
+/// The GM65 save command uses `0xDE 0xC8` instead of the standard
+/// `0xAB 0xCD` sentinel. This is confirmed by specter-diy's protocol
+/// implementation.
+pub const SAVE_SENTINEL: [u8; 2] = [0xDE, 0xC8];
 
 pub const RESPONSE_PREFIX: [u8; 4] = [0x02, 0x00, 0x00, 0x01];
 pub const RESPONSE_LEN: usize = 7;
@@ -139,12 +144,37 @@ pub fn build_set_setting_2byte(addr: [u8; 2], value: [u8; 2]) -> [u8; 10] {
     ]
 }
 
+/// Build a save-settings command frame.
+///
+/// Uses the save-specific sentinel `0xDE 0xC8` instead of the standard
+/// `0xAB 0xCD` suffix. This is confirmed by the specter-diy protocol
+/// implementation.
 pub fn build_save_settings() -> [u8; 9] {
-    [0x7E, 0x00, 0x09, 0x01, 0x00, 0x00, 0x00, 0xDE, 0xC8]
+    [
+        0x7E,
+        0x00,
+        0x09,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        SAVE_SENTINEL[0],
+        SAVE_SENTINEL[1],
+    ]
 }
 
 pub fn build_factory_reset() -> [u8; 9] {
-    [0x7E, 0x00, 0x08, 0x01, 0x00, 0xD9, 0x55, 0xAB, 0xCD]
+    [
+        0x7E,
+        0x00,
+        0x08,
+        0x01,
+        0x00,
+        0xD9,
+        0x55,
+        CRC_NO_CHECKSUM[0],
+        CRC_NO_CHECKSUM[1],
+    ]
 }
 
 pub fn build_trigger_scan() -> [u8; 9] {
