@@ -9,6 +9,7 @@ All testing performed on STM32F469I-Discovery board with GM65 module connected v
 | Commit | Notes |
 |--------|-------|
 | `f1d694d` (main HEAD) | Full HIL verification: sync 6/6, async 9/9, QR scans on both. 118 unit tests, 28 mock UART tests. |
+| `dede870` (feat/async-firmware HEAD) | Sync HIL 5/5 PASS (2026-03-29). Async HIL pending hardware verification. Clippy `-D warnings` on all features and binaries. |
 
 ### Test Date: 2026-03-26
 
@@ -52,6 +53,22 @@ Native HIL test binaries (not via micronuts). Both sync and async drivers verifi
 | read_scan_timeout | PASS | Ambient barcode tolerated |
 | state_transitions | PASS | Re-init resets to Ready |
 | **run_hil_test_with_qr** | **PASS** | **Scanned with aim laser, 50-retry loop (5s window)** |
+
+### Test Date: 2026-03-29
+
+Native HIL test binary (sync, from `feat/async-firmware` branch). Built with clippy `-D warnings`. Includes deduped firmware modules, 28 mock UART tests, and all correctness fixes from the cross-repo audit.
+
+#### Sync HIL: 5/5 PASS
+
+| Test | Status | Evidence |
+|------|--------|----------|
+| init_detects_scanner | PASS | GM65 detected, fw 0x87, settings 0x81 (forced CMD_MODE) |
+| ping_after_init | PASS | ACK received |
+| trigger_and_stop | PASS | Trigger ACK, stop ACK |
+| read_scan_timeout | PASS | Ambient barcode tolerated |
+| state_transitions | PASS | Re-init resets to Ready |
+
+Note: BarType VERIFY FAIL observed (wrote 0x01, read 0x05) — expected per known issue #10. QR scan test not run (no QR code presented during automated test).
 
 ### Known Issues
 
