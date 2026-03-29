@@ -140,7 +140,7 @@ if let Some(data) = scanner.read_scan().await { /* ... */ }
 ## Testing
 
 ```bash
-cargo test -p gm65-scanner --lib   # 88 unit tests
+cargo test -p gm65-scanner --lib   # 118 unit tests
 cargo clippy -p gm65-scanner -- -D warnings
 cargo fmt --all -- --check
 ```

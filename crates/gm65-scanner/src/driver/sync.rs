@@ -84,6 +84,7 @@ where
     }
 
     /// Poll UART for a single byte (non-blocking).
+    #[must_use]
     pub fn poll_uart(&mut self) -> Option<u8> {
         match self.uart.read() {
             Ok(b) => Some(b),
@@ -95,6 +96,7 @@ where
     /// Non-blocking incremental scan read.
     /// Drains all available bytes from the UART FIFO in a single call.
     /// Returns Some(data) when a complete scan is received, None if UART is empty.
+    #[must_use]
     pub fn try_read_scan(&mut self) -> Option<Vec<u8>> {
         if !self.core.is_initialized() {
             return None;
@@ -194,6 +196,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn get_setting(&mut self, reg: Register) -> Option<u8> {
         let cmd = protocol::build_get_setting(reg.address_bytes());
         match self.send_command(&cmd) {

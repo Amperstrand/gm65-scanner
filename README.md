@@ -4,7 +4,7 @@
 
 ## Overview
 
-- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 88 unit tests
+- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 118 unit tests
 - **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
 
 ## Sync vs Async Drivers
@@ -54,7 +54,7 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 88 unit tests passing, clippy clean |
+| Library | Stable | 118 unit tests passing, clippy clean |
 | Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
 | Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
@@ -109,7 +109,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 88/88 tests passing
+**Status**: 118/118 tests passing
 
 ### Feature Checks
 

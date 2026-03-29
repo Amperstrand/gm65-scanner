@@ -222,7 +222,6 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &D
     let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_YELLOW);
     let value_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
     let ok_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_GREEN);
-    let dim_style = MonoTextStyle::new(&FONT_10X20, Rgb565::new(0x40, 0x40, 0x40));
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
 
     Text::with_text_style(
@@ -261,7 +260,7 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &D
                 .draw(fb)
                 .ok();
             y += 30;
-            render_raw_data(fb, raw, y, &label_style, &value_style, &dim_style);
+            render_raw_data(fb, raw, y, &label_style, &value_style);
         }
         PayloadType::CashuV3 => {
             Text::new("Type:", Point::new(20, y as i32), label_style)
@@ -271,7 +270,7 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &D
                 .draw(fb)
                 .ok();
             y += 30;
-            render_raw_data(fb, raw, y, &label_style, &value_style, &dim_style);
+            render_raw_data(fb, raw, y, &label_style, &value_style);
         }
         PayloadType::UrFragment => {
             if let Some(parsed) = gm65_scanner::parse_ur_fragment(raw) {
@@ -295,10 +294,10 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &D
                     .ok();
                 y += 30;
             }
-            render_raw_data(fb, raw, y, &label_style, &value_style, &dim_style);
+            render_raw_data(fb, raw, y, &label_style, &value_style);
         }
         PayloadType::Url | PayloadType::PlainText | PayloadType::Binary => {
-            render_raw_data(fb, raw, y, &label_style, &value_style, &dim_style);
+            render_raw_data(fb, raw, y, &label_style, &value_style);
         }
     }
 }
@@ -331,7 +330,6 @@ fn render_raw_data(
     start_y: u32,
     label_style: &MonoTextStyle<'_, Rgb565>,
     value_style: &MonoTextStyle<'_, Rgb565>,
-    _dim_style: &MonoTextStyle<'_, Rgb565>,
 ) {
     let mut y = start_y;
 

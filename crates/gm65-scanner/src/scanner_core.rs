@@ -82,7 +82,7 @@ impl Default for ScannerSettings {
 // ============================================================================
 
 /// Register configuration tuple: (register, expected_value).
-pub type RegisterConfig = (Register, u8);
+pub(crate) type RegisterConfig = (Register, u8);
 
 /// Returns the standard initialization register configuration sequence.
 ///

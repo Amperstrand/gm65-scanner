@@ -8,7 +8,7 @@ All testing performed on STM32F469I-Discovery board with GM65 module connected v
 
 | Commit | Notes |
 |--------|-------|
-| `f1d694d` (main HEAD) | Full HIL verification: sync 6/6, async 9/9, QR scans on both. 88 unit tests, 28 mock UART tests. |
+| `f1d694d` (main HEAD) | Full HIL verification: sync 6/6, async 9/9, QR scans on both. 118 unit tests, 28 mock UART tests. |
 
 ### Test Date: 2026-03-26
 

@@ -181,7 +181,8 @@ pub fn build_trigger_scan() -> [u8; 9] {
     build_set_setting(Register::ScanEnable.address_bytes(), 0x01)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum Gm65Response {
     SuccessWithValue(u8),
     Success,
