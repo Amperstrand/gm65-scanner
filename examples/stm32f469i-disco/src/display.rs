@@ -302,6 +302,7 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &D
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_toggle(
     fb: &mut impl DrawTarget<Color = Rgb565>,
     x_label: i32,

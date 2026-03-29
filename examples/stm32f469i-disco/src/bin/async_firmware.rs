@@ -13,6 +13,7 @@
 
 #![no_std]
 #![no_main]
+#![allow(clippy::let_unit_value)]
 
 extern crate alloc;
 
@@ -740,17 +741,15 @@ async fn main(_spawner: Spawner) {
         }
         loop {
             Timer::after(Duration::from_millis(50)).await;
-            match touch_ctrl.td_status(&mut touch_i2c) {
-                Ok(n) if n > 0 => match touch_ctrl.get_touch(&mut touch_i2c) {
-                    Ok(point) => {
+            if let Ok(n) = touch_ctrl.td_status(&mut touch_i2c) {
+                if n > 0 {
+                    if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
                         let _ = TOUCH_CHANNEL.try_send(TouchEvent::Tap {
                             x: point.x,
                             y: point.y,
                         });
                     }
-                    Err(_) => {}
-                },
-                _ => {}
+                }
             }
         }
     };
@@ -778,45 +777,19 @@ async fn main(_spawner: Spawner) {
 
                     match row {
                         0 => {
-                            settings = settings ^ ScannerSettings::SOUND;
+                            settings ^= ScannerSettings::SOUND;
                         }
                         1 => {
-                            settings = settings ^ ScannerSettings::AIM;
+                            settings ^= ScannerSettings::AIM;
                         }
                         2 => {
-                            settings = settings ^ ScannerSettings::LIGHT;
+                            settings ^= ScannerSettings::LIGHT;
                         }
                         3 => {
-                            settings = settings ^ ScannerSettings::CONTINUOUS;
+                            settings ^= ScannerSettings::CONTINUOUS;
                         }
                         4 => {
-                            settings = settings ^ ScannerSettings::COMMAND;
-                        }
-                        _ => continue,
-                    }
-
-                    let back_y = 80u16 + 4 * 55;
-                    if y >= back_y && y < back_y + 40 && x < 200 {
-                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
-                        continue;
-                    }
-
-                    let row = ((y - 80) / 55) as usize;
-                    let mut shared = SHARED.lock().await;
-                    let mut settings = shared.settings.unwrap_or(ScannerSettings::default());
-
-                    match row {
-                        0 => {
-                            settings = settings ^ ScannerSettings::SOUND;
-                        }
-                        1 => {
-                            settings = settings ^ ScannerSettings::AIM;
-                        }
-                        2 => {
-                            settings = settings ^ ScannerSettings::LIGHT;
-                        }
-                        3 => {
-                            settings = settings ^ ScannerSettings::COMMAND;
+                            settings ^= ScannerSettings::COMMAND;
                         }
                         _ => continue,
                     }

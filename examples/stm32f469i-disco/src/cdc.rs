@@ -35,6 +35,7 @@ impl Command {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Status {
     Ok = 0x00,
     Error = 0xFF,

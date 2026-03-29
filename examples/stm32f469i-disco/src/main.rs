@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![allow(dead_code)]
+#![allow(dead_code, clippy::empty_loop)]
 
 extern crate alloc;
 
@@ -92,7 +92,7 @@ fn main() -> ! {
         let heap_start = sdram.mem as *mut u8;
         unsafe {
             let heap_ptr = heap_start.add(lcd::DisplayOrientation::Portrait.fb_size());
-            ALLOCATOR.lock().init(heap_ptr as *mut u8, HEAP_SIZE);
+            ALLOCATOR.lock().init(heap_ptr, HEAP_SIZE);
         }
     }
 
@@ -273,6 +273,7 @@ fn main() -> ! {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_command(
     command: Command,
     payload: &[u8],
@@ -294,7 +295,7 @@ fn handle_command(
 
 fn handle_scanner_status(scanner: &mut Gm65Scanner<Serial6>) -> Response {
     defmt::info!("SCANNER_STATUS");
-    scanner.stop_scan();
+    let _ = scanner.stop_scan();
     let status = scanner.status();
     let mut payload = [0u8; MAX_PAYLOAD_SIZE];
     let mut offset = 0;
@@ -373,7 +374,7 @@ fn handle_get_settings(
     fb: &mut LtdcFramebuffer<u16>,
 ) -> Response {
     defmt::info!("GET_SETTINGS");
-    scanner.stop_scan();
+    let _ = scanner.stop_scan();
     match scanner.get_scanner_settings() {
         Some(settings) => {
             display::render_scanner_settings(fb, settings);
@@ -393,7 +394,7 @@ fn handle_set_settings(
     fb: &mut LtdcFramebuffer<u16>,
 ) -> Response {
     defmt::info!("SET_SETTINGS");
-    scanner.stop_scan();
+    let _ = scanner.stop_scan();
     if payload.is_empty() {
         return Response::new(Status::InvalidPayload);
     }

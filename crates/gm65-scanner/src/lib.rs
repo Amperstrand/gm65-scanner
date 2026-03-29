@@ -49,7 +49,6 @@
 //! ```
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/gm65-scanner/")]
 
 extern crate alloc;
 
