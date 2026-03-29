@@ -57,6 +57,7 @@ pub trait ScannerDriver {
 
     /// Ping the scanner to check communication.
     /// Returns true if the scanner responds.
+    #[must_use]
     fn ping(&mut self) -> impl core::future::Future<Output = bool>;
 
     /// Trigger a scan.
@@ -65,6 +66,7 @@ pub trait ScannerDriver {
 
     /// Stop an ongoing scan.
     /// Returns true if the stop command was successful.
+    #[must_use]
     fn stop_scan(&mut self) -> impl core::future::Future<Output = bool>;
 
     /// Read scanned data (async).
