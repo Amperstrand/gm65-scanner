@@ -719,6 +719,7 @@ mod tests {
             self.inner.borrow().written.clone()
         }
 
+        #[allow(dead_code)]
         fn push_response(&self, data: &[u8]) {
             self.inner
                 .borrow_mut()
@@ -868,7 +869,7 @@ mod tests {
         let mock = MockUart::with_responses(&resp);
         let handle = mock.clone();
         let mut scanner = Gm65Scanner::with_default_config(mock);
-        scanner.ping();
+        let _ = scanner.ping();
         let written = handle.written_bytes();
         let expected = protocol::build_get_setting(Register::SerialOutput.address_bytes());
         assert_eq!(
@@ -910,7 +911,7 @@ mod tests {
         let mock = MockUart::with_responses(&resp);
         let handle = mock.clone();
         let mut scanner = Gm65Scanner::with_default_config(mock);
-        scanner.get_setting(Register::Version);
+        let _ = scanner.get_setting(Register::Version);
         let written = handle.written_bytes();
         let expected = protocol::build_get_setting(Register::Version.address_bytes());
         assert_eq!(&written[..], &expected[..]);
