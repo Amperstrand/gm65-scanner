@@ -11,10 +11,20 @@
 
 | Commit | Notes |
 |--------|-------|
-| `f1d694d` (main HEAD) | Full HIL verification: sync 6/6, async 9/9, QR scans on both |
-| `dede870` (feat/async-firmware HEAD) | Sync HIL 5/5 PASS (2026-03-29). Async HIL pending hardware verification |
+| `070e387` (main HEAD) | Sync 5/5, async 8/8. BSP `56a0bc8`, embassy `84444a19`. InitAction refactor + new BSP verified. |
+| `f1d694d` | Full HIL verification: sync 6/6, async 9/9, QR scans on both (old BSP `9f52a58`) |
 
 ## HIL Test Results
+
+### 2026-03-30 — InitAction refactor + new BSP (`56a0bc8`)
+
+Both drivers verified end-to-end with InitAction state machine, defmt logging parity, and updated BSP (HAL 0.5 migration, embedded-hal 1.0).
+
+**Sync 5/5 PASS**: init, ping, trigger/stop, timeout, state transitions
+
+**Async 8/8 PASS**: init, ping, trigger/stop, timeout, state transitions, cancel+rescan, rapid triggers, idle no-trigger
+
+Note: BarType VERIFY FAIL observed (wrote 0x01, read 0x05) — expected per known issue #10. No QR scan test (no QR presented).
 
 ### 2026-03-28 — Native binaries, both drivers, real QR scans
 

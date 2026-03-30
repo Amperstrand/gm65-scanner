@@ -34,7 +34,7 @@ qrcodegen-no-heap = "1.8"
 bitflags = "2.6"
 
 # BSP - pinned to latest
-stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "9f52a58" }
+stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "56a0bc8" }
 
 # Embassy - pinned to latest release
 embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19", features = ["defmt"] }

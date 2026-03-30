@@ -684,12 +684,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
-name = "ft6x06"
-version = "0.1.2"
-source = "git+https://github.com/Amperstrand/ft6x06?rev=2ed36f74d6b52e8ff68533c01a50d81800ae10b4#2ed36f74d6b52e8ff68533c01a50d81800ae10b4"
+name = "ft6x06-rs"
+version = "0.4.0"
+source = "git+https://github.com/Amperstrand/ft6x06-rs?rev=fa4b41c#fa4b41c1281912718c3410422b040c07f999fef9"
 dependencies = [
- "cortex-m",
- "embedded-hal 0.2.7",
+ "embedded-hal 1.0.0",
 ]
 
 [[package]]
@@ -976,12 +975,11 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "otm8009a"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e56059a2e83de4409e5fa0854d3ae891b0f949af86c74ccf76a8bffe4ce6dc6d"
+version = "0.2.0"
+source = "git+https://github.com/Amperstrand/otm8009a?rev=76dcda9#76dcda978b627556b6a1d757c8082fcc3b766e51"
 dependencies = [
  "embedded-display-controller",
- "embedded-hal 0.2.7",
+ "embedded-hal 1.0.0",
 ]
 
 [[package]]
@@ -1286,15 +1284,14 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=9f52a58#9f52a582e795bd07b9ecf2aaf7edcf5ef2d4f0f5"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=56a0bc8#56a0bc8b495d3f760b817ae41a39ef1b4dc180b1"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.0.1",
  "embedded-graphics-core",
- "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
- "ft6x06",
+ "ft6x06-rs",
  "nt35510 0.2.0",
  "otm8009a",
  "stm32-fmc",
@@ -1341,7 +1338,7 @@ dependencies = [
 [[package]]
 name = "stm32f4xx-hal"
 version = "0.23.0"
-source = "git+https://github.com/Amperstrand/stm32f4xx-hal?rev=b72958b7099878567cf80acf66afe0485b5e8309#b72958b7099878567cf80acf66afe0485b5e8309"
+source = "git+https://github.com/Amperstrand/stm32f4xx-hal?rev=05d999d600d457f99aeb23ff93275d2c8f998908#05d999d600d457f99aeb23ff93275d2c8f998908"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m",
