@@ -494,7 +494,7 @@ impl ScannerCore {
                     }
                     return InitAction::ReadRegister(Register::SerialOutput);
                 }
-                let val = result.unwrap();
+                let val = result.expect("checked is_none above");
                 if serial_output_needs_fix(val) {
                     let fixed = fix_serial_output(val);
                     self.init_step = InitStep::FixSerialOutput;
@@ -531,7 +531,8 @@ impl ScannerCore {
                 }
                 let config_seq = init_config_sequence();
                 let (reg, target) = config_seq[index];
-                if result.unwrap() != target {
+                let val = result.expect("checked is_none above");
+                if val != target {
                     self.init_step = InitStep::ApplyConfig { index };
                     return InitAction::WriteRegister(reg, target);
                 }
@@ -542,7 +543,7 @@ impl ScannerCore {
                 if result.is_none() {
                     return InitAction::Complete(ScannerModel::Gm65);
                 }
-                let version = result.unwrap();
+                let version = result.expect("checked is_none above");
                 if version_needs_raw_fix(version) {
                     self.init_step = InitStep::SaveSettings;
                     InitAction::ReadRegister(Register::RawMode)
@@ -552,11 +553,11 @@ impl ScannerCore {
             }
 
             InitStep::SaveSettings => {
-                let version_val = result;
-                if version_val.is_none() {
+                if result.is_none() {
                     return InitAction::Complete(ScannerModel::Gm65);
                 }
-                if version_val.unwrap() != config::RAW_MODE_VALUE {
+                let val = result.expect("checked is_none above");
+                if val != config::RAW_MODE_VALUE {
                     self.init_step = InitStep::Complete;
                     return InitAction::WriteRegister(Register::RawMode, config::RAW_MODE_VALUE);
                 }
