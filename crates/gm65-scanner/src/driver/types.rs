@@ -93,6 +93,8 @@ impl fmt::Display for ScannerError {
     }
 }
 
+impl core::error::Error for ScannerError {}
+
 /// Scanner configuration.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

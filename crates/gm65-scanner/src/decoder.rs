@@ -79,7 +79,7 @@ pub fn decode_payload(data: &[u8]) -> DecodedPayload {
 }
 
 /// A decoded scan payload with classification metadata.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedPayload {
     /// Raw bytes from the scanner.
     pub raw: Vec<u8>,
@@ -105,7 +105,7 @@ impl fmt::Display for DecodedPayload {
 /// A parsed UR (Uniform Resources) fragment.
 ///
 /// UR fragments follow the format: `ur:<type>/<index>-<total>/<hash>/<data>`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedUrFragment {
     /// Fragment data type (e.g., "bytes", "crypto-psbt").
     pub ur_type: String,
