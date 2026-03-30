@@ -1088,4 +1088,420 @@ mod tests {
         );
         assert_ne!(InitStep::Detecting, InitStep::Complete);
     }
+
+    // ========================================================================
+    // InitAction State Machine Tests
+    // ========================================================================
+
+    #[test]
+    fn test_init_begin_returns_drain_and_read() {
+        let mut core = ScannerCore::with_default_config();
+        let action = core.init_begin();
+        assert_eq!(action, InitAction::DrainAndRead(Register::SerialOutput));
+        assert_eq!(core.state(), ScannerState::Detecting);
+        assert_eq!(core.init_step(), InitStep::Detecting);
+    }
+
+    #[test]
+    fn test_init_advance_probe_success() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        let action = core.init_advance(Some(0xA0));
+        assert_eq!(action, InitAction::ReadRegister(Register::SerialOutput));
+        assert_eq!(core.detected_model(), ScannerModel::Gm65);
+        assert_eq!(core.init_step(), InitStep::ReadSerialOutput);
+    }
+
+    #[test]
+    fn test_init_advance_probe_failure() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        let action = core.init_advance(None);
+        assert_eq!(action, InitAction::Fail(ScannerError::NotDetected));
+        assert_eq!(core.state(), ScannerState::Error(ScannerError::NotDetected));
+    }
+
+    #[test]
+    fn test_init_advance_serial_output_retry_then_fail() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+
+        assert_eq!(core.init_retry_count, 0);
+        let a1 = core.init_advance(None);
+        assert_eq!(a1, InitAction::ReadRegister(Register::SerialOutput));
+        assert_eq!(core.init_retry_count, 1);
+
+        let a2 = core.init_advance(None);
+        assert_eq!(a2, InitAction::ReadRegister(Register::SerialOutput));
+        assert_eq!(core.init_retry_count, 2);
+
+        let a3 = core.init_advance(None);
+        assert_eq!(a3, InitAction::Fail(ScannerError::ConfigFailed));
+    }
+
+    #[test]
+    fn test_init_advance_serial_output_fix_needed() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        let action = core.init_advance(Some(0xA3));
+        assert_eq!(
+            action,
+            InitAction::WriteRegister(Register::SerialOutput, 0xA0)
+        );
+        assert_eq!(core.init_step(), InitStep::FixSerialOutput);
+    }
+
+    #[test]
+    fn test_init_advance_serial_output_no_fix() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        let action = core.init_advance(Some(0xA0));
+        assert_eq!(
+            action,
+            InitAction::WriteRegister(Register::Settings, config::CMD_MODE)
+        );
+        assert_eq!(core.init_step(), InitStep::SetCommandMode);
+    }
+
+    #[test]
+    fn test_init_advance_fix_serial_output_success() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA3));
+        let action = core.init_advance(Some(0xA0));
+        assert_eq!(
+            action,
+            InitAction::WriteRegister(Register::Settings, config::CMD_MODE)
+        );
+        assert_eq!(core.init_step(), InitStep::SetCommandMode);
+    }
+
+    #[test]
+    fn test_init_advance_fix_serial_output_failure() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA3));
+        let action = core.init_advance(None);
+        assert_eq!(action, InitAction::Fail(ScannerError::ConfigFailed));
+    }
+
+    #[test]
+    fn test_init_advance_cmd_mode_success() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        let action = core.init_advance(Some(config::CMD_MODE));
+        let config_seq = init_config_sequence();
+        assert_eq!(action, InitAction::ReadRegister(config_seq[0].0));
+        assert_eq!(core.init_step(), InitStep::ApplyConfig { index: 0 });
+    }
+
+    #[test]
+    fn test_init_advance_cmd_mode_failure() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        let action = core.init_advance(None);
+        assert_eq!(action, InitAction::Fail(ScannerError::ConfigFailed));
+    }
+
+    #[test]
+    fn test_init_advance_config_sequence_write_needed() {
+        let config_seq = init_config_sequence();
+        let (reg, target) = config_seq[0];
+        let wrong_val = if target == 0x00 { 0xFF } else { 0x00 };
+
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+        let action = core.init_advance(Some(wrong_val));
+        assert_eq!(action, InitAction::WriteRegister(reg, target));
+    }
+
+    #[test]
+    fn test_init_advance_config_sequence_no_write_needed() {
+        let config_seq = init_config_sequence();
+        let (reg, target) = config_seq[0];
+
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+        let action = core.init_advance(Some(target));
+        assert_eq!(action, InitAction::VerifyRegister(reg, target));
+    }
+
+    #[test]
+    fn test_init_advance_config_sequence_failure() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+        let action = core.init_advance(None);
+        assert_eq!(action, InitAction::Fail(ScannerError::ConfigFailed));
+    }
+
+    #[test]
+    fn test_init_advance_verify_next_register() {
+        let config_seq = init_config_sequence();
+
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+        core.init_advance(Some(config_seq[0].1));
+        let action = core.init_advance_verify();
+        assert_eq!(action, InitAction::ReadRegister(config_seq[1].0));
+        assert_eq!(core.init_step(), InitStep::ApplyConfig { index: 1 });
+    }
+
+    #[test]
+    fn test_init_advance_verify_last_register() {
+        let config_seq = init_config_sequence();
+
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        let action = core.init_advance_verify();
+        assert_eq!(action, InitAction::ReadRegister(Register::Version));
+        assert_eq!(core.init_step(), InitStep::CheckVersion);
+    }
+
+    #[test]
+    fn test_init_advance_version_no_fix_needed() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        let config_seq = init_config_sequence();
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        core.init_advance_verify();
+        let action = core.init_advance(Some(0x87));
+        assert_eq!(action, InitAction::Complete(ScannerModel::Gm65));
+    }
+
+    #[test]
+    fn test_init_advance_version_needs_raw_fix() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        let config_seq = init_config_sequence();
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        core.init_advance_verify();
+        let action = core.init_advance(Some(0x69));
+        assert_eq!(action, InitAction::ReadRegister(Register::RawMode));
+        assert_eq!(core.init_step(), InitStep::SaveSettings);
+    }
+
+    #[test]
+    fn test_init_advance_save_settings_write_needed() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        let config_seq = init_config_sequence();
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        core.init_advance_verify();
+        core.init_advance(Some(0x69));
+        let action = core.init_advance(Some(0x00));
+        assert_eq!(
+            action,
+            InitAction::WriteRegister(Register::RawMode, config::RAW_MODE_VALUE)
+        );
+        assert_eq!(core.init_step(), InitStep::Complete);
+    }
+
+    #[test]
+    fn test_init_advance_save_settings_no_write_needed() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        let config_seq = init_config_sequence();
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        core.init_advance_verify();
+        core.init_advance(Some(0x69));
+        let action = core.init_advance(Some(config::RAW_MODE_VALUE));
+        assert_eq!(action, InitAction::Complete(ScannerModel::Gm65));
+    }
+
+    #[test]
+    fn test_init_advance_save_settings_failure() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        let config_seq = init_config_sequence();
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        core.init_advance_verify();
+        core.init_advance(Some(0x69));
+        let action = core.init_advance(None);
+        assert_eq!(action, InitAction::Complete(ScannerModel::Gm65));
+    }
+
+    #[test]
+    fn test_init_advance_version_none_completes() {
+        let mut core = ScannerCore::with_default_config();
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        let config_seq = init_config_sequence();
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+        core.init_advance_verify();
+        let action = core.init_advance(None);
+        assert_eq!(action, InitAction::Complete(ScannerModel::Gm65));
+    }
+
+    #[test]
+    fn test_init_advance_start_fails() {
+        let mut core = ScannerCore::with_default_config();
+        let action = core.init_advance(Some(0xFF));
+        assert_eq!(action, InitAction::Fail(ScannerError::NotDetected));
+    }
+
+    #[test]
+    fn test_full_init_happy_path() {
+        let mut core = ScannerCore::with_default_config();
+        let config_seq = init_config_sequence();
+
+        let mut action = core.init_begin();
+        assert_eq!(action, InitAction::DrainAndRead(Register::SerialOutput));
+
+        action = core.init_advance(Some(0xA0));
+        assert_eq!(action, InitAction::ReadRegister(Register::SerialOutput));
+
+        action = core.init_advance(Some(0xA0));
+        assert_eq!(
+            action,
+            InitAction::WriteRegister(Register::Settings, config::CMD_MODE)
+        );
+
+        action = core.init_advance(Some(config::CMD_MODE));
+        assert_eq!(action, InitAction::ReadRegister(config_seq[0].0));
+
+        for i in 0..config_seq.len() {
+            action = core.init_advance(Some(config_seq[i].1));
+            assert!(matches!(action, InitAction::VerifyRegister(_, _)));
+            if i < config_seq.len() - 1 {
+                action = core.init_advance_verify();
+                assert!(matches!(action, InitAction::ReadRegister(_)));
+            }
+        }
+
+        action = core.init_advance_verify();
+        assert_eq!(action, InitAction::ReadRegister(Register::Version));
+
+        action = core.init_advance(Some(0x87));
+        assert_eq!(action, InitAction::Complete(ScannerModel::Gm65));
+    }
+
+    #[test]
+    fn test_full_init_with_serial_output_fix() {
+        let mut core = ScannerCore::with_default_config();
+        let config_seq = init_config_sequence();
+
+        core.init_begin();
+        core.init_advance(Some(0xA3));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+
+        let action = core.init_advance_verify();
+        assert_eq!(action, InitAction::ReadRegister(Register::Version));
+    }
+
+    #[test]
+    fn test_full_init_with_raw_mode_fix() {
+        let mut core = ScannerCore::with_default_config();
+        let config_seq = init_config_sequence();
+
+        core.init_begin();
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(0xA0));
+        core.init_advance(Some(config::CMD_MODE));
+
+        for i in 0..config_seq.len() {
+            core.init_advance(Some(config_seq[i].1));
+            if i < config_seq.len() - 1 {
+                core.init_advance_verify();
+            }
+        }
+
+        core.init_advance_verify();
+        core.init_advance(Some(0x69));
+        core.init_advance(Some(0x00));
+
+        let action = core.init_advance(Some(config::RAW_MODE_VALUE));
+        assert_eq!(action, InitAction::Complete(ScannerModel::Gm65));
+    }
 }

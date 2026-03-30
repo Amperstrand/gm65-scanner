@@ -2,13 +2,17 @@
 
 use core::fmt;
 
-/// Scanner model identifier
+/// Scanner model identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerModel {
+    /// GM65 scanner module.
     Gm65,
+    /// M3Y scanner module (GM65 variant).
     M3Y,
+    /// Unrecognized model (init succeeded but version unknown).
     Generic,
+    /// Model not yet detected (pre-init state).
     Unknown,
 }
 
@@ -23,38 +27,55 @@ impl fmt::Display for ScannerModel {
     }
 }
 
-/// Scanner scan mode
+/// Scanner scan mode configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScanMode {
+    /// Scanner triggers continuously while barcode is in view.
     Continuous,
+    /// Scanner waits for a trigger command before scanning.
     CommandTriggered,
+    /// Scanner uses a hardware trigger pin.
     HardwareTriggered,
 }
 
-/// Scanner operational state
+/// Scanner operational state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerState {
+    /// Scanner has not been initialized.
     Uninitialized,
+    /// Probe in progress (drain + ping).
     Detecting,
+    /// Writing configuration registers.
     Configuring,
+    /// Scanner is idle and ready to accept scan commands.
     Ready,
+    /// A scan is in progress (waiting for barcode data).
     Scanning,
+    /// Scan data received and available via `read_scan()`.
     ScanComplete,
+    /// An error occurred (contains the specific error).
     Error(ScannerError),
 }
 
-/// Scanner error type
+/// Scanner error types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScannerError {
+    /// Scanner did not respond to probe ping.
     NotDetected,
+    /// UART communication timed out.
     Timeout,
+    /// Response frame was invalid or unrecognized.
     InvalidResponse,
+    /// Scan data exceeded buffer capacity.
     BufferOverflow,
+    /// A configuration register write or read failed.
     ConfigFailed,
+    /// Operation attempted before calling `init()`.
     NotInitialized,
+    /// UART read/write error.
     UartError,
 }
 
@@ -72,13 +93,17 @@ impl fmt::Display for ScannerError {
     }
 }
 
-/// Scanner configuration
+/// Scanner configuration.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScannerConfig {
+    /// Detected or expected scanner model.
     pub model: ScannerModel,
+    /// UART baud rate (informational — driver does not set this).
     pub baud_rate: u32,
+    /// Scan triggering mode.
     pub mode: ScanMode,
+    /// Whether raw mode is enabled (firmware-specific).
     pub raw_mode: bool,
 }
 
@@ -93,14 +118,19 @@ impl Default for ScannerConfig {
     }
 }
 
-/// Scanner status snapshot
+/// Scanner status snapshot.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScannerStatus {
+    /// Detected scanner model.
     pub model: ScannerModel,
+    /// `true` if the scanner has been initialized successfully.
     pub connected: bool,
+    /// Alias for `connected` — `true` after successful `init()`.
     pub initialized: bool,
+    /// Configuration used during initialization.
     pub config: ScannerConfig,
+    /// Byte length of the most recent scan, if any.
     pub last_scan_len: Option<usize>,
 }
 

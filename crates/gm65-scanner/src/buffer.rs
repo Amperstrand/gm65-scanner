@@ -1,15 +1,23 @@
-//! Scan buffer for QR scanner data
+//! Scan buffer for QR scanner data.
 //!
 //! Handles buffering incoming UART data and detecting EOL-terminated payloads.
+//! The GM65 scanner terminates scan results with `\r\n`.
 
+/// Maximum scan data size in bytes.
+///
+/// QR codes can encode up to ~4296 characters (alphanumeric mode).
+/// 2048 bytes provides ample headroom for typical QR payloads while
+/// fitting comfortably in RAM on Cortex-M targets.
 pub const MAX_SCAN_SIZE: usize = 2048;
 
+/// Fixed-size ring buffer for accumulating UART scan data.
 pub struct ScanBuffer {
     data: [u8; MAX_SCAN_SIZE],
     len: usize,
 }
 
 impl ScanBuffer {
+    /// Create a new empty buffer.
     pub const fn new() -> Self {
         Self {
             data: [0u8; MAX_SCAN_SIZE],
@@ -17,10 +25,12 @@ impl ScanBuffer {
         }
     }
 
+    /// Clear all buffered data.
     pub fn clear(&mut self) {
         self.len = 0;
     }
 
+    /// Append a byte. Returns `false` if the buffer is full.
     pub fn push(&mut self, byte: u8) -> bool {
         if self.len >= MAX_SCAN_SIZE {
             return false;
@@ -30,18 +40,24 @@ impl ScanBuffer {
         true
     }
 
+    /// Return the buffered data as a byte slice.
     pub fn as_slice(&self) -> &[u8] {
         &self.data[..self.len]
     }
 
+    /// Return the number of buffered bytes.
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Return `true` if the buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// Check if the buffer ends with an EOL sequence.
+    ///
+    /// Detects `\r\n`, `\r`, or `\n` as end-of-line markers.
     pub fn has_eol(&self) -> bool {
         if self.len == 0 {
             return false;
@@ -55,6 +71,9 @@ impl ScanBuffer {
         false
     }
 
+    /// Return buffered data with trailing EOL stripped.
+    ///
+    /// Strips at most one trailing `\n` and one trailing `\r`.
     pub fn data_without_eol(&self) -> &[u8] {
         let mut end = self.len;
         if end > 0 && self.data[end - 1] == b'\n' {

@@ -192,9 +192,13 @@ impl<UART> Gm65ScannerAsync<UART> {
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
         let cmd = protocol::build_save_settings();
-        self.send_command(&cmd)
+        let result = self
+            .send_command(&cmd)
             .await
-            .is_some_and(|r| r != Gm65Response::Invalid)
+            .is_some_and(|r| r != Gm65Response::Invalid);
+        #[cfg(feature = "defmt")]
+        defmt::info!("save_settings: {}", if result { "OK" } else { "FAIL" });
+        result
     }
 
     async fn do_init(&mut self) -> Result<ScannerModel, ScannerError>
@@ -255,7 +259,12 @@ impl<UART> Gm65ScannerAsync<UART> {
     {
         self.core.begin_scan()?;
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x01);
-        let _ = self.send_command(&cmd).await;
+        let _resp = self.send_command(&cmd).await;
+        #[cfg(feature = "defmt")]
+        match &_resp {
+            Some(_) => defmt::info!("Trigger ScanEnable: ack ok"),
+            None => defmt::warn!("Trigger ScanEnable: NO RESPONSE"),
+        }
         Ok(())
     }
 
@@ -267,7 +276,13 @@ impl<UART> Gm65ScannerAsync<UART> {
             return false;
         }
         let cmd = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x00);
-        self.send_command(&cmd).await.is_some()
+        let resp = self.send_command(&cmd).await;
+        #[cfg(feature = "defmt")]
+        match &resp {
+            Some(_) => defmt::info!("Stop ScanEnable: ack ok"),
+            None => defmt::warn!("Stop ScanEnable: NO RESPONSE"),
+        }
+        resp.is_some()
     }
 
     async fn do_read_scan(&mut self) -> Option<Vec<u8>>
