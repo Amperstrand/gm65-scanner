@@ -583,14 +583,9 @@ mod tests {
     use alloc::vec::Vec;
     use core::cell::RefCell;
 
+    use crate::driver::test_helpers::{init_response_sequence, success_response, MockInner};
     use embedded_hal_02::serial::Read as _;
     use embedded_hal_02::serial::Write as _;
-
-    struct MockInner {
-        read_queue: Vec<u8>,
-        written: Vec<u8>,
-        pending_responses: Vec<Vec<u8>>,
-    }
 
     struct MockUart {
         inner: Rc<RefCell<MockInner>>,
@@ -681,41 +676,6 @@ mod tests {
                 Ok(inner.read_queue.remove(0))
             }
         }
-    }
-
-    fn success_response(value: u8) -> [u8; 7] {
-        [0x02, 0x00, 0x00, 0x01, value, 0x33, 0x31]
-    }
-
-    fn init_response_sequence() -> ([u8; 7 * 20], usize) {
-        let mut buf = [0u8; 7 * 20];
-        let mut idx = 0usize;
-
-        let r = |buf: &mut [u8], idx: &mut usize, v: u8| {
-            let resp = success_response(v);
-            buf[*idx..*idx + 7].copy_from_slice(&resp);
-            *idx += 7;
-        };
-
-        r(&mut buf, &mut idx, 0xA0);
-        r(&mut buf, &mut idx, 0xA0);
-        r(&mut buf, &mut idx, 0x81);
-
-        let targets: [u8; 5] = [0x00, 0x01, 0x85, 0x01, 0x01];
-        for _ in 0..5 {
-            r(&mut buf, &mut idx, 0xFF);
-        }
-        for t in &targets {
-            r(&mut buf, &mut idx, *t);
-        }
-        for t in &targets {
-            r(&mut buf, &mut idx, *t);
-        }
-
-        r(&mut buf, &mut idx, 0x87);
-        r(&mut buf, &mut idx, 0x00);
-
-        (buf, idx)
     }
 
     #[test]

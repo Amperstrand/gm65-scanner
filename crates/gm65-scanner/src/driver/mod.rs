@@ -37,6 +37,9 @@
 mod traits;
 mod types;
 
+#[cfg(test)]
+mod test_helpers;
+
 pub use traits::{ScannerDriver, ScannerDriverSync};
 pub use types::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
 
