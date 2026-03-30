@@ -460,4 +460,19 @@ mod tests {
         assert!(result.is_none());
         assert_eq!(decoder.progress(), (2, 3));
     }
+
+    #[test]
+    fn test_classify_cashu_v4_prefix() {
+        let data = b"cashuB123abc";
+        assert_eq!(classify_payload(data), PayloadType::CashuV4);
+    }
+
+    #[test]
+    fn test_ur_decoder_index_exceeds_total() {
+        let mut decoder = UrDecoder::new();
+        decoder.feed(b"ur:bytes/1-2/hash1/part-a");
+        let result = decoder.feed(b"ur:bytes/5-2/hash1/part-b");
+        assert!(result.is_none());
+        assert_eq!(decoder.progress(), (1, 2));
+    }
 }

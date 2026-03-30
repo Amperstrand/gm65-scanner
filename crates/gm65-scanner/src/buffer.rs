@@ -229,4 +229,32 @@ mod tests {
         let buf = ScanBuffer::new();
         assert_eq!(buf.data_without_eol(), &[]);
     }
+
+    #[test]
+    fn test_data_without_eol_lone_cr() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'\r');
+        assert_eq!(buf.data_without_eol(), &[]);
+    }
+
+    #[test]
+    fn test_data_without_eol_lone_lf() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'\n');
+        assert_eq!(buf.data_without_eol(), &[]);
+    }
+
+    #[test]
+    fn test_has_eol_single_cr() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'\r');
+        assert!(buf.has_eol());
+    }
+
+    #[test]
+    fn test_has_eol_single_lf() {
+        let mut buf = ScanBuffer::new();
+        buf.push(b'\n');
+        assert!(buf.has_eol());
+    }
 }
