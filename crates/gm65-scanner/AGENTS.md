@@ -35,15 +35,11 @@ cargo test
 ## Testing
 
 ```bash
-cargo test
+cargo test                          # sync tests only
+cargo test --features async         # sync + async tests
+cargo clippy -p gm65-scanner -- -D warnings
+cargo clippy -p gm65-scanner --features async -- -D warnings
 ```
-
-118 unit tests including:
-- Command frame construction matches specter-diy bytes exactly
-- Response parsing handles 7-byte success format
-- Register address bytes match specter-diy constants
-- Mock UART tests for sync driver (init, ping, get/set setting, command bytes, state transitions)
-- UrDecoder edge cases (index=0, mismatched totals, hash mismatch, duplicate fragments)
 
 ## Publishing
 
