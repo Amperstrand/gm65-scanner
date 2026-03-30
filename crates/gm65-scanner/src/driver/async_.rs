@@ -166,7 +166,8 @@ impl<UART> Gm65ScannerAsync<UART> {
         }
     }
 
-    async fn get_setting(&mut self, reg: Register) -> Option<u8>
+    /// Read a register value. Pass result to `init_advance()`.
+    pub async fn get_setting(&mut self, reg: Register) -> Option<u8>
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
@@ -177,7 +178,8 @@ impl<UART> Gm65ScannerAsync<UART> {
         }
     }
 
-    async fn set_setting(&mut self, reg: Register, value: u8) -> bool
+    /// Write a value to a register. Returns true on success.
+    pub async fn set_setting(&mut self, reg: Register, value: u8) -> bool
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
