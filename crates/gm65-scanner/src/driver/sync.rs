@@ -12,10 +12,9 @@ use crate::driver::{
     ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-use crate::scanner_core::{
-    config, init_config_sequence, version_needs_raw_fix, ScanByteResult, ScannerCore,
-    ScannerSettings,
-};
+#[cfg(test)]
+use crate::scanner_core::InitAction;
+use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 
 /// GM65/M3Y QR scanner driver (blocking/sync version).
 ///
@@ -221,140 +220,53 @@ where
         result
     }
 
-    fn probe_gm65(&mut self) -> bool {
-        self.drain_uart();
-        self.get_setting(Register::SerialOutput).is_some()
-    }
-
     fn do_init(&mut self) -> Result<ScannerModel, ScannerError> {
-        self.core.begin_init();
-
-        if !self.probe_gm65() {
-            self.core.fail_init(ScannerError::NotDetected);
-            return Err(ScannerError::NotDetected);
-        }
-
-        self.core.mark_detected(ScannerModel::Gm65);
-
-        // Read SerialOutput with retry
-        let serial_val = {
-            let mut result = None;
-            for _attempt in 0..3u32 {
-                self.drain_uart();
-                match self.get_setting(Register::SerialOutput) {
-                    Some(v) => {
-                        result = Some(v);
-                        break;
-                    }
-                    None => {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("SerialOutput read failed, retry {}...", _attempt + 1);
-                        for _ in 0..1_000_000 {
-                            core::hint::spin_loop();
-                        }
-                    }
+        use crate::scanner_core::InitAction;
+        let mut action = self.core.init_begin();
+        loop {
+            match action {
+                InitAction::DrainAndRead(reg) => {
+                    self.drain_uart();
+                    let result = self.get_setting(reg);
+                    action = self.core.init_advance(result);
                 }
-            }
-            match result {
-                Some(v) => {
+                InitAction::ReadRegister(reg) => {
+                    let result = self.get_setting(reg);
+                    action = self.core.init_advance(result);
+                }
+                InitAction::WriteRegister(reg, val) => {
+                    let ok = self.set_setting(reg, val);
+                    action = self.core.init_advance(if ok { Some(val) } else { None });
+                }
+                InitAction::VerifyRegister(_reg, _expected) => {
                     #[cfg(feature = "defmt")]
-                    defmt::info!("SerialOutput: 0x{:02x}", v);
-                    v
-                }
-                None => {
-                    #[cfg(feature = "defmt")]
-                    defmt::warn!("init: failed to read SerialOutput after retries");
-                    self.core.fail_init(ScannerError::ConfigFailed);
-                    return Err(ScannerError::ConfigFailed);
-                }
-            }
-        };
-
-        // Fix SerialOutput if needed (clear bits 0-1)
-        if crate::scanner_core::serial_output_needs_fix(serial_val) {
-            let fixed = crate::scanner_core::fix_serial_output(serial_val);
-            if !self.set_setting(Register::SerialOutput, fixed) {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("init: failed to fix SerialOutput");
-                self.core.fail_init(ScannerError::ConfigFailed);
-                return Err(ScannerError::ConfigFailed);
-            }
-        }
-
-        // Force command mode (always write to clear any stale bits like AIM)
-        if !self.set_setting(Register::Settings, config::CMD_MODE) {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("init: failed to set Settings to CMD_MODE");
-            self.core.fail_init(ScannerError::ConfigFailed);
-            return Err(ScannerError::ConfigFailed);
-        }
-        #[cfg(feature = "defmt")]
-        defmt::info!("Settings forced to 0x{:02x}", config::CMD_MODE);
-
-        // Apply configuration settings
-        let config_settings = init_config_sequence();
-
-        for (reg, set_val) in config_settings.iter() {
-            match self.get_setting(*reg) {
-                Some(val) => {
-                    if val != *set_val {
-                        #[cfg(feature = "defmt")]
-                        defmt::info!(
-                            "Setting {:02x}: 0x{:02x} -> 0x{:02x}",
-                            reg.address_bytes(),
-                            val,
-                            set_val
-                        );
-                        if !self.set_setting(*reg, *set_val) {
-                            #[cfg(feature = "defmt")]
-                            defmt::warn!(
-                                "init: failed to set register {:02x}",
-                                reg.address_bytes()
-                            );
-                            self.core.fail_init(ScannerError::ConfigFailed);
-                            return Err(ScannerError::ConfigFailed);
-                        }
-                        #[cfg(feature = "defmt")]
-                        if let Some(verify) = self.get_setting(*reg) {
-                            if verify != *set_val {
+                    {
+                        let verify = self.get_setting(_reg);
+                        if let Some(verify) = verify {
+                            if verify != _expected {
                                 defmt::warn!(
                                     "init: VERIFY FAIL {:02x}: wrote 0x{:02x}, read 0x{:02x}",
-                                    reg.address_bytes(),
-                                    set_val,
+                                    _reg.address_bytes(),
+                                    _expected,
                                     verify
                                 );
                             }
                         }
                     }
+                    action = self.core.init_advance_verify();
                 }
-                None => {
+                InitAction::Complete(model) => {
+                    let _ = self.save_settings();
                     #[cfg(feature = "defmt")]
-                    defmt::warn!("init: failed to read register {:02x}", reg.address_bytes());
-                    self.core.fail_init(ScannerError::ConfigFailed);
-                    return Err(ScannerError::ConfigFailed);
+                    defmt::info!("init: complete");
+                    self.core.complete_init(model);
+                    return Ok(model);
+                }
+                InitAction::Fail(e) => {
+                    return Err(e);
                 }
             }
         }
-
-        // Check firmware version for raw mode fix
-        if let Some(version) = self.get_setting(Register::Version) {
-            #[cfg(feature = "defmt")]
-            defmt::info!("Firmware version: 0x{:02x}", version);
-            if version_needs_raw_fix(version) {
-                if let Some(val) = self.get_setting(Register::RawMode) {
-                    if val != config::RAW_MODE_VALUE {
-                        self.set_setting(Register::RawMode, config::RAW_MODE_VALUE);
-                    }
-                }
-            }
-        }
-
-        let _ = self.save_settings();
-        #[cfg(feature = "defmt")]
-        defmt::info!("init: complete");
-
-        self.core.complete_init(ScannerModel::Gm65);
-        Ok(ScannerModel::Gm65)
     }
 
     fn do_trigger_scan(&mut self) -> Result<(), ScannerError> {

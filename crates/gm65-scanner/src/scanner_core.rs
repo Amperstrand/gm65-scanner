@@ -265,6 +265,33 @@ pub enum InitStep {
 }
 
 // ============================================================================
+// Init Action State Machine
+// ============================================================================
+
+/// Action to perform during initialization.
+///
+/// Returned by `init_begin()` and `init_advance()` to tell the driver
+/// what I/O operation to perform next. The driver performs the operation
+/// and calls `init_advance(result)` with the outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum InitAction {
+    /// Drain UART buffers, then read the given register (probe step).
+    DrainAndRead(Register),
+    /// Read a register value. Pass result to `init_advance()`.
+    ReadRegister(Register),
+    /// Write a value to a register. Pass Some(val) on success, None on failure.
+    WriteRegister(Register, u8),
+    /// Read register and verify it matches expected value (defmt logging only).
+    /// Always pass Some(expected) to advance — verify failure does not abort init.
+    VerifyRegister(Register, u8),
+    /// Initialization complete with the detected model.
+    Complete(ScannerModel),
+    /// Initialization failed with an error.
+    Fail(ScannerError),
+}
+
+// ============================================================================
 // Scanner Core
 // ============================================================================
 
@@ -295,6 +322,10 @@ pub struct ScannerCore {
     last_scan_len: Option<usize>,
     /// Current init step for tracking initialization progress.
     init_step: InitStep,
+    /// SerialOutput read retry counter (max 3).
+    init_retry_count: u32,
+    /// Current index into init_config_sequence().
+    config_seq_index: usize,
 }
 
 impl ScannerCore {
@@ -308,6 +339,8 @@ impl ScannerCore {
             detected_model: ScannerModel::Unknown,
             last_scan_len: None,
             init_step: InitStep::Start,
+            init_retry_count: 0,
+            config_seq_index: 0,
         }
     }
 
@@ -420,6 +453,142 @@ impl ScannerCore {
     pub fn fail_init(&mut self, error: ScannerError) {
         self.state = ScannerState::Error(error);
         self.init_step = InitStep::Failed(error);
+    }
+
+    /// Begin the initialization sequence.
+    ///
+    /// Returns the first action to perform. The driver should perform the
+    /// action and call `init_advance()` with the result.
+    ///
+    /// Resets retry counter and config sequence index.
+    pub fn init_begin(&mut self) -> InitAction {
+        self.init_retry_count = 0;
+        self.config_seq_index = 0;
+        self.begin_init();
+        InitAction::DrainAndRead(Register::SerialOutput)
+    }
+
+    /// Advance the initialization state machine with an I/O result.
+    ///
+    /// - `Some(value)` for successful register reads/writes
+    /// - `None` for failures (timeout, invalid response, etc.)
+    ///
+    /// Returns the next action to perform, or `Complete`/`Fail` when done.
+    pub fn init_advance(&mut self, result: Option<u8>) -> InitAction {
+        match self.init_step {
+            InitStep::Detecting => {
+                if result.is_none() {
+                    self.fail_init(ScannerError::NotDetected);
+                    return InitAction::Fail(ScannerError::NotDetected);
+                }
+                self.mark_detected(ScannerModel::Gm65);
+                InitAction::ReadRegister(Register::SerialOutput)
+            }
+
+            InitStep::ReadSerialOutput => {
+                if result.is_none() {
+                    self.init_retry_count += 1;
+                    if self.init_retry_count >= 3 {
+                        self.fail_init(ScannerError::ConfigFailed);
+                        return InitAction::Fail(ScannerError::ConfigFailed);
+                    }
+                    return InitAction::ReadRegister(Register::SerialOutput);
+                }
+                let val = result.unwrap();
+                if serial_output_needs_fix(val) {
+                    let fixed = fix_serial_output(val);
+                    self.init_step = InitStep::FixSerialOutput;
+                    return InitAction::WriteRegister(Register::SerialOutput, fixed);
+                }
+                self.init_step = InitStep::SetCommandMode;
+                InitAction::WriteRegister(Register::Settings, config::CMD_MODE)
+            }
+
+            InitStep::FixSerialOutput => {
+                if result.is_none() {
+                    self.fail_init(ScannerError::ConfigFailed);
+                    return InitAction::Fail(ScannerError::ConfigFailed);
+                }
+                self.init_step = InitStep::SetCommandMode;
+                InitAction::WriteRegister(Register::Settings, config::CMD_MODE)
+            }
+
+            InitStep::SetCommandMode => {
+                if result.is_none() {
+                    self.fail_init(ScannerError::ConfigFailed);
+                    return InitAction::Fail(ScannerError::ConfigFailed);
+                }
+                let config_seq = init_config_sequence();
+                let (reg, _target) = config_seq[0];
+                self.init_step = InitStep::ApplyConfig { index: 0 };
+                InitAction::ReadRegister(reg)
+            }
+
+            InitStep::ApplyConfig { index } => {
+                if result.is_none() {
+                    self.fail_init(ScannerError::ConfigFailed);
+                    return InitAction::Fail(ScannerError::ConfigFailed);
+                }
+                let config_seq = init_config_sequence();
+                let (reg, target) = config_seq[index];
+                if result.unwrap() != target {
+                    self.init_step = InitStep::ApplyConfig { index };
+                    return InitAction::WriteRegister(reg, target);
+                }
+                InitAction::VerifyRegister(reg, target)
+            }
+
+            InitStep::CheckVersion => {
+                if result.is_none() {
+                    return InitAction::Complete(ScannerModel::Gm65);
+                }
+                let version = result.unwrap();
+                if version_needs_raw_fix(version) {
+                    self.init_step = InitStep::SaveSettings;
+                    InitAction::ReadRegister(Register::RawMode)
+                } else {
+                    InitAction::Complete(ScannerModel::Gm65)
+                }
+            }
+
+            InitStep::SaveSettings => {
+                let version_val = result;
+                if version_val.is_none() {
+                    return InitAction::Complete(ScannerModel::Gm65);
+                }
+                if version_val.unwrap() != config::RAW_MODE_VALUE {
+                    self.init_step = InitStep::Complete;
+                    return InitAction::WriteRegister(Register::RawMode, config::RAW_MODE_VALUE);
+                }
+                InitAction::Complete(ScannerModel::Gm65)
+            }
+
+            InitStep::Complete => InitAction::Complete(self.detected_model),
+            InitStep::Failed(e) => InitAction::Fail(e),
+            InitStep::Start => {
+                self.fail_init(ScannerError::NotDetected);
+                InitAction::Fail(ScannerError::NotDetected)
+            }
+        }
+    }
+
+    /// Advance after a config verify step.
+    ///
+    /// Called after `VerifyRegister` action. Always advances to the next
+    /// config register or version check, regardless of verify result.
+    pub fn init_advance_verify(&mut self) -> InitAction {
+        let config_seq = init_config_sequence();
+        self.config_seq_index += 1;
+        if self.config_seq_index < config_seq.len() {
+            let (reg, _target) = config_seq[self.config_seq_index];
+            self.init_step = InitStep::ApplyConfig {
+                index: self.config_seq_index,
+            };
+            InitAction::ReadRegister(reg)
+        } else {
+            self.init_step = InitStep::CheckVersion;
+            InitAction::ReadRegister(Register::Version)
+        }
     }
 
     // ========================================================================
