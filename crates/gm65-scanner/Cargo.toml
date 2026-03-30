@@ -40,6 +40,7 @@ embassy-time = { workspace = true, optional = true }
 bitflags = "2.6"
 
 [dev-dependencies]
+futures-executor = "0.3"
 
 [package.metadata.docs.rs]
 all-features = true
