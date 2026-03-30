@@ -140,20 +140,23 @@ if let Some(data) = scanner.read_scan().await { /* ... */ }
 ## Testing
 
 ```bash
-cargo test -p gm65-scanner --lib   # 118 unit tests
+cargo test -p gm65-scanner           # sync tests
+cargo test -p gm65-scanner --features async  # sync + async tests
 cargo clippy -p gm65-scanner -- -D warnings
 cargo fmt --all -- --check
 ```
 
 ### Test Coverage
 
-| Module | Tests | What's Covered |
-|--------|-------|----------------|
-| `scanner_core.rs` | 28 | State machine, init sequence, settings, serial output fix |
-| `protocol.rs` | 17 | Command frames, response parsing, register addresses, convenience builders |
-| `buffer.rs` | 15 | Push, clear, EOL detection (\r\n, \r, \n), data stripping, overflow |
-| `decoder.rs` | 20 | Payload classification, UR fragment parsing, multi-part reassembly |
-| `driver/types.rs` | 8 | Display formatting, config defaults, status fields |
+| Module | What's Covered |
+|--------|----------------|
+| `protocol.rs` | Command frames match specter-diy bytes, response parsing, register addresses |
+| `scanner_core.rs` | State machine, init sequence (all InitAction paths), settings, serial output fix |
+| `buffer.rs` | Push, clear, EOL detection (`\r\n`, `\r`, `\n`), data stripping, overflow |
+| `decoder.rs` | Payload classification, UR fragment parsing, multi-part reassembly, edge cases |
+| `driver/types.rs` | Display formatting, config defaults, status fields |
+| `driver/sync.rs` | Mock UART tests: init, ping, get/set setting, trigger/stop, state transitions |
+| `driver/async_.rs` | Mock UART tests: init, ping, get/set setting, trigger/stop, cancel, state transitions |
 
 ## HIL Tests
 
@@ -190,7 +193,7 @@ Both drivers skip UART draining when in `Scanning` state, preventing in-flight s
 
 ## Example Firmware
 
-The `examples/stm32f469i-disco/` directory contains firmware for the STM32F469I-Discovery board.
+See the `examples/stm32f469i-disco/` workspace member for firmware targeting the STM32F469I-Discovery board.
 
 ### Sync (`sync-mode` feature)
 
