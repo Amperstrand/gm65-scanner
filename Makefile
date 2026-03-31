@@ -37,11 +37,13 @@ build-all: build-sync build-async
 
 # ── Run with RTT capture (fastest edit-run cycle) ─────────────────────────
 
-run-sync: build-sync
-	@source $(FLASH_HELPERS); BINARY=$(SYNC_BINARY) RTT_TIMEOUT=30 run_rtt
+run-sync:
+	cargo build $(CARGO_FLAGS) --bin hil_test_sync --features $(HIL_SYNC_FEATURES)
+	@source $(FLASH_HELPERS); BINARY=$(BUILD_DIR)/hil_test_sync RTT_TIMEOUT=30 run_rtt
 
-run-async: build-async
-	@source $(FLASH_HELPERS); BINARY=$(ASYNC_BINARY) RTT_TIMEOUT=30 run_rtt
+run-async:
+	cargo build $(CARGO_FLAGS) --bin hil_test_async --features $(HIL_ASYNC_FEATURES)
+	@source $(FLASH_HELPERS); BINARY=$(BUILD_DIR)/hil_test_async RTT_TIMEOUT=30 run_rtt
 
 # ── Flash + auto-recover + detect port ─────────────────────────────────────
 

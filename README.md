@@ -109,7 +109,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 118/118 tests passing
+**Status**: 149/149 tests passing
 
 ### Feature Checks
 

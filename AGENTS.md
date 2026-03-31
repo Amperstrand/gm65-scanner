@@ -11,7 +11,7 @@
 
 | Commit | Notes |
 |--------|-------|
-| `f767ced` (main HEAD) | Sync USB+Display+Scanner CDC verified. Async USB+Display+Scanner+Touch CDC verified. BSP `799df39`, embassy BSP `e202e9a`. |
+| `2416177` (main HEAD) | Sync USB+Display+Scanner CDC verified. Async USB+Display+Scanner+Touch CDC verified. BSP `799df39`, embassy BSP `e202e9a`. |
 | `1360469` | Sync 6/6, async 9/9, QR scans on both. BSP `56a0bc8`, embassy BSP `890a4d1`. |
 
 ## Production Build Commands
@@ -93,7 +93,7 @@ Both sync and async firmware verified on hardware with `st-flash` (no probe-rs):
 
 ## USB CDC + defmt_rtt Incompatibility (RESOLVED)
 
-`defmt_rtt` (even when unused via `use defmt_rtt as _`) prevents USB OTG FS enumeration. Root cause unknown — possibly SWD/ITM contention. **Do NOT use defmt_rtt or panic_probe in firmware that enables USB CDC.**
+`defmt_rtt` (even when unused via `use defmt_rtt as _`) prevents USB OTG FS enumeration. Root cause: the BSP's `Cargo.toml` unconditionally includes `"defmt"` in `stm32f4xx-hal` features, making the feature gate useless. See [stm32f469i-disc#23](https://github.com/Amperstrand/stm32f469i-disc/issues/23). **Do NOT use defmt_rtt or panic_probe in firmware that enables USB CDC.**
 
 ### Fix (applied in this repo)
 
