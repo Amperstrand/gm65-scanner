@@ -149,9 +149,13 @@ make build-sync
 # Async firmware
 make build-async
 
-# Cross-compile for ARM
-cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --features sync-mode,defmt
-cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --features scanner-async,defmt
+# Cross-compile for ARM (production — USB CDC active)
+cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features sync-mode
+cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features scanner-async
+
+# Cross-compile for ARM (debug — USB will NOT enumerate, uses RTT)
+cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features sync-mode,defmt
+cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features scanner-async,defmt
 ```
 
 ## Binary Targets

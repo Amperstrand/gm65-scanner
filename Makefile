@@ -7,12 +7,14 @@ EXAMPLE_DIR = examples/stm32f469i-disco
 SYNC_BINARY  = $(BUILD_DIR)/stm32f469i-disco-scanner
 ASYNC_BINARY = $(BUILD_DIR)/async_firmware
 
-SYNC_FEATURES  = sync-mode,defmt
-ASYNC_FEATURES = scanner-async,defmt
+SYNC_FEATURES  = sync-mode
+ASYNC_FEATURES = scanner-async
+HIL_SYNC_FEATURES  = hil-tests,defmt
+HIL_ASYNC_FEATURES = scanner-async,defmt,gm65-scanner/hil-tests
 
 # --manifest-path keeps us at workspace root while cargo still picks up
 # .cargo/config.toml (target, rustflags) from the workspace .cargo/ dir.
-CARGO_FLAGS    = --release --manifest-path $(EXAMPLE_DIR)/Cargo.toml
+CARGO_FLAGS    = --release --target $(TARGET) --manifest-path $(EXAMPLE_DIR)/Cargo.toml --no-default-features
 FLASH_HELPERS  = scripts/flash-helpers.sh
 SHELL          = /bin/bash
 
