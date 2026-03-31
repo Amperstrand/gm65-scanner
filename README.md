@@ -4,7 +4,7 @@
 
 ## Overview
 
-- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 118 unit tests
+- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 149 unit tests
 - **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
 
 ## Sync vs Async Drivers
@@ -54,7 +54,7 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 118 unit tests passing, clippy clean |
+| Library | Stable | 149 unit tests passing, clippy clean |
 | Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
 | Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
@@ -64,8 +64,8 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 
 | Dependency | Rev | Purpose |
 |------------|-----|---------|
-| `stm32f469i-disc` | `9f52a58` | Amperstrand BSP fork (sync HAL, SDRAM, LCD, USB) |
-| `embassy-stm32f469i-disco` | `890a4d1` | Amperstrand BSP fork (async embassy wrappers, display) |
+| `stm32f469i-disc` | `799df39` | Amperstrand BSP fork (sync HAL, SDRAM, LCD, USB) |
+| `embassy-stm32f469i-disco` | `e202e9a` | Amperstrand BSP fork (async embassy wrappers, display) |
 | `embassy-*` | `84444a19` | Embassy framework (executor, time, stm32, usb, futures) |
 | `qrcodegen-no-heap` | 1.8 | QR code generation (zero heap) |
 | `embedded-hal` | 1.0 | Modern HAL traits (async driver) |

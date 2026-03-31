@@ -2,7 +2,7 @@
 //!
 //! Command and response handling for GM65 QR scanner modules.
 //! Protocol reverse-engineered from specter-diy's qr.py:
-//! https://github.com/cryptoadvance/specter-diy/blob/master/src/hosts/qr.py
+//! <https://github.com/cryptoadvance/specter-diy/blob/master/src/hosts/qr.py>
 //!
 //! # Protocol Format
 //!
@@ -247,7 +247,7 @@ impl Gm65Response {
         Gm65Response::SuccessWithValue(data[4])
     }
 
-    /// Parse a get-setting response. Alias for [`parse()`].
+    /// Parse a get-setting response. Alias for [`Self::parse()`].
     pub fn parse_get_response(data: &[u8]) -> Self {
         Self::parse(data)
     }
@@ -255,7 +255,7 @@ impl Gm65Response {
     /// Parse a set-setting response.
     ///
     /// Returns `Success` (no value) if the prefix matches, `Invalid` otherwise.
-    /// Note: the actual driver code uses [`parse()`] for all response types.
+    /// Note: the actual driver code uses [`Self::parse()`] for all response types.
     pub fn parse_set_response(data: &[u8]) -> Self {
         if data.len() != RESPONSE_LEN || data[0..4] != RESPONSE_PREFIX {
             return Gm65Response::Invalid;

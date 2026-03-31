@@ -12,8 +12,6 @@ use crate::driver::{
     ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-#[cfg(test)]
-use crate::scanner_core::InitAction;
 use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 
 /// GM65/M3Y QR scanner driver (blocking/sync version).

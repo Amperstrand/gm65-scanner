@@ -49,7 +49,7 @@ cargo build --release --target thumbv7em-none-eabihf \
 cargo build --release --target thumbv7em-none-eabihf \
   --manifest-path examples/stm32f469i-disco/Cargo.toml \
   --bin hil_test_async \
-  --no-default-features --features scanner-async,defmt
+  --no-default-features --features scanner-async,defmt,gm65-scanner/hil-tests
 
 # Async with RTT debug logging (USB will NOT enumerate)
 cargo build --release --target thumbv7em-none-eabihf \

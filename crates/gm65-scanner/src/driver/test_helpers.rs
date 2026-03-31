@@ -1,10 +1,6 @@
 //! Shared test helpers for sync and async driver tests.
 
-use alloc::rc::Rc;
 use alloc::vec::Vec;
-use core::cell::RefCell;
-
-use crate::protocol::{Gm65Response, Register, RESPONSE_LEN};
 
 /// Inner state shared between sync and async mock UARTs.
 pub struct MockInner {
