@@ -150,12 +150,22 @@ make build-sync
 make build-async
 
 # Cross-compile for ARM (production — USB CDC active)
-cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features sync-mode
-cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features scanner-async
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin stm32f469i-disco-scanner --no-default-features --features sync-mode
+
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin async_firmware --no-default-features --features scanner-async
 
 # Cross-compile for ARM (debug — USB will NOT enumerate, uses RTT)
-cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features sync-mode,defmt
-cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --no-default-features --features scanner-async,defmt
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin hil_test_sync --no-default-features --features hil-tests,defmt
+
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin hil_test_async --no-default-features --features scanner-async,defmt,gm65-scanner/hil-tests
 ```
 
 ## Binary Targets
