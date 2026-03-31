@@ -22,10 +22,12 @@ use alloc::string::String;
 #[cfg(feature = "scanner-async")]
 use alloc::vec::Vec;
 
-#[cfg(feature = "scanner-async")]
+#[cfg(all(feature = "scanner-async", feature = "defmt"))]
 use defmt_rtt as _;
-#[cfg(feature = "scanner-async")]
+#[cfg(all(feature = "scanner-async", feature = "defmt"))]
 use panic_probe as _;
+#[cfg(all(feature = "scanner-async", not(feature = "defmt")))]
+use panic_halt as _;
 
 #[cfg(feature = "scanner-async")]
 use embassy_executor::Spawner;
@@ -48,7 +50,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 #[cfg(feature = "scanner-async")]
 use embassy_usb::Builder;
 #[cfg(feature = "scanner-async")]
-use gm65_scanner::{Gm65ScannerAsync, ScannerDriver, ScannerModel, ScannerSettings};
+use gm65_scanner::{Gm65ScannerAsync, ScannerModel, ScannerSettings};
 #[cfg(feature = "scanner-async")]
 use linked_list_allocator::LockedHeap;
 
@@ -64,6 +66,26 @@ mod async_shared {
 
 #[cfg(feature = "scanner-async")]
 use embassy_stm32::bind_interrupts;
+
+#[cfg(feature = "scanner-async")]
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "defmt")]
+        {
+            defmt::info!($($arg)*);
+        }
+    };
+}
+
+#[cfg(feature = "scanner-async")]
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "defmt")]
+        {
+            defmt::error!($($arg)*);
+        }
+    };
+}
 
 #[cfg(feature = "scanner-async")]
 bind_interrupts!(struct Irqs {
@@ -241,17 +263,17 @@ async fn main(_spawner: Spawner) {
     }
     let mut p = embassy_stm32::init(config);
 
-    defmt::info!("Initializing SDRAM...");
+    log_info!("Initializing SDRAM...");
     let sdram = SdramCtrl::new(&mut p, 168_000_000);
     let sdram_base = sdram.base_address();
     let sdram_ok = sdram.test_quick();
-    defmt::info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
+    log_info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
     let _ = SDRAM_CHANNEL.try_send(SdramStatus {
         base_address: sdram_base,
         test_passed: sdram_ok,
     });
 
-    defmt::info!("Initializing display...");
+    log_info!("Initializing display...");
     let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::Auto);
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
@@ -261,6 +283,7 @@ async fn main(_spawner: Spawner) {
         embassy_stm32::gpio::Speed::Low,
     );
 
+    embassy_stm32::interrupt::USART6.disable();
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
@@ -268,9 +291,8 @@ async fn main(_spawner: Spawner) {
 
     let async_uart = async_shared::AsyncUart {
         inner: uart,
-        yield_threshold: 2_000_000,
+        yield_threshold: 500_000,
     };
-    let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 
     let mut ep_out_buffer = [0u8; 256];
     let mut usb_config = usb::Config::default();
@@ -306,67 +328,63 @@ async fn main(_spawner: Spawner) {
     let mut cdc = CdcAcmClass::new(&mut usb_builder, &mut usb_state, 64);
     let mut usb_dev = usb_builder.build();
 
-    defmt::info!("Initializing touch controller...");
+    log_info!("Initializing touch controller...");
     let i2c_config = i2c::Config::default();
     let mut touch_i2c = i2c::I2c::new_blocking(p.I2C2, p.PB10, p.PB11, i2c_config);
     let touch_ctrl = TouchCtrl::new();
     let touch_ok = touch_ctrl.read_vendor_id(&mut touch_i2c).is_ok();
-    defmt::info!("Touch: vendor_id read {}", touch_ok);
+    log_info!("Touch: vendor_id read {}", touch_ok);
 
-    let model_str;
     {
         let mut shared = SHARED.lock().await;
+        shared.auto_scan = true;
+    }
+
+    DISPLAY_READY.signal(());
+
+    log_info!("Async scanner firmware started (168MHz, USB CDC, touch)");
+
+    let scanner_task = async {
+        let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
+        use gm65_scanner::ScannerDriver;
+
         match scanner.init().await {
             Ok(model) => {
-                defmt::info!("Scanner: detected {:?}", model);
+                log_info!("Scanner: detected {:?}", model);
+                let model_str = model_to_str(model);
+                let mut shared = SHARED.lock().await;
                 shared.scanner_connected = true;
-                model_str = model_to_str(model);
                 let bytes = model_str.as_bytes();
                 let model_len = bytes.len().min(16);
                 shared.model_len = model_len;
                 shared.model_str[..model_len].copy_from_slice(bytes);
+                if let Some(settings) = scanner.get_scanner_settings().await {
+                    shared.settings = Some(settings);
+                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
+                } else {
+                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
+                }
             }
-            Err(e) => {
-                defmt::error!("Scanner: init failed {:?}", e);
-                model_str = "Unknown";
-                crate::display_async::render_error(&mut display.fb(), "Scanner init failed");
+            Err(_e) => {
+                log_error!("Scanner: init failed {:?}", _e);
+                let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
             }
         }
-    }
 
-    {
-        let mut shared = SHARED.lock().await;
-        if shared.scanner_connected {
-            if let Some(settings) = scanner.get_scanner_settings().await {
-                shared.settings = Some(settings);
-                shared.auto_scan = true;
-                crate::display_async::render_scanner_settings(&mut display.fb(), settings);
-            } else {
-                crate::display_async::render_home(&mut display.fb(), true, model_str);
-            }
-        } else {
-            crate::display_async::render_home(&mut display.fb(), false, model_str);
-        }
-    }
-    DISPLAY_READY.signal(());
-
-    defmt::info!("Async scanner firmware started (168MHz, USB CDC, touch)");
-
-    let scanner_task = async {
         loop {
             if let Ok(cmd) = COMMAND_CHANNEL.try_receive() {
                 match cmd {
                     HostCommand::Trigger => {
-                        defmt::info!("Scanner: host trigger");
+                        log_info!("Scanner: host trigger");
                         if scanner.trigger_scan().await.is_err() {
-                            defmt::error!("Scanner: trigger failed");
+                            log_error!("Scanner: trigger failed");
                             let _ = CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerFail);
                         } else {
                             let _ = CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerOk);
                         }
                     }
                     HostCommand::Stop => {
-                        defmt::info!("Scanner: host stop");
+                        log_info!("Scanner: host stop");
                         scanner.cancel_scan();
                         let _ = scanner.stop_scan().await;
                     }
@@ -468,8 +486,8 @@ async fn main(_spawner: Spawner) {
 
             match embassy_time::with_timeout(Duration::from_secs(10), scanner.read_scan()).await {
                 Ok(Some(data)) => {
-                    let len = data.len();
-                    defmt::info!("Scanner: scanned {} bytes", len);
+                    let _len = data.len();
+                    log_info!("Scanner: scanned {} bytes", _len);
                     let result = ScanResult { data: data.clone() };
                     let _ = SCAN_CHANNEL.try_send(result.clone());
                     let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Scan(result));
@@ -501,7 +519,7 @@ async fn main(_spawner: Spawner) {
 
         loop {
             cdc.wait_connection().await;
-            defmt::info!("USB: connected");
+            log_info!("USB: connected");
 
             let mut heartbeat = Ticker::every(Duration::from_secs(3));
             let mut rx_buf = [0u8; 256];
@@ -626,11 +644,11 @@ async fn main(_spawner: Spawner) {
                         if let Some(frame) = frame_decoder.decode(&rx_buf[..n]) {
                             match frame.command {
                                 Command::ScannerStatus => {
-                                    defmt::info!("CMD: SCANNER_STATUS");
+                                    log_info!("CMD: SCANNER_STATUS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::ScannerStatusCdc);
                                 }
                                 Command::ScannerTrigger => {
-                                    defmt::info!("CMD: SCANNER_TRIGGER");
+                                    log_info!("CMD: SCANNER_TRIGGER");
                                     {
                                         let mut shared = SHARED.lock().await;
                                         shared.auto_scan = false;
@@ -638,15 +656,15 @@ async fn main(_spawner: Spawner) {
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::Trigger);
                                 }
                                 Command::ScannerData => {
-                                    defmt::info!("CMD: SCANNER_DATA");
+                                    log_info!("CMD: SCANNER_DATA");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::ScannerDataCdc);
                                 }
                                 Command::GetSettings => {
-                                    defmt::info!("CMD: GET_SETTINGS");
+                                    log_info!("CMD: GET_SETTINGS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::GetSettings);
                                 }
                                 Command::SetSettings => {
-                                    defmt::info!("CMD: SET_SETTINGS");
+                                    log_info!("CMD: SET_SETTINGS");
                                     let payload = frame.payload();
                                     if payload.is_empty() {
                                         let _ = cdc
@@ -664,7 +682,7 @@ async fn main(_spawner: Spawner) {
                                     }
                                 }
                                 Command::DisplayQr => {
-                                    defmt::info!("CMD: DISPLAY_QR");
+                                    log_info!("CMD: DISPLAY_QR");
                                     let text = core::str::from_utf8(frame.payload())
                                         .unwrap_or("<invalid utf8>");
                                     let _ = DISPLAY_CHANNEL
@@ -672,7 +690,7 @@ async fn main(_spawner: Spawner) {
                                     let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
                                 }
                                 Command::EnterSettings => {
-                                    defmt::info!("CMD: ENTER_SETTINGS");
+                                    log_info!("CMD: ENTER_SETTINGS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::EnterSettings);
                                 }
                             }
@@ -689,7 +707,7 @@ async fn main(_spawner: Spawner) {
                     Err(_) => break,
                 }
             }
-            defmt::info!("USB: disconnected");
+            log_info!("USB: disconnected");
             Timer::after(Duration::from_millis(100)).await;
         }
     };
@@ -813,13 +831,14 @@ async fn main(_spawner: Spawner) {
     .await;
 }
 
-#[cfg(not(feature = "scanner-async"))]
+#[cfg(all(not(feature = "scanner-async"), feature = "defmt"))]
 use defmt_rtt as _;
+#[cfg(all(not(feature = "scanner-async"), not(feature = "defmt")))]
+use panic_halt as _;
 
 #[cfg(not(feature = "scanner-async"))]
 #[cortex_m_rt::entry]
 fn main() -> ! {
-    defmt::error!("This binary requires the 'scanner-async' feature");
     loop {
         cortex_m::asm::wfi();
     }

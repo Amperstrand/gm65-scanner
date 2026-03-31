@@ -685,14 +685,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
-name = "ft6x06-rs"
-version = "0.4.0"
-source = "git+https://github.com/Amperstrand/ft6x06-rs?rev=fa4b41c#fa4b41c1281912718c3410422b040c07f999fef9"
-dependencies = [
- "embedded-hal 1.0.0",
-]
-
-[[package]]
 name = "fugit"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -992,6 +984,12 @@ dependencies = [
  "embedded-display-controller",
  "embedded-hal 1.0.0",
 ]
+
+[[package]]
+name = "panic-halt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de96540e0ebde571dc55c73d60ef407c653844e6f9a1e2fdbd40c07b9252d812"
 
 [[package]]
 name = "panic-probe"
@@ -1299,10 +1297,8 @@ source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=799df39#799df39
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
- "defmt 1.0.1",
  "embedded-graphics-core",
  "embedded-hal 1.0.0",
- "ft6x06-rs",
  "nt35510 0.2.0",
  "otm8009a 0.2.0",
  "stm32-fmc",
@@ -1336,6 +1332,7 @@ dependencies = [
  "linked_list_allocator",
  "nb 1.1.0",
  "nt35510 0.1.0",
+ "panic-halt",
  "panic-probe",
  "qrcodegen-no-heap",
  "static_cell",

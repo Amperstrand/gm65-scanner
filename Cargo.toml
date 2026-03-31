@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/Amperstrand/gm65-scanner"
 
 [workspace.dependencies]
-gm65-scanner = { path = "crates/gm65-scanner" }
+gm65-scanner = { path = "crates/gm65-scanner", default-features = false }
 
 # Embedded
 cortex-m = "0.7"
@@ -20,6 +20,7 @@ cortex-m-rt = "0.7"
 defmt = "1.0"
 defmt-rtt = "1.0"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
+panic-halt = "0.2"
 embedded-hal = "1.0"
 embedded-hal-02 = { package = "embedded-hal", version = "0.2", features = ["unproven"] }
 embedded-graphics = "0.8"
@@ -34,12 +35,12 @@ qrcodegen-no-heap = "1.8"
 bitflags = "2.6"
 
 # BSP - pinned to latest
-stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "799df39" }
+stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "799df39", default-features = false }
 
 # Embassy - pinned to latest release
-embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19", features = ["defmt"] }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", package = "embassy-executor", rev = "84444a19", features = ["platform-cortex-m", "executor-thread", "defmt"] }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", package = "embassy-stm32", rev = "84444a19", features = ["stm32f469ni", "time-driver-any", "exti", "defmt"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", package = "embassy-executor", rev = "84444a19", features = ["platform-cortex-m", "executor-thread"] }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", package = "embassy-stm32", rev = "84444a19", features = ["stm32f469ni", "time-driver-any", "exti"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", package = "embassy-usb", rev = "84444a19" }
 embassy-usb-synopsys-otg = { git = "https://github.com/embassy-rs/embassy", package = "embassy-usb-synopsys-otg", rev = "84444a19" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", package = "embassy-sync", rev = "84444a19" }
