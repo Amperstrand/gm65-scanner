@@ -11,7 +11,7 @@
 
 | Commit | Notes |
 |--------|-------|
-| Pending (main HEAD) | Sync USB+Display+Scanner CDC verified. Async USB+Display+Scanner+Touch CDC verified. BSP `799df39`, embassy BSP `e202e9a`. |
+| `f767ced` (main HEAD) | Sync USB+Display+Scanner CDC verified. Async USB+Display+Scanner+Touch CDC verified. BSP `799df39`, embassy BSP `e202e9a`. |
 | `1360469` | Sync 6/6, async 9/9, QR scans on both. BSP `56a0bc8`, embassy BSP `890a4d1`. |
 
 ## Production Build Commands
@@ -100,7 +100,7 @@ Both sync and async firmware verified on hardware with `st-flash` (no probe-rs):
 1. **Workspace deps**: `default-features = false` on `stm32f469i-disc` and `gm65-scanner` workspace dependencies so `defmt`/`defmt-rtt` don't leak into production builds.
 2. **Embassy defmt decoupling**: Removed `defmt` feature from workspace `embassy-time`, `embassy-executor`, `embassy-stm32` pins. Only enabled when this crate's explicit `defmt` feature is on.
 3. **Conditional panic handlers**: Production builds use `panic_halt`; `panic_probe` only with `defmt` feature.
-4. **Fallback `defmt.x`**: Empty linker script at repo root so non-defmt builds link with existing `.cargo/config.toml`.
+4. **Conditional `defmt.x`**: `build.rs` generates an empty `defmt.x` in OUT_DIR when defmt is OFF (satisfying `-Tdefmt.x` in `.cargo/config.toml`). When defmt IS ON, the build.rs skips generation so the `defmt` crate's real `defmt.x` (with `_defmt_timestamp` PROVIDE) is found via its own `cargo:rustc-link-search`.
 5. **Feature structure**: `sync-mode` does NOT include `defmt-rtt`. `scanner-async` does NOT include `hil-tests` or `defmt`. `defmt` feature enables RTT + probe for debug/HIL builds only.
 
 ## Embassy Async: USB + Scanner Init Ordering (RESOLVED)
