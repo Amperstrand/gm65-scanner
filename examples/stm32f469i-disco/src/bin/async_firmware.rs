@@ -252,7 +252,7 @@ async fn main(_spawner: Spawner) {
     });
 
     defmt::info!("Initializing display...");
-    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7);
+    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::Auto);
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
     let mut led = embassy_stm32::gpio::Output::new(
@@ -310,8 +310,8 @@ async fn main(_spawner: Spawner) {
     let i2c_config = i2c::Config::default();
     let mut touch_i2c = i2c::I2c::new_blocking(p.I2C2, p.PB10, p.PB11, i2c_config);
     let touch_ctrl = TouchCtrl::new();
-    let touch_ok = touch_ctrl.read_chip_id(&mut touch_i2c).is_ok();
-    defmt::info!("Touch: chip_id read {}", touch_ok);
+    let touch_ok = touch_ctrl.read_vendor_id(&mut touch_i2c).is_ok();
+    defmt::info!("Touch: vendor_id read {}", touch_ok);
 
     let model_str;
     {

@@ -11,8 +11,8 @@
 
 | Commit | Notes |
 |--------|-------|
-| `1360469` (main HEAD) | Sync 6/6, async 9/9, QR scans on both. BSP `56a0bc8`, embassy `84444a19`. InitAction refactor + new BSP verified. |
-| `f1d694d` | Full HIL verification: sync 6/6, async 9/9, QR scans on both (old BSP `9f52a58`) |
+| Pending (main HEAD) | Sync 6/6, async 9/9, QR scans on both. BSP `799df39`, embassy BSP `e202e9a`. |
+| `1360469` | Sync 6/6, async 9/9, QR scans on both. BSP `56a0bc8`, embassy BSP `890a4d1`. |
 
 ## HIL Test Results
 

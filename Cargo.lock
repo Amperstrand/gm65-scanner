@@ -418,7 +418,7 @@ dependencies = [
 [[package]]
 name = "embassy-stm32f469i-disco"
 version = "0.1.0"
-source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=890a4d1#890a4d1e2a9c8af31f45a0c825e244beffb2b304"
+source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=e202e9a#e202e9a8041c7ed9e76f0f4063123d61015afe92"
 dependencies = [
  "cortex-m",
  "embassy-stm32",
@@ -427,6 +427,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal 1.0.0",
  "nt35510 0.1.0",
+ "otm8009a 0.1.0",
  "stm32-fmc",
 ]
 
@@ -975,6 +976,16 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "otm8009a"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e56059a2e83de4409e5fa0854d3ae891b0f949af86c74ccf76a8bffe4ce6dc6d"
+dependencies = [
+ "embedded-display-controller",
+ "embedded-hal 0.2.7",
+]
+
+[[package]]
+name = "otm8009a"
 version = "0.2.0"
 source = "git+https://github.com/Amperstrand/otm8009a?rev=76dcda9#76dcda978b627556b6a1d757c8082fcc3b766e51"
 dependencies = [
@@ -1284,7 +1295,7 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=56a0bc8#56a0bc8b495d3f760b817ae41a39ef1b4dc180b1"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=799df39#799df39a0cc8b5d7367c6cef07e401f49748738a"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -1293,7 +1304,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "ft6x06-rs",
  "nt35510 0.2.0",
- "otm8009a",
+ "otm8009a 0.2.0",
  "stm32-fmc",
  "stm32f4xx-hal",
 ]
