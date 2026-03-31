@@ -11,20 +11,20 @@
 
 | Commit | Notes |
 |--------|-------|
-| `070e387` (main HEAD) | Sync 5/5, async 8/8. BSP `56a0bc8`, embassy `84444a19`. InitAction refactor + new BSP verified. |
+| `1360469` (main HEAD) | Sync 6/6, async 9/9, QR scans on both. BSP `56a0bc8`, embassy `84444a19`. InitAction refactor + new BSP verified. |
 | `f1d694d` | Full HIL verification: sync 6/6, async 9/9, QR scans on both (old BSP `9f52a58`) |
 
 ## HIL Test Results
 
-### 2026-03-30 — InitAction refactor + new BSP (`56a0bc8`)
+### 2026-03-31 — Full end-to-end with QR scans
 
-Both drivers verified end-to-end with InitAction state machine, defmt logging parity, and updated BSP (HAL 0.5 migration, embedded-hal 1.0).
+Both drivers verified with InitAction state machine, defmt logging parity, BSP `56a0bc8` (HAL 0.5, embedded-hal 1.0).
 
-**Sync 5/5 PASS**: init, ping, trigger/stop, timeout, state transitions
+**Sync 6/6 PASS**: init, ping, trigger/stop, timeout, state transitions, QR scan (18 bytes, aim laser)
 
-**Async 8/8 PASS**: init, ping, trigger/stop, timeout, state transitions, cancel+rescan, rapid triggers, idle no-trigger
+**Async 9/9 PASS**: init, ping, trigger/stop, timeout, state transitions, cancel+rescan (24 bytes ambient QR), rapid triggers, idle no-trigger, QR scan (23 bytes, aim laser + LED)
 
-Note: BarType VERIFY FAIL observed (wrote 0x01, read 0x05) — expected per known issue #10. No QR scan test (no QR presented).
+Note: BarType VERIFY FAIL observed (wrote 0x01, read 0x05) — expected per known issue #10. cancel_then_rescan picked up ambient QR codes — expected behavior.
 
 ### 2026-03-28 — Native binaries, both drivers, real QR scans
 
