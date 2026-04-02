@@ -360,12 +360,11 @@ where
             return None;
         }
 
+        // Determine once whether the delay provider has a real clock.
+        // SpinDelay always returns 0 from elapsed_ms(), so we detect
+        // real clocks by checking if elapsed_ms() returns non-zero.
         let start = self.delay.elapsed_ms();
-        let has_clock = start > 0 || {
-            // Try a small delay and check if elapsed_ms advances
-            self.delay.delay_ms(1);
-            self.delay.elapsed_ms() > 0
-        };
+        let has_clock = start > 0;
 
         let mut spin_attempts = 0u32;
 

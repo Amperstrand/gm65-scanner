@@ -421,19 +421,25 @@ impl<'a> KeyMapper<'a> {
         Self { layout, terminator }
     }
 
+    /// Check if a byte can be mapped to a HID key code.
+    ///
+    /// Returns `true` for printable ASCII (0x20–0x7E) that has a
+    /// non-zero key code in the layout table.
+    #[must_use]
+    pub fn is_mappable(&self, byte: u8) -> bool {
+        byte <= 0x7F && self.layout[byte as usize].keycode != 0
+    }
+
     /// Map a single byte to a key press report, if mappable.
     ///
     /// Returns `None` for bytes outside printable ASCII (0x20–0x7E)
     /// or control characters.
     #[must_use]
     pub fn map_byte(&self, byte: u8) -> Option<HidKeyboardReport> {
-        if byte > 0x7F {
+        if !self.is_mappable(byte) {
             return None;
         }
         let mapping = &self.layout[byte as usize];
-        if mapping.keycode == 0 {
-            return None;
-        }
         let modifier = if mapping.shifted { MOD_LEFT_SHIFT } else { 0 };
         Some(HidKeyboardReport::press(modifier, mapping.keycode))
     }
@@ -461,11 +467,7 @@ impl<'a> KeyMapper<'a> {
     /// The terminator adds 2 more reports if configured.
     #[must_use]
     pub fn report_count(&self, data: &[u8]) -> usize {
-        let char_reports: usize = data
-            .iter()
-            .filter(|&&b| b <= 0x7F && self.layout[b as usize].keycode != 0)
-            .count()
-            * 2;
+        let char_reports: usize = data.iter().filter(|&&b| self.is_mappable(b)).count() * 2;
         let terminator_reports = if self.terminator.keycode().is_some() {
             2
         } else {
