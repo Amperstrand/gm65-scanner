@@ -55,9 +55,17 @@ extern crate alloc;
 pub mod buffer;
 pub mod decoder;
 pub mod driver;
-pub mod hid_keyboard;
+pub mod hid;
 pub mod protocol;
 pub mod scanner_core;
+
+/// Backward-compatible re-export of `hid::keyboard`.
+///
+/// Prefer importing from `gm65_scanner::hid::keyboard` directly.
+#[doc(hidden)]
+pub mod hid_keyboard {
+    pub use crate::hid::keyboard::*;
+}
 
 pub use buffer::ScanBuffer;
 pub use decoder::{

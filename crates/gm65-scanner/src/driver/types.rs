@@ -126,32 +126,47 @@ impl Default for ScannerConfig {
 /// sync driver, enabling human-scale scan timeouts (seconds) instead of
 /// the default spin-loop timeout (milliseconds).
 ///
+/// # Contract
+///
+/// - [`has_real_clock()`](DelayProvider::has_real_clock) must return `true`
+///   if and only if [`elapsed_ms()`](DelayProvider::elapsed_ms) provides
+///   monotonically increasing wall-clock time. When `true`, the driver uses
+///   `elapsed_ms()` for real-time timeouts. When `false`, it falls back to
+///   a spin-loop attempt counter.
+///
+/// - [`elapsed_ms()`](DelayProvider::elapsed_ms) may return any value
+///   (including 0) when `has_real_clock()` is `true` — there is no
+///   sentinel value.
+///
 /// # Example
 ///
 /// ```rust,ignore
 /// use gm65_scanner::DelayProvider;
 ///
-/// struct CortexMDelay(cortex_m::delay::Delay);
+/// struct CortexMDelay { timer: HwTimer }
 ///
 /// impl DelayProvider for CortexMDelay {
-///     fn delay_ms(&mut self, ms: u32) {
-///         self.0.delay_ms(ms);
-///     }
-///     fn elapsed_ms(&self) -> u32 {
-///         // Use a hardware timer for real elapsed time
-///         TIMER.read_ms()
-///     }
+///     fn has_real_clock(&self) -> bool { true }
+///     fn delay_ms(&mut self, ms: u32) { cortex_m::asm::delay(ms * CYCLES_PER_MS); }
+///     fn elapsed_ms(&self) -> u32 { self.timer.read_ms() }
 /// }
 /// ```
 pub trait DelayProvider {
+    /// Whether this provider has a real wall-clock time source.
+    ///
+    /// Return `true` if `elapsed_ms()` returns monotonically increasing
+    /// wall-clock time. Return `false` for no-op providers (like `SpinDelay`)
+    /// that cannot measure real time; the driver will use a spin-loop
+    /// attempt counter instead.
+    fn has_real_clock(&self) -> bool;
+
     /// Block for the given number of milliseconds.
     fn delay_ms(&mut self, ms: u32);
 
     /// Return the number of milliseconds elapsed since an arbitrary epoch.
     ///
-    /// Must be monotonically increasing. Used to compute real-time scan
-    /// timeouts. If not available, return 0 to fall back to attempt-based
-    /// timeout.
+    /// Only called when `has_real_clock()` returns `true`. The value must be
+    /// monotonically increasing (wrapping at `u32::MAX` is acceptable).
     fn elapsed_ms(&self) -> u32;
 }
 
@@ -178,12 +193,16 @@ impl Default for SpinDelay {
 }
 
 impl DelayProvider for SpinDelay {
+    fn has_real_clock(&self) -> bool {
+        false
+    }
+
     fn delay_ms(&mut self, _ms: u32) {
         // No-op: spin loops don't need additional delay
     }
 
     fn elapsed_ms(&self) -> u32 {
-        // No real time source — returns 0 to signal attempt-based fallback
+        // No real time source — not called when has_real_clock() is false
         0
     }
 }
@@ -274,12 +293,14 @@ mod tests {
     #[test]
     fn test_spin_delay_default() {
         let d = SpinDelay::default();
+        assert!(!d.has_real_clock());
         assert_eq!(d.elapsed_ms(), 0);
     }
 
     #[test]
     fn test_spin_delay_no_op() {
         let mut d = SpinDelay::new();
+        assert!(!d.has_real_clock());
         d.delay_ms(100); // should not panic or block
         assert_eq!(d.elapsed_ms(), 0); // no real time source
     }

@@ -360,11 +360,12 @@ where
             return None;
         }
 
-        // Determine once whether the delay provider has a real clock.
-        // SpinDelay always returns 0 from elapsed_ms(), so we detect
-        // real clocks by checking if elapsed_ms() returns non-zero.
-        let start = self.delay.elapsed_ms();
-        let has_clock = start > 0;
+        let has_clock = self.delay.has_real_clock();
+        let start = if has_clock {
+            self.delay.elapsed_ms()
+        } else {
+            0
+        };
 
         let mut spin_attempts = 0u32;
 
@@ -1057,13 +1058,25 @@ mod tests {
     impl MockDelay {
         fn new(advance_per_delay: u32) -> Self {
             Self {
-                current_ms: core::cell::Cell::new(1), // non-zero so has_clock = true
+                current_ms: core::cell::Cell::new(0),
+                advance_per_delay,
+            }
+        }
+
+        /// Create starting at a specific time (for testing boundary conditions).
+        fn starting_at(start_ms: u32, advance_per_delay: u32) -> Self {
+            Self {
+                current_ms: core::cell::Cell::new(start_ms),
                 advance_per_delay,
             }
         }
     }
 
     impl DelayProvider for MockDelay {
+        fn has_real_clock(&self) -> bool {
+            true
+        }
+
         fn delay_ms(&mut self, ms: u32) {
             let cur = self.current_ms.get();
             self.current_ms
@@ -1145,5 +1158,71 @@ mod tests {
         let result = scanner.read_scan();
         assert!(result.is_some());
         assert_eq!(result.unwrap(), b"Hello World");
+    }
+
+    #[test]
+    fn test_read_scan_with_clock_starting_at_zero() {
+        // Regression: a timer starting at 0ms must still use wall-clock timeout,
+        // not fall back to spin-loop. The old code used "elapsed_ms() > 0" as
+        // sentinel, which broke timers starting at 0.
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let trigger_resp = success_response(0x01);
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        let delay = MockDelay::starting_at(0, 100); // starts at 0ms
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(500);
+
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+
+        // Should timeout via clock, not spin forever
+        let result = scanner.read_scan();
+        assert!(result.is_none());
+        assert!(matches!(
+            scanner.state(),
+            ScannerState::Error(ScannerError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn test_read_scan_timeout_boundary_exact() {
+        // Timeout should trigger when elapsed == timeout_ms
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let trigger_resp = success_response(0x01);
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        // advance_per_delay=100: after 1 delay call, elapsed jumps from 0 to 100
+        let delay = MockDelay::starting_at(0, 100);
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(100); // exact match after first delay
+
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+
+        let result = scanner.read_scan();
+        assert!(result.is_none());
+        assert!(matches!(
+            scanner.state(),
+            ScannerState::Error(ScannerError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn test_spin_delay_has_no_clock() {
+        let d = SpinDelay::new();
+        assert!(!d.has_real_clock());
+    }
+
+    #[test]
+    fn test_mock_delay_has_clock() {
+        let d = MockDelay::new(10);
+        assert!(d.has_real_clock());
     }
 }

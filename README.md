@@ -4,7 +4,7 @@
 
 ## Overview
 
-- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 149 unit tests
+- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, HID mapping primitives, 199 unit tests
 - **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
 
 ## Sync vs Async Drivers
@@ -15,7 +15,7 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 |--|----------------------|---------------------------|
 | **HAL traits** | `embedded-hal 0.2` blocking Read/Write | `embedded-io-async` async Read/Write |
 | **Execution** | Polling main loop, `fn` methods | Embassy executor, `async fn` with RPITIT |
-| **Timeout** | Spin-loop (fixed iteration count) | `embassy_time::with_timeout` (wall-clock) |
+| **Timeout** | `DelayProvider` trait: spin-loop (default) or real-time via injected clock | `embassy_time::with_timeout` (wall-clock) |
 | **Memory** | No heap allocator needed for I/O | Requires `#[global_allocator]` (heap) |
 | **Concurrency** | Single task only | Multiple concurrent tasks (scanner + USB + display) |
 | **Interrupts** | UART interrupts unused (pure polling) | USART6 interrupt must be explicitly disabled (uses blocking UART + async wrapper) |
@@ -45,8 +45,14 @@ The sync `read_scan()` previously used a tight spin-loop (500k iterations) that 
 ```rust
 use gm65_scanner::{Gm65Scanner, DelayProvider, ScannerConfig};
 
-// With a real delay provider (e.g., cortex-m Delay)
-let mut scanner = Gm65Scanner::with_delay(uart, ScannerConfig::default(), my_delay);
+struct MyDelay { /* ... */ }
+impl DelayProvider for MyDelay {
+    fn has_real_clock(&self) -> bool { true }
+    fn delay_ms(&mut self, ms: u32) { /* ... */ }
+    fn elapsed_ms(&self) -> u32 { /* monotonic ms counter */ }
+}
+
+let mut scanner = Gm65Scanner::with_delay(uart, ScannerConfig::default(), MyDelay { /* ... */ });
 scanner.set_scan_timeout_ms(5_000); // 5-second human-scale timeout
 ```
 
@@ -59,21 +65,23 @@ The default `SpinDelay` preserves backward compatibility (spin-loop behavior).
 | Sync driver | `Gm65Scanner<UART, D>` with `embedded-hal-02` traits |
 | Async driver | `Gm65ScannerAsync<UART>` with `embedded-io-async` traits |
 | DelayProvider | Pluggable timeout mechanism for sync driver |
-| HID keyboard wedge | Barcode-to-keystroke mapping (USB HID Usage Tables 1.5, §10) |
-| HID POS barcode scanner | Standards-based POS interface (USB-IF HID POS 1.02) |
+| HID keyboard mapping | Library primitives for barcode-to-keystroke conversion (USB HID Usage Tables 1.5, §10) |
+| HID POS reports | **Experimental** library primitives for POS barcode scanner reports (USB-IF HID POS 1.02) |
 | HIL tests | Hardware-in-the-loop tests for both drivers |
 | QR display | Generate and display QR codes on LCD |
-| USB CDC | Host control via virtual serial port |
+| USB CDC | Host control via virtual serial port (active in example firmware) |
 
-## POS Interoperability Modes
+## Host Interface Modes
 
-The driver supports multiple host interface modes for compatibility with POS software:
+The library crate provides building blocks for multiple host interface modes.
+Example firmware currently ships **CDC ACM only**; HID modes require firmware
+integration (using e.g. `usbd-human-interface-device` or `embassy_usb::class::hid`).
 
-| Mode | Standard | Compatible Software |
-|------|----------|-------------------|
-| **CDC ACM** | USB CDC 1.2 | Custom host apps, Python scripts |
-| **HID Keyboard Wedge** | USB HID 1.11 + Usage Tables 1.5 §10 | Any text input: Odoo, uniCenta oPOS, Chromis POS, web apps |
-| **HID POS Scanner** | USB-IF HID POS Usage Tables 1.02 | Windows POS for .NET, UWP BarcodeScanner, WebHID API |
+| Mode | Status | Standard | Compatible Software |
+|------|--------|----------|-------------------|
+| **CDC ACM** | ✅ Active in firmware | USB CDC 1.2 | Custom host apps, Python scripts |
+| **HID Keyboard Wedge** | 📦 Library primitives | USB HID 1.11 + Usage Tables 1.5 §10 | Any text input: POS systems, web apps, terminals |
+| **HID POS Scanner** | 🧪 Experimental primitives | USB-IF HID POS Usage Tables 1.02 | Windows POS for .NET, UWP BarcodeScanner, WebHID API |
 
 ### Configuration Variables
 
@@ -81,8 +89,8 @@ The driver supports multiple host interface modes for compatibility with POS sof
 |----------|---------|-------------|
 | `USB_VID` | `0x16C0` (sync) / `0xC0DE` (async) | USB Vendor ID (placeholder — obtain from USB-IF for production) |
 | `USB_PID` | `0x27DD` (sync) / `0xCAFE` (async) | USB Product ID (placeholder) |
-| `KEYBOARD_LAYOUT` | US English QWERTY | HID key mapping layout |
-| `TERMINATOR` | Enter (0x28) | Key sent after barcode data (Enter/Tab/None) |
+| `KEYBOARD_LAYOUT` | US English QWERTY | HID key mapping layout (library) |
+| `TERMINATOR` | Enter (0x28) | Key sent after barcode data (library) |
 | `SCAN_TIMEOUT_MS` | 5000 | Sync driver scan timeout with DelayProvider |
 
 ### Open Source Reference Implementations
@@ -99,7 +107,7 @@ The following open source projects were studied for compatibility and inspiratio
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 195 unit tests passing, clippy clean |
+| Library | Stable | 199 unit tests passing, clippy clean |
 | Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
 | Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
@@ -154,7 +162,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 195/195 tests passing (including HID keyboard and POS tests)
+**Status**: 199/199 tests passing (including HID keyboard mapping and POS report tests)
 
 ### Feature Checks
 

@@ -14,10 +14,6 @@
 //!   Defines the 8-byte boot keyboard report format used here.
 //!   <https://www.usb.org/sites/default/files/hid1_11.pdf>
 //!
-//! - **USB HID POS Usage Tables 1.02 (Usage Page 0x8C)**:
-//!   Standards for POS barcode scanner interfaces (see `hid_pos` module).
-//!   <https://www.usb.org/sites/default/files/pos1_02.pdf>
-//!
 //! # Keyboard Wedge Mode
 //!
 //! Commercial barcode scanners (Zebra, Honeywell, Datalogic) commonly
@@ -28,24 +24,22 @@
 //! 2. A press report (key down) is sent, followed by a release report (all keys up)
 //! 3. A configurable terminator key (Enter/Tab/None) is sent after the data
 //!
-//! # Compatible Software
+//! # Unmappable Byte Policy
 //!
-//! Any application that accepts keyboard input works with keyboard wedge mode:
-//! - **POS systems**: Odoo, uniCenta oPOS, Chromis POS, Floreant POS
-//! - **Web apps**: Focus a text input, scanned data appears as typed text
-//! - **Terminal/CLI**: Scanned data appears on stdin
-//! - **WebHID-aware apps**: NielsLeenheer/WebHidBarcodeScanner can also
-//!   consume HID POS reports (see `hid_pos` module for that interface)
+//! Bytes outside printable ASCII (0x20–0x7E) are **silently skipped**.
+//! This includes control characters (0x00–0x1F), DEL (0x7F), and all
+//! bytes > 0x7F. The `is_mappable()` method can be used to check
+//! individual bytes before mapping.
 //!
 //! # Layout
 //!
 //! Currently supports US English (QWERTY) layout. The mapping covers
-//! printable ASCII (0x20–0x7E). Non-ASCII bytes are skipped.
+//! printable ASCII (0x20–0x7E).
 //!
 //! # Example
 //!
 //! ```rust
-//! use gm65_scanner::hid_keyboard::{HidKeyboardReport, KeyMapper, Terminator, US_ENGLISH};
+//! use gm65_scanner::hid::keyboard::{HidKeyboardReport, KeyMapper, Terminator, US_ENGLISH};
 //!
 //! let mapper = KeyMapper::new(&US_ENGLISH, Terminator::Enter);
 //! let data = b"Hello123";
@@ -57,8 +51,6 @@
 //! let release = reports.next().unwrap(); // key up
 //! assert_eq!(release.keycode, 0x00); // no key
 //! ```
-
-extern crate alloc;
 
 /// USB HID Boot Keyboard Report (8 bytes).
 ///
@@ -543,138 +535,10 @@ impl<'d, 'a> Iterator for ReportIterator<'d, 'a> {
     }
 }
 
-// ============================================================================
-// HID POS Barcode Scanner interface (Usage Page 0x8C)
-//
-// Per USB-IF HID Point of Sale Usage Tables 1.02:
-// https://www.usb.org/sites/default/files/pos1_02.pdf
-//
-// This provides a standards-compliant HID POS report descriptor that
-// identifies the device as a barcode scanner. Compatible with:
-// - Windows POS for .NET / UWP BarcodeScanner API
-// - Linux hidraw / libhid
-// - WebHID API (NielsLeenheer/WebHidBarcodeScanner)
-//
-// Key usages (from HID POS Usage Tables 1.02, §3):
-//   0x8C/0x02: Bar Code Scanner (application collection)
-//   0x8C/0x10: Decoded Data
-//   0x8C/0x11: Raw Data
-//   0x8C/0x12: Decoded Data Length
-//   0x8C/0x22: Scan Data Suffix
-//   0x8C/0x30: Symbology Identifier (1-3 byte AIM ID)
-//
-// AIM Symbology Identifiers (per ISO/IEC 15424):
-//   ]E0 = EAN-13    ]A0 = Code 39    ]C0 = Code 128
-//   ]Q3 = QR Code   ]d2 = DataMatrix  ]e0 = GS1 DataBar
-// ============================================================================
-
-/// HID POS Barcode Scanner report descriptor.
-///
-/// Implements a minimal HID POS interface per USB-IF HID POS Usage Tables 1.02.
-/// This descriptor defines:
-/// - Usage Page 0x8C (Bar Code Scanner)
-/// - A variable-length decoded data field (up to 256 bytes)
-/// - A data length field
-/// - A symbology identifier field (AIM code)
-///
-/// Compatible with Windows POS for .NET, UWP BarcodeScanner API,
-/// WebHID API, and Linux hidraw.
-pub const POS_BARCODE_SCANNER_REPORT_DESCRIPTOR: &[u8] = &[
-    0x06, 0x8C, 0x00, // Usage Page (Bar Code Scanner)     — HID POS 1.02, §3
-    0x09, 0x02, //       Usage (Bar Code Scanner)           — HID POS 1.02, §3
-    0xA1, 0x01, //       Collection (Application)
-    // Decoded data (variable length, up to 256 bytes)
-    0x09, 0x10, //         Usage (Decoded Data)             — HID POS 1.02, §3
-    0x15, 0x00, //         Logical Minimum (0)
-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08, //         Report Size (8)
-    0x96, 0x00, 0x01, //   Report Count (256)
-    0x81, 0x02, //         Input (Data, Variable, Absolute)
-    // Decoded data length (2 bytes)
-    0x09, 0x12, //         Usage (Decoded Data Length)      — HID POS 1.02, §3
-    0x15, 0x00, //         Logical Minimum (0)
-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x10, //         Report Size (16)
-    0x95, 0x01, //         Report Count (1)
-    0x81, 0x02, //         Input (Data, Variable, Absolute)
-    // Symbology identifier (AIM code, 3 bytes)
-    0x09, 0x30, //         Usage (Symbology Identifier)    — HID POS 1.02, §3; ISO/IEC 15424
-    0x15, 0x00, //         Logical Minimum (0)
-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08, //         Report Size (8)
-    0x95, 0x03, //         Report Count (3)
-    0x81, 0x02, //         Input (Data, Variable, Absolute)
-    0xC0, //             End Collection
-];
-
-/// HID POS Barcode Scanner report.
-///
-/// Per USB-IF HID POS Usage Tables 1.02.
-/// Contains decoded barcode data, its length, and the AIM symbology identifier.
-#[derive(Debug, Clone)]
-pub struct HidPosReport {
-    /// Decoded barcode data (up to 256 bytes, zero-padded).
-    pub data: [u8; 256],
-    /// Actual length of decoded data.
-    pub data_length: u16,
-    /// AIM symbology identifier (3 bytes, e.g., b"]Q3" for QR Code).
-    ///
-    /// Per ISO/IEC 15424 (referenced by HID POS 1.02, §3).
-    pub symbology: [u8; 3],
-}
-
-impl HidPosReport {
-    /// Create a new HID POS report from scan data.
-    ///
-    /// `symbology` should be the 3-byte AIM identifier per ISO/IEC 15424.
-    /// Common values:
-    /// - `b"]Q3"` — QR Code
-    /// - `b"]E0"` — EAN-13
-    /// - `b"]C0"` — Code 128
-    /// - `b"]A0"` — Code 39
-    #[must_use]
-    pub fn new(scan_data: &[u8], symbology: [u8; 3]) -> Self {
-        let mut data = [0u8; 256];
-        let len = scan_data.len().min(256);
-        data[..len].copy_from_slice(&scan_data[..len]);
-        Self {
-            data,
-            data_length: len as u16,
-            symbology,
-        }
-    }
-
-    /// Serialize to the HID report byte array.
-    ///
-    /// Layout: 256 bytes data + 2 bytes length (LE) + 3 bytes symbology = 261 bytes.
-    #[must_use]
-    pub fn as_bytes(&self) -> [u8; 261] {
-        let mut buf = [0u8; 261];
-        buf[..256].copy_from_slice(&self.data);
-        buf[256..258].copy_from_slice(&self.data_length.to_le_bytes());
-        buf[258..261].copy_from_slice(&self.symbology);
-        buf
-    }
-
-    /// AIM symbology identifier for QR Code (per ISO/IEC 15424).
-    pub const SYMBOLOGY_QR: [u8; 3] = *b"]Q3";
-    /// AIM symbology identifier for EAN-13 (per ISO/IEC 15424).
-    pub const SYMBOLOGY_EAN13: [u8; 3] = *b"]E0";
-    /// AIM symbology identifier for Code 128 (per ISO/IEC 15424).
-    pub const SYMBOLOGY_CODE128: [u8; 3] = *b"]C0";
-    /// AIM symbology identifier for Code 39 (per ISO/IEC 15424).
-    pub const SYMBOLOGY_CODE39: [u8; 3] = *b"]A0";
-    /// AIM symbology identifier for DataMatrix (per ISO/IEC 15424).
-    pub const SYMBOLOGY_DATAMATRIX: [u8; 3] = *b"]d2";
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    extern crate alloc;
     use alloc::vec::Vec;
 
     // ---- HidKeyboardReport tests ----
@@ -982,57 +846,5 @@ mod tests {
     fn test_boot_keyboard_descriptor_length() {
         // Standard boot keyboard descriptor is 63 bytes
         assert_eq!(BOOT_KEYBOARD_REPORT_DESCRIPTOR.len(), 63);
-    }
-
-    // ---- HID POS tests ----
-
-    #[test]
-    fn test_pos_descriptor_usage_page() {
-        // Must start with Usage Page (Bar Code Scanner) = 0x06, 0x8C, 0x00
-        assert_eq!(POS_BARCODE_SCANNER_REPORT_DESCRIPTOR[0], 0x06);
-        assert_eq!(POS_BARCODE_SCANNER_REPORT_DESCRIPTOR[1], 0x8C);
-        assert_eq!(POS_BARCODE_SCANNER_REPORT_DESCRIPTOR[2], 0x00);
-        // Must end with End Collection
-        assert_eq!(*POS_BARCODE_SCANNER_REPORT_DESCRIPTOR.last().unwrap(), 0xC0);
-    }
-
-    #[test]
-    fn test_pos_report_new() {
-        let report = HidPosReport::new(b"Hello", HidPosReport::SYMBOLOGY_QR);
-        assert_eq!(report.data_length, 5);
-        assert_eq!(&report.data[..5], b"Hello");
-        assert_eq!(&report.data[5..], &[0u8; 251]);
-        assert_eq!(report.symbology, *b"]Q3");
-    }
-
-    #[test]
-    fn test_pos_report_as_bytes() {
-        let report = HidPosReport::new(b"AB", HidPosReport::SYMBOLOGY_EAN13);
-        let bytes = report.as_bytes();
-        assert_eq!(bytes.len(), 261);
-        assert_eq!(bytes[0], b'A');
-        assert_eq!(bytes[1], b'B');
-        assert_eq!(bytes[2], 0); // zero-padded
-                                 // Length at offset 256 (LE u16)
-        assert_eq!(bytes[256], 2);
-        assert_eq!(bytes[257], 0);
-        // Symbology at offset 258
-        assert_eq!(&bytes[258..261], b"]E0");
-    }
-
-    #[test]
-    fn test_pos_report_max_data() {
-        let data = [0xAA; 300]; // larger than 256
-        let report = HidPosReport::new(&data, HidPosReport::SYMBOLOGY_CODE128);
-        assert_eq!(report.data_length, 256); // truncated
-    }
-
-    #[test]
-    fn test_pos_symbology_constants() {
-        assert_eq!(HidPosReport::SYMBOLOGY_QR, *b"]Q3");
-        assert_eq!(HidPosReport::SYMBOLOGY_EAN13, *b"]E0");
-        assert_eq!(HidPosReport::SYMBOLOGY_CODE128, *b"]C0");
-        assert_eq!(HidPosReport::SYMBOLOGY_CODE39, *b"]A0");
-        assert_eq!(HidPosReport::SYMBOLOGY_DATAMATRIX, *b"]d2");
     }
 }
