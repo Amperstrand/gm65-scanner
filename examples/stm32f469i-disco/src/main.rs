@@ -5,7 +5,13 @@
 extern crate alloc;
 
 use cortex_m_rt::entry;
+
+#[cfg(not(feature = "defmt"))]
 use panic_halt as _;
+#[cfg(feature = "defmt")]
+use defmt_rtt as _;
+#[cfg(feature = "defmt")]
+use panic_probe as _;
 
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::*};
 use static_cell::ConstStaticCell;
