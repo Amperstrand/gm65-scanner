@@ -24,10 +24,10 @@ use alloc::vec::Vec;
 
 #[cfg(all(feature = "scanner-async", feature = "defmt"))]
 use defmt_rtt as _;
-#[cfg(all(feature = "scanner-async", feature = "defmt"))]
-use panic_probe as _;
 #[cfg(all(feature = "scanner-async", not(feature = "defmt")))]
 use panic_halt as _;
+#[cfg(all(feature = "scanner-async", feature = "defmt"))]
+use panic_probe as _;
 
 #[cfg(feature = "scanner-async")]
 use embassy_executor::Spawner;
@@ -274,7 +274,11 @@ async fn main(_spawner: Spawner) {
     });
 
     log_info!("Initializing display...");
-    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::Auto);
+    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(
+        &sdram,
+        p.PH7,
+        embassy_stm32f469i_disco::BoardHint::Auto,
+    );
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
     let mut led = embassy_stm32::gpio::Output::new(
@@ -367,7 +371,9 @@ async fn main(_spawner: Spawner) {
             }
             Err(_e) => {
                 log_error!("Scanner: init failed {:?}", _e);
-                let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
+                let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from(
+                    "Scanner init failed",
+                )));
             }
         }
 
