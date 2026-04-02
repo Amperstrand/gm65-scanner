@@ -120,6 +120,74 @@ impl Default for ScannerConfig {
     }
 }
 
+/// Delay provider for sync driver timeouts.
+///
+/// Implement this trait to provide real-time delay capabilities to the
+/// sync driver, enabling human-scale scan timeouts (seconds) instead of
+/// the default spin-loop timeout (milliseconds).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gm65_scanner::DelayProvider;
+///
+/// struct CortexMDelay(cortex_m::delay::Delay);
+///
+/// impl DelayProvider for CortexMDelay {
+///     fn delay_ms(&mut self, ms: u32) {
+///         self.0.delay_ms(ms);
+///     }
+///     fn elapsed_ms(&self) -> u32 {
+///         // Use a hardware timer for real elapsed time
+///         TIMER.read_ms()
+///     }
+/// }
+/// ```
+pub trait DelayProvider {
+    /// Block for the given number of milliseconds.
+    fn delay_ms(&mut self, ms: u32);
+
+    /// Return the number of milliseconds elapsed since an arbitrary epoch.
+    ///
+    /// Must be monotonically increasing. Used to compute real-time scan
+    /// timeouts. If not available, return 0 to fall back to attempt-based
+    /// timeout.
+    fn elapsed_ms(&self) -> u32;
+}
+
+/// Default spin-loop delay provider (no real time source).
+///
+/// This is used when no `DelayProvider` is supplied. It provides
+/// compatibility with the original spin-loop timeout behavior.
+pub struct SpinDelay {
+    _private: (),
+}
+
+impl SpinDelay {
+    /// Create a new spin delay provider.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+impl Default for SpinDelay {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DelayProvider for SpinDelay {
+    fn delay_ms(&mut self, _ms: u32) {
+        // No-op: spin loops don't need additional delay
+    }
+
+    fn elapsed_ms(&self) -> u32 {
+        // No real time source — returns 0 to signal attempt-based fallback
+        0
+    }
+}
+
 /// Scanner status snapshot.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -201,5 +269,26 @@ mod tests {
         assert!(status.connected);
         assert!(status.initialized);
         assert_eq!(status.last_scan_len, Some(42));
+    }
+
+    #[test]
+    fn test_spin_delay_default() {
+        let d = SpinDelay::default();
+        assert_eq!(d.elapsed_ms(), 0);
+    }
+
+    #[test]
+    fn test_spin_delay_no_op() {
+        let mut d = SpinDelay::new();
+        d.delay_ms(100); // should not panic or block
+        assert_eq!(d.elapsed_ms(), 0); // no real time source
+    }
+
+    #[test]
+    fn test_delay_provider_trait_object_safety() {
+        // Verify DelayProvider can be used with generics
+        fn accepts_delay<D: DelayProvider>(_d: &D) {}
+        let d = SpinDelay::new();
+        accepts_delay(&d);
     }
 }
