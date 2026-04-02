@@ -55,6 +55,7 @@ extern crate alloc;
 pub mod buffer;
 pub mod decoder;
 pub mod driver;
+pub mod hid_keyboard;
 pub mod protocol;
 pub mod scanner_core;
 

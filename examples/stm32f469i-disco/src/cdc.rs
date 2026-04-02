@@ -1,3 +1,19 @@
+// CDC Application-Level Protocol
+//
+// This module implements a custom command/response framing protocol
+// layered on top of USB CDC ACM (per USB CDC Specification 1.2).
+//
+// The CDC ACM transport provides a virtual serial port; this protocol
+// adds structured framing for scanner control commands.
+//
+// Frame format (request):  [command:1][length_hi:1][length_lo:1][payload:N]
+// Frame format (response): [status:1][length_hi:1][length_lo:1][payload:N]
+//
+// This is a proprietary application protocol, not part of any USB standard.
+// For standards-based alternatives, see:
+// - HID keyboard wedge (USB HID Usage Tables 1.5, §10)
+// - HID POS barcode scanner (USB-IF HID POS Usage Tables 1.02)
+
 #[cfg(not(feature = "scanner-async"))]
 use stm32f469i_disc::hal::otg_fs::UsbBusType;
 

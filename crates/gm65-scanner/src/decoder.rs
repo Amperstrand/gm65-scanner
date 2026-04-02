@@ -2,6 +2,30 @@
 //!
 //! Generic payload classification for scanned QR data.
 //! Includes UR (Uniform Resources) multi-fragment decoding.
+//!
+//! # Supported Payload Formats
+//!
+//! - **Cashu tokens**: Electronic cash tokens per the Cashu protocol.
+//!   - V4 prefix `cashuB`: <https://github.com/cashubtc/nuts> (NUT-00)
+//!   - V3 prefix `cashuA`: Legacy format
+//!
+//! - **Uniform Resources (UR)**: Multi-part QR encoding for large payloads.
+//!   - Spec: BCR-2020-005 <https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-005-ur.md>
+//!   - Fragment format: `ur:<type>/<index>-<total>/<hash>/<data>`
+//!
+//! - **URLs**: HTTP/HTTPS links (RFC 3986)
+//!
+//! - **Plain text**: Valid UTF-8 not matching other formats
+//!
+//! - **Binary**: Non-UTF-8 data
+//!
+//! # QR Code Capacity
+//!
+//! Per ISO/IEC 18004:2015 (QR Code specification):
+//! - Numeric: up to 7,089 characters
+//! - Alphanumeric: up to 4,296 characters
+//! - Byte: up to 2,953 bytes
+//! - Kanji: up to 1,817 characters
 
 extern crate alloc;
 
@@ -11,8 +35,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
+// Cashu token prefixes per Cashu Protocol NUT-00:
+// https://github.com/cashubtc/nuts/blob/main/00.md
 const CASHU_V4_PREFIX: &[u8] = b"cashuB";
 const CASHU_V3_PREFIX: &[u8] = b"cashuA";
+
+// Uniform Resources (UR) prefix per BCR-2020-005:
+// https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-005-ur.md
 const UR_PREFIX: &[u8] = b"ur:";
 
 /// Classification of a scanned QR payload.

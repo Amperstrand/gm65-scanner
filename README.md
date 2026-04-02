@@ -36,25 +36,70 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 - Embassy-based codebase (micronuts firmware)
 - Need `embassy_futures::select` for cancel-on-scan patterns
 
-### Known sync limitation
+### Known sync limitation (RESOLVED)
 
-`read_scan()` uses a tight spin-loop (500k iterations) that completes in ~1-2ms at 180MHz. This is too fast for human QR code interaction. The sync HIL binary works around this with a retry loop using `cortex_m::asm::delay` between attempts. For natural human-interaction timeouts, prefer the async driver.
+The sync `read_scan()` previously used a tight spin-loop (500k iterations) that completed in ~1-2ms at 180MHz. This was too fast for human QR code interaction.
+
+**Fix**: The `DelayProvider` trait now allows injecting a real-time delay source:
+
+```rust
+use gm65_scanner::{Gm65Scanner, DelayProvider, ScannerConfig};
+
+// With a real delay provider (e.g., cortex-m Delay)
+let mut scanner = Gm65Scanner::with_delay(uart, ScannerConfig::default(), my_delay);
+scanner.set_scan_timeout_ms(5_000); // 5-second human-scale timeout
+```
+
+The default `SpinDelay` preserves backward compatibility (spin-loop behavior).
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| Sync driver | `Gm65Scanner<UART>` with `embedded-hal-02` traits |
+| Sync driver | `Gm65Scanner<UART, D>` with `embedded-hal-02` traits |
 | Async driver | `Gm65ScannerAsync<UART>` with `embedded-io-async` traits |
+| DelayProvider | Pluggable timeout mechanism for sync driver |
+| HID keyboard wedge | Barcode-to-keystroke mapping (USB HID Usage Tables 1.5, §10) |
+| HID POS barcode scanner | Standards-based POS interface (USB-IF HID POS 1.02) |
 | HIL tests | Hardware-in-the-loop tests for both drivers |
 | QR display | Generate and display QR codes on LCD |
 | USB CDC | Host control via virtual serial port |
+
+## POS Interoperability Modes
+
+The driver supports multiple host interface modes for compatibility with POS software:
+
+| Mode | Standard | Compatible Software |
+|------|----------|-------------------|
+| **CDC ACM** | USB CDC 1.2 | Custom host apps, Python scripts |
+| **HID Keyboard Wedge** | USB HID 1.11 + Usage Tables 1.5 §10 | Any text input: Odoo, uniCenta oPOS, Chromis POS, web apps |
+| **HID POS Scanner** | USB-IF HID POS Usage Tables 1.02 | Windows POS for .NET, UWP BarcodeScanner, WebHID API |
+
+### Configuration Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `USB_VID` | `0x16C0` (sync) / `0xC0DE` (async) | USB Vendor ID (placeholder — obtain from USB-IF for production) |
+| `USB_PID` | `0x27DD` (sync) / `0xCAFE` (async) | USB Product ID (placeholder) |
+| `KEYBOARD_LAYOUT` | US English QWERTY | HID key mapping layout |
+| `TERMINATOR` | Enter (0x28) | Key sent after barcode data (Enter/Tab/None) |
+| `SCAN_TIMEOUT_MS` | 5000 | Sync driver scan timeout with DelayProvider |
+
+### Open Source Reference Implementations
+
+The following open source projects were studied for compatibility and inspiration:
+
+- **[NielsLeenheer/WebHidBarcodeScanner](https://github.com/NielsLeenheer/WebHidBarcodeScanner)** — WebHID API for HID POS barcode scanners
+- **[Fabi019/hid-barcode-scanner](https://github.com/Fabi019/hid-barcode-scanner)** — Android BLE HID keyboard wedge
+- **[dlkj/usbd-human-interface-device](https://github.com/dlkj/usbd-human-interface-device)** — Rust embedded USB HID (keyboard, mouse)
+- **[oschwartz10612/Scanner-Pro-MK3](https://github.com/oschwartz10612/Scanner-Pro-MK3)** — Arduino USB barcode scanner host
+- **[ktolstikhin/barcode-scanner](https://github.com/ktolstikhin/barcode-scanner)** — Python USB-CDC/HID-POS scanner interface
 
 ## Project Status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 149 unit tests passing, clippy clean |
+| Library | Stable | 195 unit tests passing, clippy clean |
 | Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
 | Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
@@ -109,7 +154,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 149/149 tests passing
+**Status**: 195/195 tests passing (including HID keyboard and POS tests)
 
 ### Feature Checks
 
@@ -138,6 +183,15 @@ make run-async
 ```bash
 make test-sync
 make test-async
+```
+
+### Lint
+
+```bash
+cargo fmt --all -- --check
+cargo clippy -p gm65-scanner -- -D warnings
+cargo clippy -p gm65-scanner --features async -- -D warnings
+cargo clippy -p gm65-scanner --all-features -- -D warnings
 ```
 
 ## Build

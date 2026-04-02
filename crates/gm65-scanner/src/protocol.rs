@@ -4,6 +4,11 @@
 //! Protocol reverse-engineered from specter-diy's qr.py:
 //! <https://github.com/cryptoadvance/specter-diy/blob/master/src/hosts/qr.py>
 //!
+//! # UART Transport
+//!
+//! Communication uses standard UART (8N1, no flow control) per EIA/TIA-232-F.
+//! Supported baud rates: 9600, 19200, 38400, 57600, 115200 baud.
+//!
 //! # Protocol Format
 //!
 //! All commands follow this structure:

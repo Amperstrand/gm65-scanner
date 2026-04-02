@@ -310,6 +310,17 @@ async fn main(_spawner: Spawner) {
         usb_config,
     );
 
+    // USB CDC ACM device setup (embassy async USB stack).
+    //
+    // Per USB Device Class Definition for Communications Devices 1.2:
+    // - Class 0x02 (Communications Device Class)
+    // - SubClass 0x02 (Abstract Control Model)
+    //
+    // VID 0xC0DE / PID 0xCAFE are placeholder test values.
+    // For production use, obtain a unique VID from USB-IF
+    // or use pid.codes (https://pid.codes/).
+    //
+    // USB 2.0 Specification §9.6.1 defines the device descriptor format.
     let mut usb_config_desc = embassy_usb::Config::new(0xc0de, 0xcafe);
     usb_config_desc.manufacturer = Some("gm65-scanner");
     usb_config_desc.product = Some("QR Scanner");

@@ -1,7 +1,17 @@
 //! Scan buffer for QR scanner data.
 //!
 //! Handles buffering incoming UART data and detecting EOL-terminated payloads.
-//! The GM65 scanner terminates scan results with `\r\n`.
+//! The GM65 scanner terminates scan results with `\r\n` (CRLF).
+//!
+//! # Line Ending Detection
+//!
+//! Supports three EOL conventions common in serial/UART protocols:
+//! - `\r\n` (CRLF) — Windows/DOS convention, used by GM65 scanner
+//! - `\r` (CR only) — Classic Mac convention
+//! - `\n` (LF only) — Unix/POSIX convention (POSIX.1-2017 §11.1.9)
+//!
+//! The GM65 module uses CRLF (`0x0D 0x0A`), consistent with many serial
+//! devices and the Hayes AT command set convention.
 
 /// Maximum scan data size in bytes.
 ///
