@@ -131,11 +131,11 @@ impl Default for ScannerConfig {
 /// - [`has_real_clock()`](DelayProvider::has_real_clock) must return `true`
 ///   if and only if [`elapsed_ms()`](DelayProvider::elapsed_ms) provides
 ///   monotonically increasing wall-clock time. When `true`, the driver uses
-///   `elapsed_ms()` for real-time timeouts. When `false`, it falls back to
+///   elapsed_ms for real-time timeouts. When `false`, it falls back to
 ///   a spin-loop attempt counter.
 ///
 /// - [`elapsed_ms()`](DelayProvider::elapsed_ms) may return any value
-///   (including 0) when `has_real_clock()` is `true` — there is no
+///   (including 0) when has_real_clock returns `true` — there is no
 ///   sentinel value.
 ///
 /// # Example

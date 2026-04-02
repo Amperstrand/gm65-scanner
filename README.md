@@ -83,12 +83,21 @@ integration (using e.g. `usbd-human-interface-device` or `embassy_usb::class::hi
 | **HID Keyboard Wedge** | 📦 Library primitives | USB HID 1.11 + Usage Tables 1.5 §10 | Any text input: POS systems, web apps, terminals |
 | **HID POS Scanner** | 🧪 Experimental primitives | USB-IF HID POS Usage Tables 1.02 | Windows POS for .NET, UWP BarcodeScanner, WebHID API |
 
-### Configuration Variables
+### USB Identity (source-code constants)
 
-| Variable | Default | Description |
+These values are hardcoded in the firmware source. Change them in the source
+before building. For production, obtain a real VID from [USB-IF](https://www.usb.org/getting-vendor-id)
+or use [pid.codes](https://pid.codes/).
+
+| Constant | Default | Description |
 |----------|---------|-------------|
-| `USB_VID` | `0x16C0` (sync) / `0xC0DE` (async) | USB Vendor ID (placeholder — obtain from USB-IF for production) |
+| `USB_VID` | `0x16C0` (sync) / `0xC0DE` (async) | USB Vendor ID (placeholder) |
 | `USB_PID` | `0x27DD` (sync) / `0xCAFE` (async) | USB Product ID (placeholder) |
+
+### Library Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
 | `KEYBOARD_LAYOUT` | US English QWERTY | HID key mapping layout (library) |
 | `TERMINATOR` | Enter (0x28) | Key sent after barcode data (library) |
 | `SCAN_TIMEOUT_MS` | 5000 | Sync driver scan timeout with DelayProvider |

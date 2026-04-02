@@ -48,8 +48,8 @@ pub struct Gm65Scanner<UART, D: DelayProvider = SpinDelay> {
     core: ScannerCore,
     uart: UART,
     delay: D,
-    /// Scan timeout in milliseconds. Only used when `D` provides real
-    /// elapsed time (i.e., `elapsed_ms()` returns non-zero).
+    /// Scan timeout in milliseconds. Only used when `D` provides
+    /// a real clock (i.e., `has_real_clock()` returns `true`).
     /// Default: 5000ms (5 seconds).
     scan_timeout_ms: u32,
 }
@@ -66,7 +66,7 @@ where
         + embedded_hal_02::serial::Read<u8, Error = RErr>,
 {
     /// Create a new scanner with the given UART and configuration.
-    /// Uses the default spin-loop delay (fast timeout, ~1-2ms).
+    /// Uses the default spin-loop delay (attempt-based timeout).
     pub fn new(uart: UART, config: ScannerConfig) -> Self {
         Self {
             core: ScannerCore::new(config),
@@ -77,7 +77,7 @@ where
     }
 
     /// Create a new scanner with default configuration.
-    /// Uses the default spin-loop delay (fast timeout, ~1-2ms).
+    /// Uses the default spin-loop delay (attempt-based timeout).
     pub fn with_default_config(uart: UART) -> Self {
         Self::new(uart, ScannerConfig::default())
     }
@@ -104,8 +104,8 @@ where
 
     /// Set the scan timeout in milliseconds.
     ///
-    /// Only effective when using a real `DelayProvider` that returns
-    /// non-zero from `elapsed_ms()`. Default: 5000ms.
+    /// Only effective when using a `DelayProvider` with
+    /// `has_real_clock() == true`. Default: 5000ms.
     pub fn set_scan_timeout_ms(&mut self, ms: u32) {
         self.scan_timeout_ms = ms;
     }
