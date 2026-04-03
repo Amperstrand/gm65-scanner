@@ -304,7 +304,11 @@ fn handle_command(
         | Command::SetCompatibilityProfile
         | Command::RebootUsb
         | Command::GetHostOptions
-        | Command::SetHostOptions => Response::new(Status::InvalidCommand),
+        | Command::SetHostOptions => {
+            // The sync firmware is intentionally the legacy/reference CDC image.
+            // DS2208 profile management lives in the async firmware only.
+            Response::new(Status::InvalidCommand)
+        }
     }
 }
 

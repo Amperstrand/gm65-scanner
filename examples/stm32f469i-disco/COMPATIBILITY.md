@@ -24,7 +24,7 @@ This is the DS2208-compatible image.
   - optional prefix/suffix byte sequences (CDC/admin path)
 - **UI**
   - touch-accessible compatibility page
-  - settings saved in internal flash (bank 2 sector region)
+  - settings saved in internal flash at the start of bank 2 (`0x0810_0000`, 128 KiB erase region)
   - USB mode / fast HID changes trigger reboot for clean re-enumeration
 
 ### Sync firmware (`stm32f469i-disco-scanner`)
@@ -98,6 +98,15 @@ Implemented event mappings:
 - sends decoded data + explicit length + symbology field
 - current firmware uses `SYMBOLOGY_UNKNOWN` when the GM65 transport does not provide a reliable AIM code
 - payloads over 256 bytes are truncated explicitly and surfaced on-screen
+- intended to stay scanner-oriented instead of falling back to keyboard semantics
+- current audit target is standards-aligned HID POS shape first, then host-driver validation on Windows
+
+## Flash persistence notes
+
+- The profile store currently uses a **single erase region** in internal flash.
+- Saving a profile erases and rewrites that region; this is simple and deterministic, but not yet optimized for wear leveling.
+- Reflashing firmware may overwrite the stored profile depending on the flashing workflow and image layout.
+- A future improvement would be a two-slot or journaled format to reduce wear and make interrupted writes more robust.
 
 ## CDC/Admin protocol additions
 
@@ -161,6 +170,7 @@ The existing frame format remains unchanged.
 - audible tones are approximated with LED/display plus whatever the GM65 module itself emits
 - HID POS Windows/POS-driver behavior is not yet hardware-validated in this firmware
 - HID POS currently sends `unknown` symbology when the scanner transport does not expose AIM IDs
+- profile persistence currently uses single-slot flash storage rather than a wear-leveled scheme
 - unsupported keyboard characters are skipped rather than converted through vendor-specific fallback schemes
 
 ## Quick checklist

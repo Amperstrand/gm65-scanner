@@ -61,8 +61,6 @@ use embassy_usb::control::OutResponse;
 #[cfg(feature = "scanner-async")]
 use embassy_usb::Builder;
 #[cfg(feature = "scanner-async")]
-use gm65_scanner::hid::keyboard::{HidKeyboardReport, KeyMapper, Terminator, US_ENGLISH};
-#[cfg(feature = "scanner-async")]
 use gm65_scanner::hid::pos::{HidPosReport, POS_BARCODE_SCANNER_REPORT_DESCRIPTOR};
 #[cfg(feature = "scanner-async")]
 use gm65_scanner::{Gm65ScannerAsync, ScannerModel, ScannerSettings};
@@ -74,12 +72,16 @@ use embassy_stm32f469i_disco::display::SdramCtrl;
 #[cfg(feature = "scanner-async")]
 use embassy_stm32f469i_disco::TouchCtrl;
 
-#[path = "../compatibility.rs"]
-#[cfg(feature = "scanner-async")]
-mod compatibility;
 #[path = "../flash_store.rs"]
 #[cfg(feature = "scanner-async")]
 mod flash_store;
+
+#[cfg(feature = "scanner-async")]
+use stm32f469i_disco_scanner::compatibility;
+#[cfg(feature = "scanner-async")]
+use stm32f469i_disco_scanner::keyboard_profile::build_keyboard_reports;
+#[cfg(feature = "scanner-async")]
+use stm32f469i_disco_scanner::touch_ui::{apply_action as apply_touch_action, map_touch_to_action};
 
 mod async_shared {
     #[cfg(feature = "scanner-async")]
@@ -310,103 +312,6 @@ impl RequestHandler for KeyboardRequestHandler {
         KEYBOARD_PROTOCOL_MODE.store(protocol as u8, Ordering::Relaxed);
         OutResponse::Accepted
     }
-}
-
-#[cfg(feature = "scanner-async")]
-fn profile_terminator(mode: compatibility::SuffixMode) -> Terminator {
-    match mode {
-        compatibility::SuffixMode::None => Terminator::None,
-        compatibility::SuffixMode::Enter => Terminator::Enter,
-        compatibility::SuffixMode::Tab => Terminator::Tab,
-    }
-}
-
-#[cfg(feature = "scanner-async")]
-fn is_ascii_alpha(byte: u8) -> bool {
-    byte.is_ascii_alphabetic()
-}
-
-#[cfg(feature = "scanner-async")]
-fn send_caps_toggle_report_sequence<const N: usize>(out: &mut heapless::Vec<[u8; 8], N>) -> bool {
-    const KEY_CAPSLOCK: u8 = 0x39;
-    out.push(HidKeyboardReport::press(0, KEY_CAPSLOCK).as_bytes())
-        .is_ok()
-        && out.push(HidKeyboardReport::release().as_bytes()).is_ok()
-}
-
-#[cfg(feature = "scanner-async")]
-fn build_keyboard_reports(
-    profile: compatibility::CompatibilityProfile,
-    caps_lock_on: bool,
-    data: &[u8],
-    out: &mut heapless::Vec<[u8; 8], 600>,
-) -> usize {
-    out.clear();
-
-    let mapper = KeyMapper::new(&US_ENGLISH, profile_terminator(profile.suffix));
-    let mut skipped = 0usize;
-    let mut wrapped_caps = false;
-    let mut effective_caps = caps_lock_on;
-
-    let has_alpha = data.iter().any(|b| b.is_ascii_alphabetic())
-        || profile
-            .prefix_slice()
-            .iter()
-            .any(|b| b.is_ascii_alphabetic())
-        || profile
-            .suffix_bytes_slice()
-            .iter()
-            .any(|b| b.is_ascii_alphabetic());
-
-    if profile.simulated_caps_lock && has_alpha {
-        let desired_caps = match profile.case_mode {
-            compatibility::CaseMode::Upper => true,
-            compatibility::CaseMode::Lower => false,
-            compatibility::CaseMode::Preserve => caps_lock_on,
-        };
-        if desired_caps != caps_lock_on && send_caps_toggle_report_sequence(out) {
-            wrapped_caps = true;
-            effective_caps = desired_caps;
-        }
-    }
-
-    for raw in profile
-        .prefix_slice()
-        .iter()
-        .copied()
-        .chain(data.iter().copied())
-        .chain(profile.suffix_bytes_slice().iter().copied())
-    {
-        let transformed = profile.transform_ascii(raw);
-        match mapper.map_byte(transformed) {
-            Some(mut report) => {
-                if profile.caps_lock_override && effective_caps && is_ascii_alpha(transformed) {
-                    report.modifier ^= 0x02;
-                }
-                if out.push(report.as_bytes()).is_err()
-                    || out.push(HidKeyboardReport::release().as_bytes()).is_err()
-                {
-                    break;
-                }
-            }
-            None => {
-                skipped += 1;
-            }
-        }
-    }
-
-    let terminator = mapper.map_to_reports(b"");
-    for report in terminator {
-        if out.push(report.as_bytes()).is_err() {
-            break;
-        }
-    }
-
-    if wrapped_caps {
-        let _ = send_caps_toggle_report_sequence(out);
-    }
-
-    skipped
 }
 
 #[cfg(feature = "scanner-async")]
@@ -1071,7 +976,7 @@ async fn main(_spawner: Spawner) {
                         let result = SCAN_CHANNEL.receive().await;
                         let profile = { SHARED.lock().await.profile };
                         let caps_on = (KEYBOARD_LED_STATE.load(Ordering::Relaxed) & 0x02) != 0;
-                        let skipped =
+                        let stats =
                             build_keyboard_reports(profile, caps_on, &result.data, &mut reports);
                         for report in reports.iter() {
                             if writer.write(report).await.is_err() {
@@ -1088,7 +993,7 @@ async fn main(_spawner: Spawner) {
                                 .await;
                             }
                         }
-                        if skipped > 0 {
+                        if stats.skipped_bytes > 0 {
                             let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Status(String::from(
                                 "Unsupported keyboard chars skipped",
                             )));
@@ -1248,37 +1153,11 @@ async fn main(_spawner: Spawner) {
                         continue;
                     }
 
-                    let row = ((y - 80) / 35) as usize;
                     let mut shared = SHARED.lock().await;
-                    let mut profile = shared.profile;
-                    let mut reboot = false;
-
-                    match row {
-                        0 => {
-                            profile.usb_mode = profile.usb_mode.cycle();
-                            reboot = true;
-                        }
-                        1 => {
-                            profile.suffix = profile.suffix.cycle();
-                        }
-                        2 => {
-                            profile.cycle_key_delay();
-                        }
-                        3 => {
-                            profile.case_mode = profile.case_mode.cycle();
-                        }
-                        4 => {
-                            profile.fast_hid = !profile.fast_hid;
-                            reboot = true;
-                        }
-                        5 => {
-                            profile.caps_lock_override = !profile.caps_lock_override;
-                        }
-                        6 => {
-                            profile.simulated_caps_lock = !profile.simulated_caps_lock;
-                        }
-                        _ => continue,
-                    }
+                    let Some(action) = map_touch_to_action(y) else {
+                        continue;
+                    };
+                    let (profile, reboot) = apply_touch_action(shared.profile, action);
 
                     shared.profile = profile;
                     let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Compatibility(profile));

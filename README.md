@@ -81,6 +81,8 @@ profiles.
 The STM32F469 async example now adds a **DS2208-compatible profile firmware** with
 selectable Keyboard HID / HID POS / Admin CDC modes. See
 [`examples/stm32f469i-disco/COMPATIBILITY.md`](examples/stm32f469i-disco/COMPATIBILITY.md).
+The async image currently stores its active profile in a simple single-slot flash
+region; see the compatibility doc for persistence caveats and follow-up audit notes.
 
 | Mode | Status | Standard | Compatible Software |
 |------|--------|----------|-------------------|
