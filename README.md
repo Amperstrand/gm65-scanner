@@ -4,7 +4,7 @@
 
 ## Overview
 
-- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, HID mapping primitives, 199 unit tests
+- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, HID mapping primitives, 213 unit tests
 - **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
 
 ## Sync vs Async Drivers
@@ -81,7 +81,7 @@ integration (using e.g. `usbd-human-interface-device` or `embassy_usb::class::hi
 |------|--------|----------|-------------------|
 | **CDC ACM** | ✅ Active in firmware | USB CDC 1.2 | Custom host apps, Python scripts |
 | **HID Keyboard Wedge** | 📦 Library primitives | USB HID 1.11 + Usage Tables 1.5 §10 | Any text input: POS systems, web apps, terminals |
-| **HID POS Scanner** | 🧪 Experimental primitives | USB-IF HID POS Usage Tables 1.02 | Windows POS for .NET, UWP BarcodeScanner, WebHID API |
+| **HID POS Scanner** | 🧪 Experimental primitives | USB-IF HID POS Usage Tables 1.02 | Target: Windows POS for .NET, UWP BarcodeScanner, WebHID (unvalidated) |
 
 ### USB Identity (source-code constants)
 
@@ -116,7 +116,7 @@ The following open source projects were studied for compatibility and inspiratio
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 199 unit tests passing, clippy clean |
+| Library | Stable | 213 unit tests passing, clippy clean |
 | Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
 | Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
@@ -171,7 +171,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 199/199 tests passing (including HID keyboard mapping and POS report tests)
+**Status**: 213/213 tests passing (including HID keyboard mapping and POS report tests)
 
 ### Feature Checks
 
@@ -253,40 +253,41 @@ cargo build --release --target thumbv7em-none-eabihf \
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                       gm65-scanner workspace                        │
-│                                                                       │
-│  ┌─────────────────────────────┐    ┌─────────────────────────────┐  │
-│  │    crates/gm65-scanner/     │    │ examples/stm32f469i-disco/  │  │
-│  │                             │    │                             │  │
-│  │  ┌──────────┐               │    │  ┌───────────────────────┐  │  │
-│  │  │ protocol │──cmd frames──▶│    │  │ main.rs (sync fw)     │  │  │
-│  │  │  .rs     │               │    │  │ LCD + USB CDC + QR    │  │  │
-│  │  └──────────┘               │    │  └───────────────────────┘  │  │
-│  │                             │    │  ┌───────────────────────┐  │  │
-│  │  ┌──────────┐  ┌────────┐  │    │  │ async_firmware.rs     │  │  │
-│  │  │scanner_  │  │ buffer │  │    │  │ Embassy: LCD+USB+LED  │  │  │
-│  │  │ core.rs  │◀─│  .rs   │  │    │  └───────────────────────┘  │  │
-│  │  │ (state   │  └────────┘  │    │  ┌───────────────────────┐  │  │
-│  │  │ machine, │              │    │  │ hil_test_sync.rs      │  │  │
-│  │  │ settings)│              │    │  │ 6 tests, RTT output   │  │  │
-│  │  └────┬─────┘              │    │  └───────────────────────┘  │  │
-│  │       │                    │    │  ┌───────────────────────┐  │  │
-│  │  ┌────┴──────┐             │    │  │ hil_test_async.rs     │  │  │
-│  │  │  traits   │             │    │  │ 9 tests, LED+aim     │  │  │
-│  │  │  .rs     │             │    │  └───────────────────────┘  │  │
-│  │  └──┬────┬──┘             │    │  ┌───────────────────────┐  │  │
-│  │     │    │                │    │  │ cdc.rs  display.rs    │  │  │
-│  │  ┌──┘    └──┐             │    │  │ qr_display.rs         │  │  │
-│  │  │sync.rs   │ async_.rs│  │    │  │ qr_display_async.rs   │  │  │
-│  │  │blocking  │ embassy  │  │    │  └───────────────────────┘  │  │
-│  │  │e-hal-0.2 │e-io-async│  │    └─────────────────────────────┘  │
+│                                                                     │
+│  ┌─────────────────────────────┐    ┌─────────────────────────────┐ │
+│  │    crates/gm65-scanner/     │    │ examples/stm32f469i-disco/  │ │
+│  │                             │    │                             │ │
+│  │  ┌──────────┐               │    │  ┌───────────────────────┐  │ │
+│  │  │ protocol │──cmd frames──▶│    │  │ main.rs (sync fw)     │  │ │
+│  │  │  .rs     │               │    │  │ LCD + USB CDC + QR    │  │ │
+│  │  └──────────┘               │    │  └───────────────────────┘  │ │
+│  │                             │    │  ┌───────────────────────┐  │ │
+│  │  ┌──────────┐  ┌────────┐  │    │  │ async_firmware.rs     │  │ │
+│  │  │scanner_  │  │ buffer │  │    │  │ Embassy: LCD+USB+LED  │  │ │
+│  │  │ core.rs  │◀─│  .rs   │  │    │  └───────────────────────┘  │ │
+│  │  │ (state   │  └────────┘  │    │  ┌───────────────────────┐  │ │
+│  │  │ machine, │              │    │  │ hil_test_sync.rs      │  │ │
+│  │  │ settings)│              │    │  │ 6 tests, RTT output   │  │ │
+│  │  └────┬─────┘              │    │  └───────────────────────┘  │ │
+│  │       │                    │    │  ┌───────────────────────┐  │ │
+│  │  ┌────┴──────┐             │    │  │ hil_test_async.rs     │  │ │
+│  │  │  driver/  │             │    │  │ 9 tests, LED+aim     │  │ │
+│  │  │  types.rs │             │    │  └───────────────────────┘  │ │
+│  │  └──┬────┬──┘              │    │  ┌───────────────────────┐  │ │
+│  │     │    │                 │    │  │ cdc.rs  display.rs    │  │ │
+│  │  ┌──┘    └──┐              │    │  │ qr_display.rs         │  │ │
+│  │  │sync.rs   │async_.rs│   │    │  │ qr_display_async.rs   │  │ │
+│  │  │blocking  │embassy  │   │    │  └───────────────────────┘  │ │
+│  │  │e-hal-0.2 │e-io-async│  │    └─────────────────────────────┘ │
 │  │  └──────────┴──────────┘  │                                    │
-│  │                             │                                    │
-│  │  ┌──────────┐  ┌────────┐  │                                    │
-│  │  │ decoder  │  │ types  │  │                                    │
-│  │  │  .rs     │  │  .rs   │  │                                    │
-│  │  └──────────┘  └────────┘  │                                    │
-│  └─────────────────────────────┘                                    │
-└──────────────────────────────────────────────────────────────────────┘
+│  │                           │                                    │
+│  │  ┌──────────┐  ┌───────┐  │                                    │
+│  │  │ hid/     │  │decoder│  │                                    │
+│  │  │ keyboard │  │  .rs  │  │                                    │
+│  │  │ pos (exp)│  └───────┘  │                                    │
+│  │  └──────────┘             │                                    │
+│  └───────────────────────────┘                                    │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## CDC Protocol

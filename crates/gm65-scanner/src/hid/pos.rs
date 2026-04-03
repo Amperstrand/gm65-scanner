@@ -12,12 +12,14 @@
 //! - **ISO/IEC 15424**: AIM symbology identifiers used in the
 //!   symbology field of POS reports.
 //!
-//! # Compatible Software
+//! # Target Compatibility (unvalidated)
 //!
-//! When integrated into firmware, this interface would be compatible with:
+//! The descriptor and report format in this module are designed per the
+//! HID POS 1.02 spec. Once integrated into firmware, the following host
+//! APIs *should* be compatible, but this has **not been validated**:
 //! - Windows POS for .NET / UWP BarcodeScanner API
 //! - Linux hidraw / libhid
-//! - WebHID API (NielsLeenheer/WebHidBarcodeScanner)
+//! - WebHID API
 //!
 //! # Key Usages (from HID POS Usage Tables 1.02, §3)
 //!
@@ -173,5 +175,50 @@ mod tests {
         assert_eq!(HidPosReport::SYMBOLOGY_CODE128, *b"]C0");
         assert_eq!(HidPosReport::SYMBOLOGY_CODE39, *b"]A0");
         assert_eq!(HidPosReport::SYMBOLOGY_DATAMATRIX, *b"]d2");
+    }
+
+    #[test]
+    fn test_pos_report_empty_data() {
+        let report = HidPosReport::new(b"", HidPosReport::SYMBOLOGY_QR);
+        assert_eq!(report.data_length, 0);
+        assert_eq!(report.data, [0u8; 256]);
+        let bytes = report.as_bytes();
+        assert_eq!(bytes[256], 0); // length low
+        assert_eq!(bytes[257], 0); // length high
+    }
+
+    #[test]
+    fn test_pos_report_exactly_256_bytes() {
+        // Boundary: exactly max capacity
+        let data = [0x42; 256];
+        let report = HidPosReport::new(&data, HidPosReport::SYMBOLOGY_CODE128);
+        assert_eq!(report.data_length, 256);
+        assert_eq!(report.data, [0x42; 256]);
+        let bytes = report.as_bytes();
+        // 256 as LE u16 = [0x00, 0x01]
+        assert_eq!(bytes[256], 0x00);
+        assert_eq!(bytes[257], 0x01);
+    }
+
+    #[test]
+    fn test_pos_report_truncation_at_257() {
+        // One byte over max — should truncate to 256
+        let data = [0xBB; 257];
+        let report = HidPosReport::new(&data, HidPosReport::SYMBOLOGY_QR);
+        assert_eq!(report.data_length, 256);
+    }
+
+    #[test]
+    fn test_pos_descriptor_length() {
+        // Sanity check: descriptor should be a reasonable size
+        assert!(POS_BARCODE_SCANNER_REPORT_DESCRIPTOR.len() > 10);
+        assert!(POS_BARCODE_SCANNER_REPORT_DESCRIPTOR.len() < 200);
+    }
+
+    #[test]
+    fn test_pos_report_as_bytes_total_length() {
+        // Report must always be exactly 261 bytes: 256 data + 2 length + 3 symbology
+        let report = HidPosReport::new(b"test", HidPosReport::SYMBOLOGY_QR);
+        assert_eq!(report.as_bytes().len(), 261);
     }
 }

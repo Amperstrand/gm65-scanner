@@ -81,6 +81,8 @@ jobs:
         run: cargo clippy -p gm65-scanner --features async,defmt -- -D warnings
       - name: Clippy (std)
         run: cargo clippy -p gm65-scanner --features std -- -D warnings
+      - name: Clippy (all features)
+        run: cargo clippy -p gm65-scanner --all-features -- -D warnings
       - name: Clippy (sync firmware)
         run: cargo clippy -p stm32f469i-disco-scanner --bin stm32f469i-disco-scanner --no-default-features --features sync-mode --target thumbv7em-none-eabihf -- -D warnings
       - name: Clippy (async firmware)

@@ -61,8 +61,11 @@ pub mod scanner_core;
 
 /// Backward-compatible re-export of `hid::keyboard`.
 ///
-/// Prefer importing from `gm65_scanner::hid::keyboard` directly.
+/// **Deprecated**: Use `gm65_scanner::hid::keyboard` directly.
+/// This re-export exists for backward compatibility with code that imported
+/// from `gm65_scanner::hid_keyboard`. It will be removed in a future version.
 #[doc(hidden)]
+#[deprecated(since = "0.2.0", note = "use `gm65_scanner::hid::keyboard` instead")]
 pub mod hid_keyboard {
     pub use crate::hid::keyboard::*;
 }

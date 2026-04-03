@@ -847,4 +847,120 @@ mod tests {
         // Standard boot keyboard descriptor is 63 bytes
         assert_eq!(BOOT_KEYBOARD_REPORT_DESCRIPTOR.len(), 63);
     }
+
+    // ---- Edge case tests ----
+
+    #[test]
+    fn test_map_byte_del_unmapped() {
+        // DEL (0x7F) is not printable ASCII and must not be mapped
+        let mapper = KeyMapper::new(&US_ENGLISH, Terminator::None);
+        assert!(!mapper.is_mappable(0x7F));
+        assert!(mapper.map_byte(0x7F).is_none());
+    }
+
+    #[test]
+    fn test_all_printable_ascii_mapped() {
+        // Every byte in 0x20–0x7E must have a non-zero keycode in US_ENGLISH
+        for byte in 0x20u8..=0x7E {
+            let m = US_ENGLISH[byte as usize];
+            assert_ne!(
+                m.keycode, 0,
+                "printable ASCII 0x{:02x} ('{}') should be mapped",
+                byte, byte as char
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_non_printable_ascii_mapped() {
+        // 0x00–0x1F and 0x7F must all have keycode == 0
+        for byte in 0x00u8..0x20 {
+            assert_eq!(
+                US_ENGLISH[byte as usize].keycode, 0,
+                "control char 0x{:02x} should not be mapped",
+                byte
+            );
+        }
+        assert_eq!(
+            US_ENGLISH[0x7F].keycode, 0,
+            "DEL (0x7F) should not be mapped"
+        );
+    }
+
+    #[test]
+    fn test_report_count_with_unmappable_bytes() {
+        // Non-ASCII bytes should be excluded from report count
+        let mapper = KeyMapper::new(&US_ENGLISH, Terminator::None);
+        let data = &[0x80, 0xFF, 0x00, 0x0A]; // all unmappable
+        assert_eq!(mapper.report_count(data), 0);
+    }
+
+    #[test]
+    fn test_report_count_mixed_mappable_unmappable() {
+        let mapper = KeyMapper::new(&US_ENGLISH, Terminator::Enter);
+        let data = &[b'A', 0xFF, b'B', 0x00]; // 2 mappable, 2 not
+                                              // 2 chars * 2 reports + 2 terminator = 6
+        assert_eq!(mapper.report_count(data), 6);
+    }
+
+    #[test]
+    fn test_reports_all_unmappable_with_terminator() {
+        // If all bytes are unmappable but terminator is set, only terminator emitted
+        let mapper = KeyMapper::new(&US_ENGLISH, Terminator::Enter);
+        let data = &[0xFF, 0x80, 0x00];
+        let reports: Vec<_> = mapper.map_to_reports(data).collect();
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0].keycode, KEY_ENTER);
+        assert_eq!(reports[1], HidKeyboardReport::release());
+    }
+
+    #[test]
+    fn test_reports_all_unmappable_no_terminator() {
+        let mapper = KeyMapper::new(&US_ENGLISH, Terminator::None);
+        let data = &[0xFF, 0x80, 0x00];
+        let reports: Vec<_> = mapper.map_to_reports(data).collect();
+        assert_eq!(reports.len(), 0);
+    }
+
+    #[test]
+    fn test_report_count_always_matches_iterator() {
+        // Exhaustive consistency check: report_count must match actual iterator output
+        // for all terminator variants and several data patterns
+        let patterns: &[&[u8]] = &[
+            b"",
+            b"a",
+            b"Hello World!",
+            &[0xFF, 0x80],
+            &[b'A', 0xFF, b'B'],
+            b"0123456789",
+            b"~!@#$%^&*()",
+        ];
+        for &term in &[Terminator::None, Terminator::Enter, Terminator::Tab] {
+            let mapper = KeyMapper::new(&US_ENGLISH, term);
+            for &data in patterns {
+                let expected = mapper.report_count(data);
+                let actual = mapper.map_to_reports(data).count();
+                assert_eq!(
+                    expected, actual,
+                    "report_count mismatch for {:?} with {:?}",
+                    data, term
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_is_mappable_boundary_values() {
+        let mapper = KeyMapper::new(&US_ENGLISH, Terminator::None);
+        // 0x1F = last control char → not mappable
+        assert!(!mapper.is_mappable(0x1F));
+        // 0x20 = space → mappable
+        assert!(mapper.is_mappable(0x20));
+        // 0x7E = tilde → mappable
+        assert!(mapper.is_mappable(0x7E));
+        // 0x7F = DEL → not mappable
+        assert!(!mapper.is_mappable(0x7F));
+        // 0x80 = first non-ASCII → not mappable
+        assert!(!mapper.is_mappable(0x80));
+    }
 }

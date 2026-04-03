@@ -20,6 +20,7 @@ cargo check -p gm65-scanner --all-features
 cargo fmt --all -- --check
 cargo clippy -p gm65-scanner -- -D warnings
 cargo clippy -p gm65-scanner --features async -- -D warnings
+cargo clippy -p gm65-scanner --all-features -- -D warnings
 ```
 
 ## Project Structure
