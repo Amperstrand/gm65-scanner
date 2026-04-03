@@ -187,7 +187,7 @@ impl CompatibilityProfile {
         }
     }
 
-    pub const fn needs_reenumeration_for(self, next: Self) -> bool {
+    pub const fn needs_reenumeration_to(self, next: Self) -> bool {
         self.usb_mode as u8 != next.usb_mode as u8 || self.fast_hid != next.fast_hid
     }
 

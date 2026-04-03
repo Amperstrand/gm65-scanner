@@ -668,7 +668,7 @@ async fn main(_spawner: Spawner) {
                     }
                     HostCommand::SetHostOptions(profile) => {
                         let mut shared = SHARED.lock().await;
-                        let reboot = shared.profile.needs_reenumeration_for(profile);
+                        let reboot = shared.profile.needs_reenumeration_to(profile);
                         shared.profile = profile;
                         if let Some(settings) =
                             ScannerSettings::from_bits(shared.profile.scanner_settings)

@@ -164,7 +164,7 @@ impl Terminator {
         match self {
             Terminator::Enter => Some(KEY_ENTER),
             Terminator::Tab => Some(KEY_TAB),
-            Terminator::None => Option::None,
+            Terminator::None => None,
         }
     }
 }

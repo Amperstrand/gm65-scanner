@@ -138,6 +138,11 @@ impl Default for ScannerConfig {
 ///   (including 0) when has_real_clock returns `true` — there is no
 ///   sentinel value.
 ///
+/// - When [`has_real_clock()`](DelayProvider::has_real_clock) returns `false`,
+///   callers must treat [`elapsed_ms()`](DelayProvider::elapsed_ms) as
+///   unspecified. Implementations may return a dummy value because the sync
+///   driver will not consult it in that mode.
+///
 /// # Example
 ///
 /// ```rust,ignore

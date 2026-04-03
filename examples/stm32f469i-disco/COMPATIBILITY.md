@@ -159,7 +159,7 @@ The existing frame format remains unchanged.
 - USB identity is project-owned, not Zebra
 - sync firmware is not a DS2208 profile image; async firmware is the compatibility target
 - audible tones are approximated with LED/display plus whatever the GM65 module itself emits
-- HID POS Windows/POS-driver behavior is not yet hardware-validated on this branch
+- HID POS Windows/POS-driver behavior is not yet hardware-validated in this firmware
 - HID POS currently sends `unknown` symbology when the scanner transport does not expose AIM IDs
 - unsupported keyboard characters are skipped rather than converted through vendor-specific fallback schemes
 
