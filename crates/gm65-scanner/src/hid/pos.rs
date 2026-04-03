@@ -123,6 +123,10 @@ impl HidPosReport {
     pub const SYMBOLOGY_CODE39: [u8; 3] = *b"]A0";
     /// AIM symbology identifier for DataMatrix (per ISO/IEC 15424).
     pub const SYMBOLOGY_DATAMATRIX: [u8; 3] = *b"]d2";
+    /// Unknown / unavailable symbology identifier.
+    ///
+    /// Use this when the transport does not provide a reliable AIM code.
+    pub const SYMBOLOGY_UNKNOWN: [u8; 3] = [0x00, 0x00, 0x00];
 }
 
 #[cfg(test)]
@@ -175,6 +179,7 @@ mod tests {
         assert_eq!(HidPosReport::SYMBOLOGY_CODE128, *b"]C0");
         assert_eq!(HidPosReport::SYMBOLOGY_CODE39, *b"]A0");
         assert_eq!(HidPosReport::SYMBOLOGY_DATAMATRIX, *b"]d2");
+        assert_eq!(HidPosReport::SYMBOLOGY_UNKNOWN, [0x00, 0x00, 0x00]);
     }
 
     #[test]

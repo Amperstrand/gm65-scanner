@@ -32,6 +32,11 @@ pub enum Command {
     SetSettings = 0x14,
     DisplayQr = 0x15,
     EnterSettings = 0x16,
+    GetCompatibilityProfile = 0x20,
+    SetCompatibilityProfile = 0x21,
+    RebootUsb = 0x22,
+    GetHostOptions = 0x23,
+    SetHostOptions = 0x24,
 }
 
 impl Command {
@@ -44,6 +49,11 @@ impl Command {
             0x14 => Some(Command::SetSettings),
             0x15 => Some(Command::DisplayQr),
             0x16 => Some(Command::EnterSettings),
+            0x20 => Some(Command::GetCompatibilityProfile),
+            0x21 => Some(Command::SetCompatibilityProfile),
+            0x22 => Some(Command::RebootUsb),
+            0x23 => Some(Command::GetHostOptions),
+            0x24 => Some(Command::SetHostOptions),
             _ => None,
         }
     }
@@ -61,6 +71,7 @@ pub enum Status {
     ScannerNotConnected = 0x10,
     ScannerBusy = 0x11,
     NoScanData = 0x12,
+    RebootRequired = 0x20,
 }
 
 impl Status {

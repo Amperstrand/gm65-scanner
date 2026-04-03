@@ -300,6 +300,11 @@ fn handle_command(
         Command::SetSettings => handle_set_settings(scanner, payload, fb),
         Command::DisplayQr => handle_display_qr(payload, fb),
         Command::EnterSettings => Response::new(Status::Ok),
+        Command::GetCompatibilityProfile
+        | Command::SetCompatibilityProfile
+        | Command::RebootUsb
+        | Command::GetHostOptions
+        | Command::SetHostOptions => Response::new(Status::InvalidCommand),
     }
 }
 
