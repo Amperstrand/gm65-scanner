@@ -41,7 +41,10 @@ mod types;
 mod test_helpers;
 
 pub use traits::{ScannerDriver, ScannerDriverSync};
-pub use types::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
+pub use types::{
+    DelayProvider, ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState,
+    ScannerStatus, SpinDelay,
+};
 
 #[cfg(feature = "sync")]
 mod sync;

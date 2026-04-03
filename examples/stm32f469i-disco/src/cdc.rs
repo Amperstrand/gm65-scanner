@@ -1,3 +1,19 @@
+// CDC Application-Level Protocol
+//
+// This module implements a custom command/response framing protocol
+// layered on top of USB CDC ACM (per USB CDC Specification 1.2).
+//
+// The CDC ACM transport provides a virtual serial port; this protocol
+// adds structured framing for scanner control commands.
+//
+// Frame format (request):  [command:1][length_hi:1][length_lo:1][payload:N]
+// Frame format (response): [status:1][length_hi:1][length_lo:1][payload:N]
+//
+// This is a proprietary application protocol, not part of any USB standard.
+// For standards-based alternatives, see:
+// - HID keyboard wedge (USB HID Usage Tables 1.5, §10)
+// - HID POS barcode scanner (USB-IF HID POS Usage Tables 1.02)
+
 #[cfg(not(feature = "scanner-async"))]
 use stm32f469i_disc::hal::otg_fs::UsbBusType;
 
@@ -16,6 +32,11 @@ pub enum Command {
     SetSettings = 0x14,
     DisplayQr = 0x15,
     EnterSettings = 0x16,
+    GetCompatibilityProfile = 0x20,
+    SetCompatibilityProfile = 0x21,
+    RebootUsb = 0x22,
+    GetHostOptions = 0x23,
+    SetHostOptions = 0x24,
 }
 
 impl Command {
@@ -28,6 +49,11 @@ impl Command {
             0x14 => Some(Command::SetSettings),
             0x15 => Some(Command::DisplayQr),
             0x16 => Some(Command::EnterSettings),
+            0x20 => Some(Command::GetCompatibilityProfile),
+            0x21 => Some(Command::SetCompatibilityProfile),
+            0x22 => Some(Command::RebootUsb),
+            0x23 => Some(Command::GetHostOptions),
+            0x24 => Some(Command::SetHostOptions),
             _ => None,
         }
     }
@@ -45,6 +71,7 @@ pub enum Status {
     ScannerNotConnected = 0x10,
     ScannerBusy = 0x11,
     NoScanData = 0x12,
+    RebootRequired = 0x20,
 }
 
 impl Status {

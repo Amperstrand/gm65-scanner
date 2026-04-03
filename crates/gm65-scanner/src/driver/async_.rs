@@ -16,9 +16,9 @@ use crate::driver::{
     ScannerConfig, ScannerDriver, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 #[cfg(test)]
 use crate::scanner_core::InitAction;
+use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 use embassy_time::{with_timeout, Duration};
 
 const CMD_TIMEOUT: Duration = Duration::from_secs(2);

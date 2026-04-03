@@ -3,11 +3,37 @@
 //! Extracts shared logic from sync.rs and async_.rs into a single core
 //! that manages state and buffer without I/O operations.
 //!
-//! This module contains:
-//! - Buffer management for scan data
-//! - Init sequence state machine
-//! - Configuration constants and helpers
-//! - ScannerSettings bitflags
+//! # Architecture
+//!
+//! This module implements the sans-IO pattern: all state machine logic
+//! lives here with zero I/O operations. The sync and async drivers
+//! provide the actual UART transport and delegate state management here.
+//!
+//! # GM65 Register Map
+//!
+//! The register map is reverse-engineered from the specter-diy project.
+//! See `docs/GM65-PROTOCOL-FINDINGS.md` for the complete register
+//! documentation. Key registers:
+//!
+//! | Register       | Address | Description                          |
+//! |---------------|---------|--------------------------------------|
+//! | SerialOutput  | 0x000D  | UART output mode (bits 0-1 must be 0)|
+//! | Settings      | 0x0000  | Operating mode bitflags              |
+//! | ScanEnable    | 0x0002  | Trigger (0x01) / Stop (0x00)         |
+//! | Timeout       | 0x0006  | Scan timeout (0x00 = no timeout)     |
+//! | Version       | 0x0000* | Firmware version (special register)  |
+//! | BarType       | 0x002C  | Barcode type filter                  |
+//! | QrEnable      | 0x002E  | QR code enable (0x01 = enabled)      |
+//!
+//! # Init Sequence
+//!
+//! The initialization state machine follows a deterministic sequence:
+//! 1. Drain UART + read SerialOutput register
+//! 2. Fix SerialOutput if bits 0-1 are set (hardware quirk)
+//! 3. Write Settings register for command-triggered mode
+//! 4. Apply configuration registers (Timeout, ScanInterval, etc.)
+//! 5. Check firmware version; apply raw mode fix for version 0x69
+//! 6. Save settings to EEPROM
 
 extern crate alloc;
 

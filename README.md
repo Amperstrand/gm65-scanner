@@ -4,8 +4,8 @@
 
 ## Overview
 
-- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 149 unit tests
-- **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
+- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, HID mapping primitives, 213 unit tests
+- **Firmware** (`examples/stm32f469i-disco/`) — STM32F469I-Discovery examples: legacy sync CDC firmware and async DS2208-compatible profile firmware
 
 ## Sync vs Async Drivers
 
@@ -15,7 +15,7 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 |--|----------------------|---------------------------|
 | **HAL traits** | `embedded-hal 0.2` blocking Read/Write | `embedded-io-async` async Read/Write |
 | **Execution** | Polling main loop, `fn` methods | Embassy executor, `async fn` with RPITIT |
-| **Timeout** | Spin-loop (fixed iteration count) | `embassy_time::with_timeout` (wall-clock) |
+| **Timeout** | `DelayProvider` trait: spin-loop (default) or real-time via injected clock | `embassy_time::with_timeout` (wall-clock) |
 | **Memory** | No heap allocator needed for I/O | Requires `#[global_allocator]` (heap) |
 | **Concurrency** | Single task only | Multiple concurrent tasks (scanner + USB + display) |
 | **Interrupts** | UART interrupts unused (pure polling) | USART6 interrupt must be explicitly disabled (uses blocking UART + async wrapper) |
@@ -36,27 +36,98 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 - Embassy-based codebase (micronuts firmware)
 - Need `embassy_futures::select` for cancel-on-scan patterns
 
-### Known sync limitation
+### Known sync limitation (RESOLVED)
 
-`read_scan()` uses a tight spin-loop (500k iterations) that completes in ~1-2ms at 180MHz. This is too fast for human QR code interaction. The sync HIL binary works around this with a retry loop using `cortex_m::asm::delay` between attempts. For natural human-interaction timeouts, prefer the async driver.
+The sync `read_scan()` previously used a tight spin-loop (500k iterations) that completed in ~1-2ms at 180MHz. This was too fast for human QR code interaction.
+
+**Fix**: The `DelayProvider` trait now allows injecting a real-time delay source:
+
+```rust
+use gm65_scanner::{Gm65Scanner, DelayProvider, ScannerConfig};
+
+struct MyDelay { /* ... */ }
+impl DelayProvider for MyDelay {
+    fn has_real_clock(&self) -> bool { true }
+    fn delay_ms(&mut self, ms: u32) { /* ... */ }
+    fn elapsed_ms(&self) -> u32 { /* monotonic ms counter */ }
+}
+
+let mut scanner = Gm65Scanner::with_delay(uart, ScannerConfig::default(), MyDelay { /* ... */ });
+scanner.set_scan_timeout_ms(5_000); // 5-second human-scale timeout
+```
+
+The default `SpinDelay` preserves backward compatibility (spin-loop behavior).
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| Sync driver | `Gm65Scanner<UART>` with `embedded-hal-02` traits |
+| Sync driver | `Gm65Scanner<UART, D>` with `embedded-hal-02` traits |
 | Async driver | `Gm65ScannerAsync<UART>` with `embedded-io-async` traits |
+| DelayProvider | Pluggable timeout mechanism for sync driver |
+| HID keyboard mapping | Library primitives for barcode-to-keystroke conversion (USB HID Usage Tables 1.5, §10) |
+| HID POS reports | Standards-based library primitives for POS barcode scanner reports (USB-IF HID POS 1.02), used by the async DS2208-compatible firmware |
 | HIL tests | Hardware-in-the-loop tests for both drivers |
 | QR display | Generate and display QR codes on LCD |
-| USB CDC | Host control via virtual serial port |
+| USB CDC | Host control via virtual serial port (active in example firmware) |
+
+## Host Interface Modes
+
+The library crate provides building blocks for multiple host interface modes.
+The **sync** example remains CDC-only; the **async** example now integrates the
+library HID primitives into selectable Keyboard HID / HID POS / Admin CDC
+profiles.
+
+The STM32F469 async example now adds a **DS2208-compatible profile firmware** with
+selectable Keyboard HID / HID POS / Admin CDC modes. See
+[`examples/stm32f469i-disco/COMPATIBILITY.md`](examples/stm32f469i-disco/COMPATIBILITY.md).
+For host-side validation steps and tiny helper tools, see
+[`examples/stm32f469i-disco/HOST_VALIDATION.md`](examples/stm32f469i-disco/HOST_VALIDATION.md).
+The async image currently stores its active profile in a simple single-slot flash
+region; see the compatibility doc for persistence caveats and follow-up audit notes.
+
+| Mode | Status | Standard | Compatible Software |
+|------|--------|----------|-------------------|
+| **CDC ACM** | ✅ Sync firmware + async admin mode | USB CDC 1.2 | Diagnostics, configuration, Python scripts |
+| **HID Keyboard Wedge** | ✅ Async firmware selectable profile | USB HID 1.11 + Usage Tables 1.5 §10 | Text input fields on Linux/macOS/Windows |
+| **HID POS Scanner** | 🧪 Async firmware selectable profile | USB-IF HID POS Usage Tables 1.02 | Scanner-oriented HID path; Windows POS behavior not yet hardware-validated |
+
+### USB Identity (source-code constants)
+
+These values are hardcoded in the firmware source. Change them in the source
+before building. For production, obtain a real VID from [USB-IF](https://www.usb.org/getting-vendor-id)
+or use [pid.codes](https://pid.codes/).
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `USB_VID` | `0x16C0` (sync) / `0xC0DE` (async) | USB Vendor ID (placeholder) |
+| `USB_PID` | `0x27DD` (sync) / `0xCAFE` (async) | USB Product ID (placeholder) |
+
+### Library Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `KEYBOARD_LAYOUT` | US English QWERTY | HID key mapping layout (library) |
+| `TERMINATOR` | Enter (0x28) | Key sent after barcode data (library) |
+| `SCAN_TIMEOUT_MS` | 5000 | Sync driver scan timeout with DelayProvider |
+
+### Open Source Reference Implementations
+
+The following open source projects were studied for compatibility and inspiration:
+
+- **[NielsLeenheer/WebHidBarcodeScanner](https://github.com/NielsLeenheer/WebHidBarcodeScanner)** — WebHID API for HID POS barcode scanners
+- **[Fabi019/hid-barcode-scanner](https://github.com/Fabi019/hid-barcode-scanner)** — Android BLE HID keyboard wedge
+- **[dlkj/usbd-human-interface-device](https://github.com/dlkj/usbd-human-interface-device)** — Rust embedded USB HID (keyboard, mouse)
+- **[oschwartz10612/Scanner-Pro-MK3](https://github.com/oschwartz10612/Scanner-Pro-MK3)** — Arduino USB barcode scanner host
+- **[ktolstikhin/barcode-scanner](https://github.com/ktolstikhin/barcode-scanner)** — Python USB-CDC/HID-POS scanner interface
 
 ## Project Status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 149 unit tests passing, clippy clean |
-| Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
-| Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
+| Library | Stable | 213 unit tests passing, clippy clean |
+| Sync firmware | Working (legacy/reference) | Scanner + USB CDC + LCD display + QR rendering; rejects new DS2208 profile CDC commands |
+| Async firmware | Working | Embassy executor, touch UI, persisted DS2208-compatible USB profiles (Keyboard HID / HID POS / Admin CDC) |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
 | HIL tests (async) | 9/9 HW verified | 5 core + 3 extended + 1 QR scan |
 
@@ -109,7 +180,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 149/149 tests passing
+**Status**: 213/213 tests passing (including HID keyboard mapping and POS report tests)
 
 ### Feature Checks
 
@@ -138,6 +209,15 @@ make run-async
 ```bash
 make test-sync
 make test-async
+```
+
+### Lint
+
+```bash
+cargo fmt --all -- --check
+cargo clippy -p gm65-scanner -- -D warnings
+cargo clippy -p gm65-scanner --features async -- -D warnings
+cargo clippy -p gm65-scanner --all-features -- -D warnings
 ```
 
 ## Build
@@ -172,8 +252,8 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 | Binary | Description |
 |--------|-------------|
-| `stm32f469i-disco-scanner` (sync) | Full firmware: LCD, USB CDC, QR scanner, QR rendering, auto-scan |
-| `async_firmware` | Embassy: LCD, USB CDC, QR scanner, LED, concurrent tasks |
+| `stm32f469i-disco-scanner` (sync) | Legacy/reference firmware: LCD, USB CDC, QR scanner, QR rendering, auto-scan |
+| `async_firmware` | DS2208-compatible profile firmware: touch UI, persisted USB mode, Keyboard HID / HID POS / Admin CDC, LED/operator feedback |
 | `hil_test_sync` | Sync HIL: 5 core tests + QR scan test, RTT output |
 | `hil_test_async` | Async HIL: 5 core + 3 extended + QR scan with aim laser + LED blink, RTT output |
 
@@ -182,40 +262,41 @@ cargo build --release --target thumbv7em-none-eabihf \
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                       gm65-scanner workspace                        │
-│                                                                       │
-│  ┌─────────────────────────────┐    ┌─────────────────────────────┐  │
-│  │    crates/gm65-scanner/     │    │ examples/stm32f469i-disco/  │  │
-│  │                             │    │                             │  │
-│  │  ┌──────────┐               │    │  ┌───────────────────────┐  │  │
-│  │  │ protocol │──cmd frames──▶│    │  │ main.rs (sync fw)     │  │  │
-│  │  │  .rs     │               │    │  │ LCD + USB CDC + QR    │  │  │
-│  │  └──────────┘               │    │  └───────────────────────┘  │  │
-│  │                             │    │  ┌───────────────────────┐  │  │
-│  │  ┌──────────┐  ┌────────┐  │    │  │ async_firmware.rs     │  │  │
-│  │  │scanner_  │  │ buffer │  │    │  │ Embassy: LCD+USB+LED  │  │  │
-│  │  │ core.rs  │◀─│  .rs   │  │    │  └───────────────────────┘  │  │
-│  │  │ (state   │  └────────┘  │    │  ┌───────────────────────┐  │  │
-│  │  │ machine, │              │    │  │ hil_test_sync.rs      │  │  │
-│  │  │ settings)│              │    │  │ 6 tests, RTT output   │  │  │
-│  │  └────┬─────┘              │    │  └───────────────────────┘  │  │
-│  │       │                    │    │  ┌───────────────────────┐  │  │
-│  │  ┌────┴──────┐             │    │  │ hil_test_async.rs     │  │  │
-│  │  │  traits   │             │    │  │ 9 tests, LED+aim     │  │  │
-│  │  │  .rs     │             │    │  └───────────────────────┘  │  │
-│  │  └──┬────┬──┘             │    │  ┌───────────────────────┐  │  │
-│  │     │    │                │    │  │ cdc.rs  display.rs    │  │  │
-│  │  ┌──┘    └──┐             │    │  │ qr_display.rs         │  │  │
-│  │  │sync.rs   │ async_.rs│  │    │  │ qr_display_async.rs   │  │  │
-│  │  │blocking  │ embassy  │  │    │  └───────────────────────┘  │  │
-│  │  │e-hal-0.2 │e-io-async│  │    └─────────────────────────────┘  │
+│                                                                     │
+│  ┌─────────────────────────────┐    ┌─────────────────────────────┐ │
+│  │    crates/gm65-scanner/     │    │ examples/stm32f469i-disco/  │ │
+│  │                             │    │                             │ │
+│  │  ┌──────────┐               │    │  ┌───────────────────────┐  │ │
+│  │  │ protocol │──cmd frames──▶│    │  │ main.rs (sync fw)     │  │ │
+│  │  │  .rs     │               │    │  │ LCD + USB CDC + QR    │  │ │
+│  │  └──────────┘               │    │  └───────────────────────┘  │ │
+│  │                             │    │  ┌───────────────────────┐  │ │
+│  │  ┌──────────┐  ┌────────┐  │    │  │ async_firmware.rs     │  │ │
+│  │  │scanner_  │  │ buffer │  │    │  │ Embassy: LCD+USB+LED  │  │ │
+│  │  │ core.rs  │◀─│  .rs   │  │    │  └───────────────────────┘  │ │
+│  │  │ (state   │  └────────┘  │    │  ┌───────────────────────┐  │ │
+│  │  │ machine, │              │    │  │ hil_test_sync.rs      │  │ │
+│  │  │ settings)│              │    │  │ 6 tests, RTT output   │  │ │
+│  │  └────┬─────┘              │    │  └───────────────────────┘  │ │
+│  │       │                    │    │  ┌───────────────────────┐  │ │
+│  │  ┌────┴──────┐             │    │  │ hil_test_async.rs     │  │ │
+│  │  │  driver/  │             │    │  │ 9 tests, LED+aim     │  │ │
+│  │  │  types.rs │             │    │  └───────────────────────┘  │ │
+│  │  └──┬────┬──┘              │    │  ┌───────────────────────┐  │ │
+│  │     │    │                 │    │  │ cdc.rs  display.rs    │  │ │
+│  │  ┌──┘    └──┐              │    │  │ qr_display.rs         │  │ │
+│  │  │sync.rs   │async_.rs│   │    │  │ qr_display_async.rs   │  │ │
+│  │  │blocking  │embassy  │   │    │  └───────────────────────┘  │ │
+│  │  │e-hal-0.2 │e-io-async│  │    └─────────────────────────────┘ │
 │  │  └──────────┴──────────┘  │                                    │
-│  │                             │                                    │
-│  │  ┌──────────┐  ┌────────┐  │                                    │
-│  │  │ decoder  │  │ types  │  │                                    │
-│  │  │  .rs     │  │  .rs   │  │                                    │
-│  │  └──────────┘  └────────┘  │                                    │
-│  └─────────────────────────────┘                                    │
-└──────────────────────────────────────────────────────────────────────┘
+│  │                           │                                    │
+│  │  ┌──────────┐  ┌───────┐  │                                    │
+│  │  │ hid/     │  │decoder│  │                                    │
+│  │  │ keyboard │  │  .rs  │  │                                    │
+│  │  │ pos (exp)│  └───────┘  │                                    │
+│  │  └──────────┘             │                                    │
+│  └───────────────────────────┘                                    │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## CDC Protocol

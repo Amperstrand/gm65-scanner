@@ -9,7 +9,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use crate::driver::{
-    ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
+    DelayProvider, ScannerConfig, ScannerDriverSync, ScannerError, ScannerModel, ScannerState,
+    ScannerStatus, SpinDelay,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
 use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
@@ -19,39 +20,100 @@ use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 /// This type implements `ScannerDriverSync` using blocking UART operations.
 /// It uses `embedded-hal-02` traits for compatibility with existing HALs.
 ///
+/// # Delay Provider
+///
+/// The `D` type parameter provides real-time delay and elapsed-time
+/// capabilities for human-scale scan timeouts. When using the default
+/// `SpinDelay`, the driver falls back to attempt-based spin-loop timeouts
+/// (~1-2ms at 180MHz). Supply a real `DelayProvider` implementation for
+/// multi-second scan windows.
+///
 /// # Example
 ///
 /// ```rust,ignore
 /// use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerConfig};
 ///
+/// // Default (spin-loop timeout)
 /// let mut scanner = Gm65Scanner::new(uart, ScannerConfig::default());
+///
+/// // With real-time delay for human-scale timeout
+/// let mut scanner = Gm65Scanner::with_delay(uart, ScannerConfig::default(), my_delay);
 /// scanner.init()?;
 /// scanner.trigger_scan()?;
 /// if let Some(data) = scanner.read_scan() {
 ///     // process QR code data
 /// }
 /// ```
-pub struct Gm65Scanner<UART> {
+pub struct Gm65Scanner<UART, D: DelayProvider = SpinDelay> {
     core: ScannerCore,
     uart: UART,
+    delay: D,
+    /// Scan timeout in milliseconds. Only used when `D` provides
+    /// a real clock (i.e., `has_real_clock()` returns `true`).
+    /// Default: 5000ms (5 seconds).
+    scan_timeout_ms: u32,
 }
 
-impl<UART, WErr, RErr> Gm65Scanner<UART>
+/// Default spin-loop attempt limit (backward-compatible behavior).
+const DEFAULT_SPIN_ATTEMPTS: u32 = 500_000;
+
+/// Default scan timeout when using a real delay provider (5 seconds).
+const DEFAULT_SCAN_TIMEOUT_MS: u32 = 5_000;
+
+impl<UART, WErr, RErr> Gm65Scanner<UART, SpinDelay>
 where
     UART: embedded_hal_02::serial::Write<u8, Error = WErr>
         + embedded_hal_02::serial::Read<u8, Error = RErr>,
 {
     /// Create a new scanner with the given UART and configuration.
+    /// Uses the default spin-loop delay (attempt-based timeout).
     pub fn new(uart: UART, config: ScannerConfig) -> Self {
         Self {
             core: ScannerCore::new(config),
             uart,
+            delay: SpinDelay::new(),
+            scan_timeout_ms: DEFAULT_SCAN_TIMEOUT_MS,
         }
     }
 
     /// Create a new scanner with default configuration.
+    /// Uses the default spin-loop delay (attempt-based timeout).
     pub fn with_default_config(uart: UART) -> Self {
         Self::new(uart, ScannerConfig::default())
+    }
+}
+
+impl<UART, D, WErr, RErr> Gm65Scanner<UART, D>
+where
+    UART: embedded_hal_02::serial::Write<u8, Error = WErr>
+        + embedded_hal_02::serial::Read<u8, Error = RErr>,
+    D: DelayProvider,
+{
+    /// Create a new scanner with a custom delay provider for real-time timeouts.
+    ///
+    /// The delay provider enables human-scale scan windows (e.g., 5 seconds)
+    /// instead of the default spin-loop timeout.
+    pub fn with_delay(uart: UART, config: ScannerConfig, delay: D) -> Self {
+        Self {
+            core: ScannerCore::new(config),
+            uart,
+            delay,
+            scan_timeout_ms: DEFAULT_SCAN_TIMEOUT_MS,
+        }
+    }
+
+    /// Set the scan timeout in milliseconds.
+    ///
+    /// Only effective when using a `DelayProvider` with
+    /// `has_real_clock() == true`. Default: 5000ms.
+    pub fn set_scan_timeout_ms(&mut self, ms: u32) {
+        self.scan_timeout_ms = ms;
+    }
+
+    /// Get the current scan timeout in milliseconds.
+    #[must_use]
+    pub fn scan_timeout_ms(&self) -> u32 {
+        self.scan_timeout_ms
     }
 
     /// Release ownership of the UART peripheral.
@@ -298,18 +360,42 @@ where
             return None;
         }
 
-        let mut attempts = 0u32;
-        let max_attempts = 500_000u32;
+        let has_clock = self.delay.has_real_clock();
+        let start = if has_clock {
+            self.delay.elapsed_ms()
+        } else {
+            0
+        };
 
-        while attempts < max_attempts {
+        let mut spin_attempts = 0u32;
+
+        loop {
             match self.uart.read() {
                 Ok(b) => match self.core.handle_scan_byte(b) {
                     ScanByteResult::Complete(data) => return Some(data),
                     ScanByteResult::BufferOverflow => return None,
-                    ScanByteResult::NeedMore => attempts = 0,
+                    ScanByteResult::NeedMore => {
+                        spin_attempts = 0;
+                    }
                 },
                 Err(nb::Error::WouldBlock) => {
-                    attempts += 1;
+                    if has_clock {
+                        // Real-time timeout using delay provider
+                        let elapsed = self.delay.elapsed_ms().wrapping_sub(start);
+                        if elapsed >= self.scan_timeout_ms {
+                            self.core.fail(ScannerError::Timeout);
+                            return None;
+                        }
+                        // Yield CPU briefly instead of tight spin
+                        self.delay.delay_ms(1);
+                    } else {
+                        // Spin-loop fallback (original behavior)
+                        spin_attempts += 1;
+                        if spin_attempts >= DEFAULT_SPIN_ATTEMPTS {
+                            self.core.fail(ScannerError::Timeout);
+                            return None;
+                        }
+                    }
                 }
                 Err(_) => {
                     self.core.fail(ScannerError::UartError);
@@ -317,16 +403,14 @@ where
                 }
             }
         }
-
-        self.core.fail(ScannerError::Timeout);
-        None
     }
 }
 
-impl<UART, WErr, RErr> ScannerDriverSync for Gm65Scanner<UART>
+impl<UART, D, WErr, RErr> ScannerDriverSync for Gm65Scanner<UART, D>
 where
     UART: embedded_hal_02::serial::Write<u8, Error = WErr>
         + embedded_hal_02::serial::Read<u8, Error = RErr>,
+    D: DelayProvider,
 {
     fn init(&mut self) -> Result<ScannerModel, ScannerError> {
         self.do_init()
@@ -957,5 +1041,188 @@ mod tests {
         assert!(scanner.trigger_scan().is_ok());
         assert_eq!(scanner.state(), ScannerState::Scanning);
         assert!(scanner.stop_scan());
+    }
+
+    // ====================================================================
+    // DelayProvider tests
+    // ====================================================================
+
+    use crate::driver::DelayProvider;
+
+    /// Mock delay provider that simulates real elapsed time.
+    struct MockDelay {
+        current_ms: core::cell::Cell<u32>,
+        advance_per_delay: u32,
+    }
+
+    impl MockDelay {
+        fn new(advance_per_delay: u32) -> Self {
+            Self {
+                current_ms: core::cell::Cell::new(0),
+                advance_per_delay,
+            }
+        }
+
+        /// Create starting at a specific time (for testing boundary conditions).
+        fn starting_at(start_ms: u32, advance_per_delay: u32) -> Self {
+            Self {
+                current_ms: core::cell::Cell::new(start_ms),
+                advance_per_delay,
+            }
+        }
+    }
+
+    impl DelayProvider for MockDelay {
+        fn has_real_clock(&self) -> bool {
+            true
+        }
+
+        fn delay_ms(&mut self, ms: u32) {
+            let cur = self.current_ms.get();
+            self.current_ms
+                .set(cur.wrapping_add(ms.max(self.advance_per_delay)));
+        }
+
+        fn elapsed_ms(&self) -> u32 {
+            self.current_ms.get()
+        }
+    }
+
+    #[test]
+    fn test_with_delay_constructor() {
+        let mock = MockUart::new();
+        let delay = MockDelay::new(10);
+        let scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        assert_eq!(scanner.state(), ScannerState::Uninitialized);
+        assert_eq!(scanner.scan_timeout_ms(), 5_000);
+    }
+
+    #[test]
+    fn test_set_scan_timeout() {
+        let mock = MockUart::new();
+        let delay = MockDelay::new(10);
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(10_000);
+        assert_eq!(scanner.scan_timeout_ms(), 10_000);
+    }
+
+    #[test]
+    fn test_read_scan_with_delay_timeout() {
+        // Build init + trigger sequences
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let trigger_resp = success_response(0x01);
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        // Advance 100ms per delay call → 50 calls = 5000ms timeout
+        let delay = MockDelay::new(100);
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(500); // 500ms timeout
+
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+
+        // read_scan should timeout via delay provider
+        let result = scanner.read_scan();
+        assert!(result.is_none());
+        assert!(matches!(
+            scanner.state(),
+            ScannerState::Error(ScannerError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn test_read_scan_with_delay_completes_before_timeout() {
+        // Build init + trigger sequences
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let trigger_resp = success_response(0x01);
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        let handle = mock.clone();
+
+        let delay = MockDelay::new(10);
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(5_000);
+
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+
+        // Load scan data AFTER init+trigger have consumed their responses
+        handle.load_read_queue(b"Hello World\r\n");
+
+        let result = scanner.read_scan();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), b"Hello World");
+    }
+
+    #[test]
+    fn test_read_scan_with_clock_starting_at_zero() {
+        // Regression: a timer starting at 0ms must still use wall-clock timeout,
+        // not fall back to spin-loop. The old code used "elapsed_ms() > 0" as
+        // sentinel, which broke timers starting at 0.
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let trigger_resp = success_response(0x01);
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        let delay = MockDelay::starting_at(0, 100); // starts at 0ms
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(500);
+
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+
+        // Should timeout via clock, not spin forever
+        let result = scanner.read_scan();
+        assert!(result.is_none());
+        assert!(matches!(
+            scanner.state(),
+            ScannerState::Error(ScannerError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn test_read_scan_timeout_boundary_exact() {
+        // Timeout should trigger when elapsed == timeout_ms
+        let (buf, len) = init_response_sequence();
+        let chunks: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+        let trigger_resp = success_response(0x01);
+        let mut all_chunks = chunks;
+        all_chunks.push(&trigger_resp);
+
+        let mock = MockUart::with_response_sequence(&all_chunks);
+        // advance_per_delay=100: after 1 delay call, elapsed jumps from 0 to 100
+        let delay = MockDelay::starting_at(0, 100);
+        let mut scanner = Gm65Scanner::with_delay(mock, ScannerConfig::default(), delay);
+        scanner.set_scan_timeout_ms(100); // exact match after first delay
+
+        assert!(scanner.init().is_ok());
+        assert!(scanner.trigger_scan().is_ok());
+
+        let result = scanner.read_scan();
+        assert!(result.is_none());
+        assert!(matches!(
+            scanner.state(),
+            ScannerState::Error(ScannerError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn test_spin_delay_has_no_clock() {
+        let d = SpinDelay::new();
+        assert!(!d.has_real_clock());
+    }
+
+    #[test]
+    fn test_mock_delay_has_clock() {
+        let d = MockDelay::new(10);
+        assert!(d.has_real_clock());
     }
 }

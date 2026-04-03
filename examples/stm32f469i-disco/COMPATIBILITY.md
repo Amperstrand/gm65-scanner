@@ -1,0 +1,201 @@
+# DS2208 Compatibility Profile
+
+This firmware aims to match **Zebra DS2208 host interaction and operator UX as closely as practical** while keeping a **project-owned USB identity**. It does **not** impersonate Zebra USB identifiers, manufacturer/product strings, or serial schemes.
+
+## Scope
+
+### Async firmware (`async_firmware`)
+
+This is the DS2208-compatible image.
+
+- **USB modes**
+  - `DS2208 Keyboard HID` (default)
+  - `DS2208 HID POS`
+  - `Admin CDC`
+- **Persistence**
+  - active USB mode
+  - suffix: none / Enter / Tab
+  - keystroke delay: 0 / 20 / 40 ms
+  - case handling: preserve / upper / lower
+  - fast HID: on / off
+  - caps-lock override: on / off
+  - simulated caps lock: on / off
+  - scanner settings byte
+  - optional prefix/suffix byte sequences (CDC/admin path)
+- **UI**
+  - touch-accessible compatibility page
+  - settings saved in internal flash at the start of bank 2 (`0x0810_0000`, 128 KiB erase region)
+  - USB mode / fast HID changes trigger reboot for clean re-enumeration
+
+### Sync firmware (`stm32f469i-disco-scanner`)
+
+This remains the legacy/reference CDC firmware.
+
+- keeps the existing screen + CDC + scanner relay behavior
+- rejects the new DS2208 profile CDC commands with `InvalidCommand`
+- documented here so the scope difference is explicit
+
+## DS2208 behaviors selected
+
+Authoritative references:
+
+- Zebra DS2208 Product Reference Guide  
+  <https://www.zebra.com/content/dam/support-dam/en/documentation/unrestricted/guide/product/ds2208-prg-en.pdf>
+- Zebra DS2208 Quick Start Guide  
+  <https://www.zebra.com/content/dam/support-dam/en/documentation/unrestricted/guide/product/ds2208-qsg-en.pdf>
+- Microsoft barcode scanner configuration guidance  
+  <https://learn.microsoft.com/en-us/windows/uwp/devices-sensors/pos-barcodescanner-configure>
+
+Implemented DS2208-like defaults:
+
+- default USB profile: **Keyboard HID**
+- optional HID POS profile
+- optional Admin CDC profile for diagnostics/configuration
+- suffix options: none / Enter / Tab
+- keystroke delay options: 0 / 20 / 40 ms
+- case handling: preserve / upper / lower
+- caps-lock override tracking in keyboard mode
+- simulated caps lock toggle
+- fast HID toggle (changes HID poll interval)
+
+## Operator feedback
+
+The DS2208 documentation describes:
+
+- power-up: low / medium / high
+- successful decode: short high
+- transmission error: 4 long low
+- programming/config success and error patterns
+
+This board does **not** have a programmable buzzer that can faithfully synthesize those tones. The current implementation therefore uses:
+
+- GM65 scanner `SOUND` setting for module-side audible feedback when available
+- LED pulse patterns to approximate DS2208 event classes
+- display status messages
+
+Implemented event mappings:
+
+- power-up → 3 rising-duration LED pulses
+- decode success → 1 short LED pulse
+- transmission error → 4 long LED pulses
+- config success → 2 short LED pulses
+- config error → 2 uneven LED pulses
+
+## HID mode details
+
+### Keyboard HID
+
+- Boot keyboard descriptor / 8-byte reports
+- report stream generated from `gm65_scanner::hid::keyboard`
+- deterministic unsupported-character policy: **skip unmappable bytes**
+- optional prefix/suffix raw byte sequences are applied before/after barcode data
+- suffix key option (`Enter` / `Tab`) is applied after payload bytes
+- no inter-key delay by default
+- when key delay is enabled, the firmware waits after each **release** report, not between press/release halves of a key
+- unsupported bytes are skipped deterministically and counted in firmware logs so the scan-result screen is not overwritten immediately after a decode
+
+### HID POS
+
+- uses the library HID POS descriptor and report layout
+- sends decoded data + explicit little-endian length + symbology field
+- current firmware uses `SYMBOLOGY_UNKNOWN` because the current GM65 transport path does not expose a reliable AIM ID into the async firmware
+- payloads over 256 bytes are truncated explicitly; hosts are expected to trust the explicit length field, and truncation is surfaced in firmware logs rather than replacing the scan-result screen
+- intended to stay scanner-oriented instead of falling back to keyboard semantics
+- current audit target is standards-aligned HID POS shape first, then host-driver validation on Windows
+
+## Architecture summary
+
+- **Profile persistence**: `compatibility.rs` defines the persisted 64-byte profile blob; `flash_store.rs` stores it in internal flash bank 2.
+- **USB personality selection**: the async firmware loads the profile at boot and instantiates exactly one personality: Keyboard HID, HID POS, or Admin CDC.
+- **Keyboard path**: scan data flows through `keyboard_profile.rs`, which applies case handling, raw prefix/suffix bytes, suffix key mode, caps-lock policy, and deterministic unsupported-byte skipping before emitting boot-keyboard reports.
+- **HID POS path**: scan data flows through `hid_pos_profile.rs`, which builds the fixed 261-byte scanner-oriented report and centralizes fallback to `SYMBOLOGY_UNKNOWN` when no transport AIM code is available.
+- **Feedback path**: `feedback.rs` centralizes the LED pulse patterns and save/re-enumeration messaging used by the async firmware.
+
+## Flash persistence notes
+
+- The profile store currently uses a **single erase region** in internal flash.
+- Saving a profile erases and rewrites that region; this is simple and deterministic, but not yet optimized for wear leveling.
+- STM32 internal flash endurance is finite (typically on the order of **10,000 erase cycles** per sector), so save-heavy workflows remain a follow-up audit point.
+- Reflashing firmware may overwrite the stored profile depending on the flashing workflow and image layout.
+- A future improvement would be a two-slot or journaled format to reduce wear and make interrupted writes more robust.
+
+## CDC/Admin protocol additions
+
+The existing frame format remains unchanged.
+
+### New commands
+
+| Command | Code | Payload | Response |
+|---|---:|---|---|
+| `GetCompatibilityProfile` | `0x20` | none | active USB mode byte |
+| `SetCompatibilityProfile` | `0x21` | 1 byte mode | `RebootRequired` |
+| `RebootUsb` | `0x22` | none | `RebootRequired` |
+| `GetHostOptions` | `0x23` | none | serialized 64-byte profile |
+| `SetHostOptions` | `0x24` | serialized 64-byte profile | updated profile or `RebootRequired` |
+
+### Mode bytes
+
+| Value | Meaning |
+|---:|---|
+| `0x01` | DS2208 Keyboard HID |
+| `0x02` | DS2208 HID POS |
+| `0x03` | Admin CDC |
+
+### Status additions
+
+| Status | Code | Meaning |
+|---|---:|---|
+| `RebootRequired` | `0x20` | settings saved; reboot/re-enumeration required |
+
+## Host test matrix
+
+Use the companion checklist and tiny host tools in
+[`HOST_VALIDATION.md`](HOST_VALIDATION.md) and
+[`tools/`](tools/) for practical testing.
+
+### Keyboard HID
+
+- [ ] Linux: text input field / terminal
+- [ ] Windows: Notepad / generic text field
+- [ ] macOS: text input field
+- [ ] caps-lock override on/off
+- [ ] case conversion preserve/upper/lower
+- [ ] suffix none/Enter/Tab
+- [ ] key delay 0 / 20 / 40 ms
+
+### HID POS
+
+- [ ] Windows Device Manager enumerates HID scanner-oriented interface
+- [ ] Windows POS / UWP barcode path smoke test
+- [ ] Linux hidraw / generic HID read
+- [ ] payload truncation behavior over 256 bytes
+- [ ] unknown symbology behavior accepted by host tooling
+
+### Admin CDC
+
+- [ ] query active profile
+- [ ] set active profile
+- [ ] query/set host options
+- [ ] reboot/re-enumerate command
+
+## Known deviations from a real DS2208
+
+- USB identity is project-owned, not Zebra
+- sync firmware is not a DS2208 profile image; async firmware is the compatibility target
+- audible tones are approximated with LED/display plus whatever the GM65 module itself emits
+- HID POS Windows/POS-driver behavior is not yet hardware-validated in this firmware
+- HID POS currently sends `unknown` symbology when the scanner transport does not expose AIM IDs
+- HID POS host compatibility is standards-oriented but still needs real Windows/Linux/macOS validation; code correctness does not guarantee driver acceptance
+- profile persistence currently uses single-slot flash storage rather than a wear-leveled scheme
+- unsupported keyboard characters are skipped rather than converted through vendor-specific fallback schemes
+- the firmware keeps a project-owned USB identity, so host rules that key specifically on Zebra IDs/strings will not treat it as a literal DS2208
+
+## Quick checklist
+
+- [x] Async firmware builds with DS2208 compatibility modes
+- [x] Sync firmware still builds as legacy/reference CDC image
+- [x] Library tests pass
+- [ ] Validate Keyboard HID on Linux
+- [ ] Validate Keyboard HID on Windows
+- [ ] Validate Keyboard HID on macOS
+- [ ] Validate HID POS on Windows

@@ -5,7 +5,13 @@
 extern crate alloc;
 
 use cortex_m_rt::entry;
+
+#[cfg(feature = "defmt")]
+use defmt_rtt as _;
+#[cfg(not(feature = "defmt"))]
 use panic_halt as _;
+#[cfg(feature = "defmt")]
+use panic_probe as _;
 
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::*};
 use static_cell::ConstStaticCell;
@@ -154,6 +160,19 @@ fn main() -> ! {
     let serial: usbd_serial::SerialPort<'static, UsbBusType> =
         unsafe { core::mem::transmute(usbd_serial::SerialPort::new(&usb_bus)) };
 
+    // USB CDC ACM device setup.
+    //
+    // Per USB Device Class Definition for Communications Devices 1.2:
+    // - Class 0x02 (Communications Device Class)
+    // - SubClass 0x02 (Abstract Control Model)
+    // - Protocol 0x01 (AT Commands / Common AT)
+    //
+    // VID 0x16C0 (Van Ooijen Technische Informatica / VOTI) with PID 0x27DD
+    // is a shared test VID/PID for CDC ACM devices. For production use,
+    // obtain a unique VID from USB-IF or use pid.codes (https://pid.codes/).
+    //
+    // USB 2.0 Specification §9.6.1 defines the device descriptor format.
+    // String descriptors (manufacturer, product, serial) per §9.6.7.
     let mut usb_dev: UsbDevice<'static, UsbBusType> = unsafe {
         core::mem::transmute(
             UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
@@ -281,6 +300,15 @@ fn handle_command(
         Command::SetSettings => handle_set_settings(scanner, payload, fb),
         Command::DisplayQr => handle_display_qr(payload, fb),
         Command::EnterSettings => Response::new(Status::Ok),
+        Command::GetCompatibilityProfile
+        | Command::SetCompatibilityProfile
+        | Command::RebootUsb
+        | Command::GetHostOptions
+        | Command::SetHostOptions => {
+            // The sync firmware is intentionally the legacy/reference CDC image.
+            // DS2208 profile management lives in the async firmware only.
+            Response::new(Status::InvalidCommand)
+        }
     }
 }
 

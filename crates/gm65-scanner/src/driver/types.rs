@@ -120,6 +120,98 @@ impl Default for ScannerConfig {
     }
 }
 
+/// Delay provider for sync driver timeouts.
+///
+/// Implement this trait to provide real-time delay capabilities to the
+/// sync driver, enabling human-scale scan timeouts (seconds) instead of
+/// the default spin-loop timeout (milliseconds).
+///
+/// # Contract
+///
+/// - [`has_real_clock()`](DelayProvider::has_real_clock) must return `true`
+///   if and only if [`elapsed_ms()`](DelayProvider::elapsed_ms) provides
+///   monotonically increasing wall-clock time. When `true`, the driver uses
+///   elapsed_ms for real-time timeouts. When `false`, it falls back to
+///   a spin-loop attempt counter.
+///
+/// - [`elapsed_ms()`](DelayProvider::elapsed_ms) may return any value
+///   (including 0) when has_real_clock returns `true` — there is no
+///   sentinel value.
+///
+/// - When [`has_real_clock()`](DelayProvider::has_real_clock) returns `false`,
+///   callers must treat [`elapsed_ms()`](DelayProvider::elapsed_ms) as
+///   unspecified. Implementations may return a dummy value because the sync
+///   driver will not consult it in that mode.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gm65_scanner::DelayProvider;
+///
+/// struct CortexMDelay { timer: HwTimer }
+///
+/// impl DelayProvider for CortexMDelay {
+///     fn has_real_clock(&self) -> bool { true }
+///     fn delay_ms(&mut self, ms: u32) { cortex_m::asm::delay(ms * CYCLES_PER_MS); }
+///     fn elapsed_ms(&self) -> u32 { self.timer.read_ms() }
+/// }
+/// ```
+pub trait DelayProvider {
+    /// Whether this provider has a real wall-clock time source.
+    ///
+    /// Return `true` if `elapsed_ms()` returns monotonically increasing
+    /// wall-clock time. Return `false` for no-op providers (like `SpinDelay`)
+    /// that cannot measure real time; the driver will use a spin-loop
+    /// attempt counter instead.
+    fn has_real_clock(&self) -> bool;
+
+    /// Block for the given number of milliseconds.
+    fn delay_ms(&mut self, ms: u32);
+
+    /// Return the number of milliseconds elapsed since an arbitrary epoch.
+    ///
+    /// Only called when `has_real_clock()` returns `true`. The value must be
+    /// monotonically increasing (wrapping at `u32::MAX` is acceptable).
+    fn elapsed_ms(&self) -> u32;
+}
+
+/// Default spin-loop delay provider (no real time source).
+///
+/// This is used when no `DelayProvider` is supplied. It provides
+/// compatibility with the original spin-loop timeout behavior.
+pub struct SpinDelay {
+    _private: (),
+}
+
+impl SpinDelay {
+    /// Create a new spin delay provider.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+impl Default for SpinDelay {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DelayProvider for SpinDelay {
+    fn has_real_clock(&self) -> bool {
+        false
+    }
+
+    fn delay_ms(&mut self, _ms: u32) {
+        // No-op: spin loops don't need additional delay
+    }
+
+    fn elapsed_ms(&self) -> u32 {
+        // No real time source — not called when has_real_clock() is false
+        0
+    }
+}
+
 /// Scanner status snapshot.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -201,5 +293,28 @@ mod tests {
         assert!(status.connected);
         assert!(status.initialized);
         assert_eq!(status.last_scan_len, Some(42));
+    }
+
+    #[test]
+    fn test_spin_delay_default() {
+        let d = SpinDelay::default();
+        assert!(!d.has_real_clock());
+        assert_eq!(d.elapsed_ms(), 0);
+    }
+
+    #[test]
+    fn test_spin_delay_no_op() {
+        let mut d = SpinDelay::new();
+        assert!(!d.has_real_clock());
+        d.delay_ms(100); // should not panic or block
+        assert_eq!(d.elapsed_ms(), 0); // no real time source
+    }
+
+    #[test]
+    fn test_delay_provider_trait_object_safety() {
+        // Verify DelayProvider can be used with generics
+        fn accepts_delay<D: DelayProvider>(_d: &D) {}
+        let d = SpinDelay::new();
+        accepts_delay(&d);
     }
 }

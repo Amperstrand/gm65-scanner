@@ -55,8 +55,20 @@ extern crate alloc;
 pub mod buffer;
 pub mod decoder;
 pub mod driver;
+pub mod hid;
 pub mod protocol;
 pub mod scanner_core;
+
+/// Backward-compatible re-export of `hid::keyboard`.
+///
+/// **Deprecated**: Use `gm65_scanner::hid::keyboard` directly.
+/// This re-export exists for backward compatibility with code that imported
+/// from `gm65_scanner::hid_keyboard`. It will be removed in a future version.
+#[doc(hidden)]
+#[deprecated(since = "0.2.0", note = "use `gm65_scanner::hid::keyboard` instead")]
+pub mod hid_keyboard {
+    pub use crate::hid::keyboard::*;
+}
 
 pub use buffer::ScanBuffer;
 pub use decoder::{
@@ -64,8 +76,8 @@ pub use decoder::{
     PayloadType, UrDecoder,
 };
 pub use driver::{
-    ScanMode, ScannerConfig, ScannerDriver, ScannerDriverSync, ScannerError, ScannerModel,
-    ScannerState, ScannerStatus,
+    DelayProvider, ScanMode, ScannerConfig, ScannerDriver, ScannerDriverSync, ScannerError,
+    ScannerModel, ScannerState, ScannerStatus, SpinDelay,
 };
 pub use protocol::{
     build_factory_reset, build_get_setting, build_save_settings, build_set_setting,
