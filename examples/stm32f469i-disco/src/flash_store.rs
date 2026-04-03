@@ -2,7 +2,12 @@ use embassy_stm32::flash::Flash;
 
 use crate::compatibility::{CompatibilityProfile, PROFILE_FLASH_BYTES};
 
+// STM32F469 internal flash is split into two 1 MiB banks. This store uses the
+// start of bank 2 at 0x0810_0000 (offset 1 MiB) so profile writes stay out of
+// the bank-1 application image that normally starts at 0x0800_0000.
 pub const PROFILE_FLASH_OFFSET: u32 = 1024 * 1024;
+// Bank-2 sector 12 is 128 KiB on STM32F469, so saves erase/rewrite the entire
+// sector containing the profile blob.
 pub const PROFILE_FLASH_ERASE_SIZE: u32 = 128 * 1024;
 
 pub struct FlashStore<'d> {

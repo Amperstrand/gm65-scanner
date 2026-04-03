@@ -105,6 +105,7 @@ Implemented event mappings:
 
 - The profile store currently uses a **single erase region** in internal flash.
 - Saving a profile erases and rewrites that region; this is simple and deterministic, but not yet optimized for wear leveling.
+- STM32 internal flash endurance is finite (typically on the order of **10,000 erase cycles** per sector), so save-heavy workflows remain a follow-up audit point.
 - Reflashing firmware may overwrite the stored profile depending on the flashing workflow and image layout.
 - A future improvement would be a two-slot or journaled format to reduce wear and make interrupted writes more robust.
 

@@ -1,4 +1,6 @@
-use gm65_scanner::hid::keyboard::{HidKeyboardReport, KeyMapper, Terminator, US_ENGLISH};
+use gm65_scanner::hid::keyboard::{
+    HidKeyboardReport, KeyMapper, Terminator, KEY_CAPS_LOCK, US_ENGLISH,
+};
 
 use crate::compatibility::{CaseMode, CompatibilityProfile, SuffixMode};
 
@@ -11,8 +13,7 @@ pub fn profile_terminator(mode: SuffixMode) -> Terminator {
 }
 
 fn send_caps_toggle_report_sequence<const N: usize>(out: &mut heapless::Vec<[u8; 8], N>) -> bool {
-    const KEY_CAPSLOCK: u8 = 0x39;
-    out.push(HidKeyboardReport::press(0, KEY_CAPSLOCK).as_bytes())
+    out.push(HidKeyboardReport::press(0, KEY_CAPS_LOCK).as_bytes())
         .is_ok()
         && out.push(HidKeyboardReport::release().as_bytes()).is_ok()
 }

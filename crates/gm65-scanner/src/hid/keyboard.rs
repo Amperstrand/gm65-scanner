@@ -139,6 +139,8 @@ pub const MOD_LEFT_SHIFT: u8 = 0x02;
 
 /// Key code: Enter/Return (Usage ID 0x28).
 pub const KEY_ENTER: u8 = 0x28;
+/// Key code: Caps Lock (Usage ID 0x39).
+pub const KEY_CAPS_LOCK: u8 = 0x39;
 /// Key code: Tab (Usage ID 0x2B).
 pub const KEY_TAB: u8 = 0x2B;
 

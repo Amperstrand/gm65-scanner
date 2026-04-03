@@ -274,6 +274,8 @@ impl CompatibilityProfile {
 }
 
 pub fn checksum32(bytes: &[u8]) -> u32 {
+    // 32-bit FNV-1a style rolling checksum using the FNV prime 16777619.
+    // Reference: Fowler/Noll/Vo hash, <https://www.isthe.com/chongo/tech/comp/fnv/>.
     bytes.iter().fold(0u32, |acc, &b| {
         acc.wrapping_mul(16777619).wrapping_add(u32::from(b))
     })

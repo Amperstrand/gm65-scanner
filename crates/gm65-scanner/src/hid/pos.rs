@@ -126,6 +126,9 @@ impl HidPosReport {
     /// Unknown / unavailable symbology identifier.
     ///
     /// Use this when the transport does not provide a reliable AIM code.
+    /// The current firmware uses all-zero bytes as a sentinel outside the
+    /// normal AIM "]Xn" textual pattern and documents it as "symbology
+    /// unavailable" rather than as a real code.
     pub const SYMBOLOGY_UNKNOWN: [u8; 3] = [0x00, 0x00, 0x00];
 }
 
