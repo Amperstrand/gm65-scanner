@@ -14,8 +14,10 @@
 //!   reports (Usage Page 0x07). Compatible with any application that accepts
 //!   keyboard input.
 //!
-//! - [`pos`] — **Experimental**: HID POS barcode scanner reports (Usage Page
-//!   0x8C) per USB-IF HID POS Usage Tables 1.02. Not yet wired into firmware.
+//! - [`pos`] — HID POS barcode scanner reports (Usage Page 0x8C) per USB-IF
+//!   HID POS Usage Tables 1.02. Used by the STM32F469 async DS2208-compatible
+//!   firmware personality; host interoperability still requires hardware
+//!   validation across Windows and Linux readers.
 
 pub mod keyboard;
 pub mod pos;

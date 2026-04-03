@@ -24,6 +24,14 @@ pub struct KeyboardBuildStats {
     pub simulated_caps_wrap: bool,
 }
 
+/// The async firmware applies the optional key-delay after release reports only.
+///
+/// This preserves a normal press/release pair while adding spacing between
+/// emitted keystrokes (including configured suffix-key reports).
+pub const fn should_apply_key_delay(report: [u8; 8]) -> bool {
+    report[2] == 0
+}
+
 pub fn build_keyboard_reports<const N: usize>(
     profile: CompatibilityProfile,
     caps_lock_on: bool,
@@ -103,6 +111,17 @@ pub fn build_keyboard_reports<const N: usize>(
 mod tests {
     use super::*;
     use crate::compatibility::{CompatibilityProfile, UsbMode};
+    use gm65_scanner::hid::keyboard::{KEY_ENTER, KEY_TAB};
+
+    fn keycodes(reports: &[[u8; 8]]) -> heapless::Vec<u8, 32> {
+        let mut out = heapless::Vec::new();
+        for report in reports {
+            if report[2] != 0 {
+                let _ = out.push(report[2]);
+            }
+        }
+        out
+    }
 
     #[test]
     fn builds_reports_for_simple_scan() {
@@ -142,5 +161,119 @@ mod tests {
         assert!(stats.simulated_caps_wrap);
         assert!(reports.len() >= 4);
         assert_eq!(reports[0][2], 0x39);
+    }
+
+    #[test]
+    fn suffix_none_emits_no_terminator() {
+        let profile = CompatibilityProfile {
+            suffix: SuffixMode::None,
+            ..CompatibilityProfile::default()
+        };
+        let mut reports = heapless::Vec::<[u8; 8], 64>::new();
+
+        build_keyboard_reports(profile, false, b"A", &mut reports);
+
+        assert_eq!(
+            keycodes(&reports),
+            heapless::Vec::<u8, 32>::from_slice(&[4]).unwrap()
+        );
+    }
+
+    #[test]
+    fn suffix_enter_and_tab_emit_expected_terminators() {
+        let mut enter_reports = heapless::Vec::<[u8; 8], 64>::new();
+        let mut tab_reports = heapless::Vec::<[u8; 8], 64>::new();
+
+        build_keyboard_reports(
+            CompatibilityProfile {
+                suffix: SuffixMode::Enter,
+                ..CompatibilityProfile::default()
+            },
+            false,
+            b"A",
+            &mut enter_reports,
+        );
+        build_keyboard_reports(
+            CompatibilityProfile {
+                suffix: SuffixMode::Tab,
+                ..CompatibilityProfile::default()
+            },
+            false,
+            b"A",
+            &mut tab_reports,
+        );
+
+        assert_eq!(
+            keycodes(&enter_reports),
+            heapless::Vec::<u8, 32>::from_slice(&[4, KEY_ENTER]).unwrap()
+        );
+        assert_eq!(
+            keycodes(&tab_reports),
+            heapless::Vec::<u8, 32>::from_slice(&[4, KEY_TAB]).unwrap()
+        );
+    }
+
+    #[test]
+    fn prefix_and_suffix_bytes_wrap_payload() {
+        let mut profile = CompatibilityProfile::default();
+        profile.suffix = SuffixMode::None;
+        profile.set_prefix(b"[");
+        profile.set_suffix_bytes(b"]");
+        let mut reports = heapless::Vec::<[u8; 8], 64>::new();
+
+        build_keyboard_reports(profile, false, b"A", &mut reports);
+
+        assert_eq!(
+            keycodes(&reports),
+            heapless::Vec::<u8, 32>::from_slice(&[0x2f, 4, 0x30]).unwrap()
+        );
+    }
+
+    #[test]
+    fn upper_and_lower_case_modes_transform_ascii() {
+        let mut upper_reports = heapless::Vec::<[u8; 8], 64>::new();
+        let mut lower_reports = heapless::Vec::<[u8; 8], 64>::new();
+
+        let upper = CompatibilityProfile {
+            suffix: SuffixMode::None,
+            case_mode: CaseMode::Upper,
+            ..CompatibilityProfile::default()
+        };
+        let lower = CompatibilityProfile {
+            suffix: SuffixMode::None,
+            case_mode: CaseMode::Lower,
+            ..CompatibilityProfile::default()
+        };
+
+        build_keyboard_reports(upper, false, b"a", &mut upper_reports);
+        build_keyboard_reports(lower, false, b"A", &mut lower_reports);
+
+        assert_eq!(upper_reports[0][2], 4);
+        assert_eq!(upper_reports[0][0], 0x02);
+        assert_eq!(lower_reports[0][2], 4);
+        assert_eq!(lower_reports[0][0], 0x00);
+    }
+
+    #[test]
+    fn caps_override_tracks_host_led_state() {
+        let profile = CompatibilityProfile {
+            suffix: SuffixMode::None,
+            caps_lock_override: true,
+            ..CompatibilityProfile::default()
+        };
+        let mut lower_reports = heapless::Vec::<[u8; 8], 64>::new();
+        let mut upper_reports = heapless::Vec::<[u8; 8], 64>::new();
+
+        build_keyboard_reports(profile, true, b"a", &mut lower_reports);
+        build_keyboard_reports(profile, true, b"A", &mut upper_reports);
+
+        assert_eq!(lower_reports[0][0], 0x02);
+        assert_eq!(upper_reports[0][0], 0x00);
+    }
+
+    #[test]
+    fn key_delay_applies_to_release_reports_only() {
+        assert!(!should_apply_key_delay([0x02, 0, 4, 0, 0, 0, 0, 0]));
+        assert!(should_apply_key_delay([0, 0, 0, 0, 0, 0, 0, 0]));
     }
 }

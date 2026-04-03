@@ -66,7 +66,7 @@ The default `SpinDelay` preserves backward compatibility (spin-loop behavior).
 | Async driver | `Gm65ScannerAsync<UART>` with `embedded-io-async` traits |
 | DelayProvider | Pluggable timeout mechanism for sync driver |
 | HID keyboard mapping | Library primitives for barcode-to-keystroke conversion (USB HID Usage Tables 1.5, §10) |
-| HID POS reports | **Experimental** library primitives for POS barcode scanner reports (USB-IF HID POS 1.02) |
+| HID POS reports | Standards-based library primitives for POS barcode scanner reports (USB-IF HID POS 1.02), used by the async DS2208-compatible firmware |
 | HIL tests | Hardware-in-the-loop tests for both drivers |
 | QR display | Generate and display QR codes on LCD |
 | USB CDC | Host control via virtual serial port (active in example firmware) |
@@ -81,6 +81,8 @@ profiles.
 The STM32F469 async example now adds a **DS2208-compatible profile firmware** with
 selectable Keyboard HID / HID POS / Admin CDC modes. See
 [`examples/stm32f469i-disco/COMPATIBILITY.md`](examples/stm32f469i-disco/COMPATIBILITY.md).
+For host-side validation steps and tiny helper tools, see
+[`examples/stm32f469i-disco/HOST_VALIDATION.md`](examples/stm32f469i-disco/HOST_VALIDATION.md).
 The async image currently stores its active profile in a simple single-slot flash
 region; see the compatibility doc for persistence caveats and follow-up audit notes.
 

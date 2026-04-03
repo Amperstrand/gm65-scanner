@@ -1,8 +1,9 @@
 //! HID POS Barcode Scanner interface (Usage Page 0x8C).
 //!
-//! **Experimental**: This module provides report descriptor and report
-//! structures per USB-IF HID POS Usage Tables 1.02. It is not yet
-//! wired into any firmware binary.
+//! This module provides report descriptor and report structures per USB-IF HID
+//! POS Usage Tables 1.02. It is used by the STM32F469 async
+//! DS2208-compatible firmware personality while keeping a project-owned USB
+//! identity.
 //!
 //! # Standards References
 //!
@@ -12,11 +13,24 @@
 //! - **ISO/IEC 15424**: AIM symbology identifiers used in the
 //!   symbology field of POS reports.
 //!
-//! # Target Compatibility (unvalidated)
+//! # Target Compatibility (partially validated in code, pending host checks)
 //!
 //! The descriptor and report format in this module are designed per the
-//! HID POS 1.02 spec. Once integrated into firmware, the following host
-//! APIs *should* be compatible, but this has **not been validated**:
+//! HID POS 1.02 spec. The async firmware currently sends a single fixed-size
+//! input report:
+//! - bytes `0..256`: decoded payload, zero-padded
+//! - bytes `256..258`: little-endian decoded payload length
+//! - bytes `258..261`: 3-byte AIM symbology identifier or an explicit
+//!   `SYMBOLOGY_UNKNOWN` sentinel when the GM65 transport does not expose a
+//!   reliable AIM code
+//!
+//! Hosts are expected to read the full 261-byte input report and honor the
+//! explicit length field rather than relying on padding bytes. Payloads over
+//! 256 bytes are truncated deterministically, with the original/truncated
+//! distinction left to firmware UX/logging.
+//!
+//! The following host APIs are the intended targets and still need hardware
+//! validation:
 //! - Windows POS for .NET / UWP BarcodeScanner API
 //! - Linux hidraw / libhid
 //! - WebHID API

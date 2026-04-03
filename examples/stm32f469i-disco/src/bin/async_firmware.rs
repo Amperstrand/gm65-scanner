@@ -61,7 +61,7 @@ use embassy_usb::control::OutResponse;
 #[cfg(feature = "scanner-async")]
 use embassy_usb::Builder;
 #[cfg(feature = "scanner-async")]
-use gm65_scanner::hid::pos::{HidPosReport, POS_BARCODE_SCANNER_REPORT_DESCRIPTOR};
+use gm65_scanner::hid::pos::POS_BARCODE_SCANNER_REPORT_DESCRIPTOR;
 #[cfg(feature = "scanner-async")]
 use gm65_scanner::{Gm65ScannerAsync, ScannerModel, ScannerSettings};
 #[cfg(feature = "scanner-async")]
@@ -79,9 +79,15 @@ mod flash_store;
 #[cfg(feature = "scanner-async")]
 use stm32f469i_disco_scanner::compatibility;
 #[cfg(feature = "scanner-async")]
+use stm32f469i_disco_scanner::feedback::{profile_save_status, pulses_for, FeedbackEvent};
+#[cfg(feature = "scanner-async")]
+use stm32f469i_disco_scanner::hid_pos_profile::build_pos_report;
+#[cfg(feature = "scanner-async")]
 use stm32f469i_disco_scanner::keyboard_profile::build_keyboard_reports;
 #[cfg(feature = "scanner-async")]
 use stm32f469i_disco_scanner::touch_ui::{apply_action as apply_touch_action, map_touch_to_action};
+#[cfg(feature = "scanner-async")]
+use stm32f469i_disco_scanner::usb_personality::info_for_profile;
 
 mod async_shared {
     #[cfg(feature = "scanner-async")]
@@ -227,16 +233,6 @@ pub enum ProfileCommand {
         profile: compatibility::CompatibilityProfile,
         reboot: bool,
     },
-}
-
-#[cfg(feature = "scanner-async")]
-#[derive(Clone, Copy)]
-pub enum FeedbackEvent {
-    PowerUp,
-    DecodeOk,
-    TransmissionError,
-    ConfigOk,
-    ConfigError,
 }
 
 #[cfg(feature = "scanner-async")]
@@ -644,6 +640,7 @@ async fn main(_spawner: Spawner) {
         match active_profile.usb_mode {
             compatibility::UsbMode::AdminCdc => {
                 use crate::cdc::{Command, FrameDecoder, Status};
+                let personality = info_for_profile(active_profile);
 
                 let mut ep_out_buffer = [0u8; 256];
                 let mut usb_config = usb::Config::default();
@@ -658,8 +655,8 @@ async fn main(_spawner: Spawner) {
                 );
                 let mut usb_config_desc = embassy_usb::Config::new(0xc0de, 0xcafe);
                 usb_config_desc.manufacturer = Some("gm65-scanner");
-                usb_config_desc.product = Some("GM65 Admin CDC");
-                usb_config_desc.serial_number = Some("f469disco-admin");
+                usb_config_desc.product = Some(personality.product);
+                usb_config_desc.serial_number = Some(personality.serial);
                 let mut config_descriptor = [0; 256];
                 let mut bos_descriptor = [0; 256];
                 let mut msos_descriptor = [0; 256];
@@ -923,6 +920,7 @@ async fn main(_spawner: Spawner) {
                 embassy_futures::join::join(usb_task, cdc_task).await;
             }
             compatibility::UsbMode::Ds2208KeyboardHid => {
+                let personality = info_for_profile(active_profile);
                 let mut ep_out_buffer = [0u8; 256];
                 let mut usb_config = usb::Config::default();
                 usb_config.vbus_detection = false;
@@ -936,8 +934,8 @@ async fn main(_spawner: Spawner) {
                 );
                 let mut usb_config_desc = embassy_usb::Config::new(0xc0de, 0xcafe);
                 usb_config_desc.manufacturer = Some("gm65-scanner");
-                usb_config_desc.product = Some("GM65 DS2208-Compatible Keyboard");
-                usb_config_desc.serial_number = Some("f469disco-kbd");
+                usb_config_desc.product = Some(personality.product);
+                usb_config_desc.serial_number = Some(personality.serial);
                 let mut config_descriptor = [0; 256];
                 let mut bos_descriptor = [0; 256];
                 let mut msos_descriptor = [0; 256];
@@ -959,7 +957,7 @@ async fn main(_spawner: Spawner) {
                         report_descriptor:
                             gm65_scanner::hid::keyboard::BOOT_KEYBOARD_REPORT_DESCRIPTOR,
                         request_handler: None,
-                        poll_ms: if active_profile.fast_hid { 1 } else { 10 },
+                        poll_ms: personality.poll_ms,
                         max_packet_size: 8,
                         hid_subclass: HidSubclass::Boot,
                         hid_boot_protocol: HidBootProtocol::Keyboard,
@@ -994,9 +992,10 @@ async fn main(_spawner: Spawner) {
                             }
                         }
                         if stats.skipped_bytes > 0 {
-                            let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Status(String::from(
-                                "Unsupported keyboard chars skipped",
-                            )));
+                            log_info!(
+                                "Keyboard HID: skipped {} unsupported byte(s) for this scan",
+                                stats.skipped_bytes
+                            );
                         }
                     }
                 };
@@ -1008,6 +1007,7 @@ async fn main(_spawner: Spawner) {
                 .await;
             }
             compatibility::UsbMode::Ds2208HidPos => {
+                let personality = info_for_profile(active_profile);
                 let mut ep_out_buffer = [0u8; 256];
                 let mut usb_config = usb::Config::default();
                 usb_config.vbus_detection = false;
@@ -1021,8 +1021,8 @@ async fn main(_spawner: Spawner) {
                 );
                 let mut usb_config_desc = embassy_usb::Config::new(0xc0de, 0xcafe);
                 usb_config_desc.manufacturer = Some("gm65-scanner");
-                usb_config_desc.product = Some("GM65 DS2208-Compatible POS");
-                usb_config_desc.serial_number = Some("f469disco-pos");
+                usb_config_desc.product = Some(personality.product);
+                usb_config_desc.serial_number = Some(personality.serial);
                 let mut config_descriptor = [0; 256];
                 let mut bos_descriptor = [0; 256];
                 let mut msos_descriptor = [0; 256];
@@ -1042,7 +1042,7 @@ async fn main(_spawner: Spawner) {
                     HidConfig {
                         report_descriptor: POS_BARCODE_SCANNER_REPORT_DESCRIPTOR,
                         request_handler: None,
-                        poll_ms: if active_profile.fast_hid { 1 } else { 10 },
+                        poll_ms: personality.poll_ms,
                         max_packet_size: 64,
                         hid_subclass: HidSubclass::No,
                         hid_boot_protocol: HidBootProtocol::None,
@@ -1053,19 +1053,18 @@ async fn main(_spawner: Spawner) {
                 let pos_task = async {
                     loop {
                         let result = SCAN_CHANNEL.receive().await;
-                        let was_truncated = result.data.len() > 256;
-                        let report =
-                            HidPosReport::new(&result.data, HidPosReport::SYMBOLOGY_UNKNOWN);
-                        if writer.write(&report.as_bytes()).await.is_err() {
+                        let built = build_pos_report(&result.data, None);
+                        if writer.write(&built.report.as_bytes()).await.is_err() {
                             let _ = FEEDBACK_CHANNEL.try_send(FeedbackEvent::TransmissionError);
                             let _ = DISPLAY_CHANNEL
                                 .try_send(DisplayEvent::Error(String::from("USB POS send failed")));
                             continue;
                         }
-                        if was_truncated {
-                            let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Status(String::from(
-                                "HID POS payload truncated to 256 bytes",
-                            )));
+                        if built.was_truncated {
+                            log_info!(
+                                "HID POS: truncated scan payload from {} to 256 bytes",
+                                result.data.len()
+                            );
                         }
                     }
                 };
@@ -1181,9 +1180,10 @@ async fn main(_spawner: Spawner) {
                         let _ = FEEDBACK_CHANNEL.try_send(FeedbackEvent::ConfigError);
                         continue;
                     }
+                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Status(String::from(
+                        profile_save_status(reboot),
+                    )));
                     if reboot {
-                        let _ = DISPLAY_CHANNEL
-                            .try_send(DisplayEvent::Status(String::from("Re-enumerating USB...")));
                         reboot_device_after_delay().await;
                     }
                 }
@@ -1193,43 +1193,12 @@ async fn main(_spawner: Spawner) {
 
     let feedback_task = async move {
         loop {
-            match FEEDBACK_CHANNEL.receive().await {
-                FeedbackEvent::PowerUp => {
-                    for ms in [50u64, 100, 150] {
-                        led.set_high();
-                        Timer::after(Duration::from_millis(ms)).await;
-                        led.set_low();
-                        Timer::after(Duration::from_millis(40)).await;
-                    }
-                }
-                FeedbackEvent::DecodeOk => {
-                    led.set_high();
-                    Timer::after(Duration::from_millis(80)).await;
-                    led.set_low();
-                }
-                FeedbackEvent::TransmissionError => {
-                    for _ in 0..4 {
-                        led.set_high();
-                        Timer::after(Duration::from_millis(250)).await;
-                        led.set_low();
-                        Timer::after(Duration::from_millis(120)).await;
-                    }
-                }
-                FeedbackEvent::ConfigOk => {
-                    for ms in [100u64, 60] {
-                        led.set_high();
-                        Timer::after(Duration::from_millis(ms)).await;
-                        led.set_low();
-                        Timer::after(Duration::from_millis(60)).await;
-                    }
-                }
-                FeedbackEvent::ConfigError => {
-                    for ms in [180u64, 80] {
-                        led.set_high();
-                        Timer::after(Duration::from_millis(ms)).await;
-                        led.set_low();
-                        Timer::after(Duration::from_millis(70)).await;
-                    }
+            for pulse in pulses_for(FEEDBACK_CHANNEL.receive().await) {
+                led.set_high();
+                Timer::after(Duration::from_millis(u64::from(pulse.on_ms))).await;
+                led.set_low();
+                if pulse.off_ms > 0 {
+                    Timer::after(Duration::from_millis(u64::from(pulse.off_ms))).await;
                 }
             }
         }

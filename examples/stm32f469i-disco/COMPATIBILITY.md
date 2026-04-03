@@ -90,16 +90,26 @@ Implemented event mappings:
 - deterministic unsupported-character policy: **skip unmappable bytes**
 - optional prefix/suffix raw byte sequences are applied before/after barcode data
 - suffix key option (`Enter` / `Tab`) is applied after payload bytes
-- no per-character delay by default
+- no inter-key delay by default
+- when key delay is enabled, the firmware waits after each **release** report, not between press/release halves of a key
+- unsupported bytes are skipped deterministically and counted in firmware logs so the scan-result screen is not overwritten immediately after a decode
 
 ### HID POS
 
 - uses the library HID POS descriptor and report layout
-- sends decoded data + explicit length + symbology field
-- current firmware uses `SYMBOLOGY_UNKNOWN` when the GM65 transport does not provide a reliable AIM code
-- payloads over 256 bytes are truncated explicitly and surfaced on-screen
+- sends decoded data + explicit little-endian length + symbology field
+- current firmware uses `SYMBOLOGY_UNKNOWN` because the current GM65 transport path does not expose a reliable AIM ID into the async firmware
+- payloads over 256 bytes are truncated explicitly; hosts are expected to trust the explicit length field, and truncation is surfaced in firmware logs rather than replacing the scan-result screen
 - intended to stay scanner-oriented instead of falling back to keyboard semantics
 - current audit target is standards-aligned HID POS shape first, then host-driver validation on Windows
+
+## Architecture summary
+
+- **Profile persistence**: `compatibility.rs` defines the persisted 64-byte profile blob; `flash_store.rs` stores it in internal flash bank 2.
+- **USB personality selection**: the async firmware loads the profile at boot and instantiates exactly one personality: Keyboard HID, HID POS, or Admin CDC.
+- **Keyboard path**: scan data flows through `keyboard_profile.rs`, which applies case handling, raw prefix/suffix bytes, suffix key mode, caps-lock policy, and deterministic unsupported-byte skipping before emitting boot-keyboard reports.
+- **HID POS path**: scan data flows through `hid_pos_profile.rs`, which builds the fixed 261-byte scanner-oriented report and centralizes fallback to `SYMBOLOGY_UNKNOWN` when no transport AIM code is available.
+- **Feedback path**: `feedback.rs` centralizes the LED pulse patterns and save/re-enumeration messaging used by the async firmware.
 
 ## Flash persistence notes
 
@@ -139,6 +149,10 @@ The existing frame format remains unchanged.
 
 ## Host test matrix
 
+Use the companion checklist and tiny host tools in
+[`HOST_VALIDATION.md`](HOST_VALIDATION.md) and
+[`tools/`](tools/) for practical testing.
+
 ### Keyboard HID
 
 - [ ] Linux: text input field / terminal
@@ -171,8 +185,10 @@ The existing frame format remains unchanged.
 - audible tones are approximated with LED/display plus whatever the GM65 module itself emits
 - HID POS Windows/POS-driver behavior is not yet hardware-validated in this firmware
 - HID POS currently sends `unknown` symbology when the scanner transport does not expose AIM IDs
+- HID POS host compatibility is standards-oriented but still needs real Windows/Linux/macOS validation; code correctness does not guarantee driver acceptance
 - profile persistence currently uses single-slot flash storage rather than a wear-leveled scheme
 - unsupported keyboard characters are skipped rather than converted through vendor-specific fallback schemes
+- the firmware keeps a project-owned USB identity, so host rules that key specifically on Zebra IDs/strings will not treat it as a literal DS2208
 
 ## Quick checklist
 
