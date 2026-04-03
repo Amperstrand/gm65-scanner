@@ -27,7 +27,9 @@ pub struct KeyboardBuildStats {
 /// The async firmware applies the optional key-delay after release reports only.
 ///
 /// This preserves a normal press/release pair while adding spacing between
-/// emitted keystrokes (including configured suffix-key reports).
+/// emitted keystrokes (including configured suffix-key reports). In the boot
+/// keyboard report format used here, `report[2] == 0` means no keycode is
+/// pressed, which corresponds to the release half of an emitted keystroke.
 pub const fn should_apply_key_delay(report: [u8; 8]) -> bool {
     report[2] == 0
 }

@@ -203,6 +203,8 @@ impl CompatibilityProfile {
         out[10] = u8::from(self.caps_lock_override);
         out[11] = u8::from(self.simulated_caps_lock);
         out[12] = self.scanner_settings;
+        debug_assert!(self.prefix_len as usize <= PROFILE_PREFIX_MAX);
+        debug_assert!(self.suffix_bytes_len as usize <= PROFILE_SUFFIX_MAX);
         out[13] = self.prefix_len.min(PROFILE_PREFIX_MAX as u8);
         out[14] = self.suffix_bytes_len.min(PROFILE_SUFFIX_MAX as u8);
         out[16..24].copy_from_slice(&self.prefix);

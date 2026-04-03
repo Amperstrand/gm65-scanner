@@ -103,6 +103,9 @@ impl HidPosReport {
     /// - `b"]E0"` — EAN-13
     /// - `b"]C0"` — Code 128
     /// - `b"]A0"` — Code 39
+    ///
+    /// Payloads longer than 256 bytes are truncated deterministically to the
+    /// fixed HID POS payload field width.
     #[must_use]
     pub fn new(scan_data: &[u8], symbology: [u8; 3]) -> Self {
         let mut data = [0u8; 256];
