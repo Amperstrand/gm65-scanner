@@ -347,13 +347,12 @@ fn main() -> ! {
                         && ty <= TOUCH_Y_MAX
                     {
                         if in_settings {
-                            let back_zone = 350u16;
-                            if tx >= back_zone && ty < 200 {
+                            if tx >= 415 && tx < 460 && ty < 220 {
                                 in_settings = false;
                                 auto_scan = scanner_connected;
                                 display::render_home(&mut fb, scanner_connected, model_str);
-                            } else if tx >= 80 && tx < 255 {
-                                let row = ((tx - 80) / 35) as usize;
+                            } else if tx >= 55 && tx < 305 {
+                                let row = ((tx - 55) / 50) as usize;
                                 let toggled = match row {
                                     0 => Some(ScannerSettings::SOUND),
                                     1 => Some(ScannerSettings::AIM),
@@ -370,7 +369,7 @@ fn main() -> ! {
                                     display::render_scanner_settings(&mut fb, current_settings);
                                 }
                             }
-                        } else if ty > 400 {
+                        } else if ty >= 550 && ty < 770 && tx >= 380 && tx < 450 {
                             in_settings = true;
                             auto_scan = false;
                             if scanner_connected {

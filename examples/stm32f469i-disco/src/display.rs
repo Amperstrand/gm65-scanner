@@ -3,6 +3,7 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_10X20, MonoTextStyle},
     pixelcolor::Rgb565,
     prelude::*,
+    primitives::Rectangle,
     text::{Alignment, Text, TextStyleBuilder},
 };
 
@@ -73,6 +74,16 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: 
     )
     .draw(fb)
     .ok();
+
+    fb.fill_solid(
+        &Rectangle::new(Point::new(550, 380), Size::new(220, 70)),
+        Rgb565::new(0x18, 0x18, 0x18),
+    )
+    .ok();
+
+    Text::with_text_style("Settings", Point::new(660, 420), title_style, center_text)
+        .draw(fb)
+        .ok();
 }
 
 pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
@@ -122,7 +133,17 @@ pub fn render_scanner_settings(
     let mut y = 80i32;
     let x_label = 20;
     let x_value = 200;
+    let row_spacing = 50;
 
+    fn draw_row_bg<D: DrawTarget<Color = Rgb565>>(fb: &mut D, y: i32) {
+        fb.fill_solid(
+            &Rectangle::new(Point::new(10, y - 25), Size::new(305, 45)),
+            Rgb565::new(0x18, 0x18, 0x18),
+        )
+        .ok();
+    }
+
+    draw_row_bg(fb, y);
     draw_toggle(
         fb,
         x_label,
@@ -134,7 +155,8 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += 35;
+    y += row_spacing;
+    draw_row_bg(fb, y);
     draw_toggle(
         fb,
         x_label,
@@ -146,7 +168,8 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += 35;
+    y += row_spacing;
+    draw_row_bg(fb, y);
     draw_toggle(
         fb,
         x_label,
@@ -158,7 +181,8 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += 35;
+    y += row_spacing;
+    draw_row_bg(fb, y);
     draw_toggle(
         fb,
         x_label,
@@ -170,7 +194,8 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += 35;
+    y += row_spacing;
+    draw_row_bg(fb, y);
     draw_toggle(
         fb,
         x_label,
@@ -182,7 +207,7 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += 50;
+    y += row_spacing;
 
     Text::new("Mode:", Point::new(x_label, y), label_style)
         .draw(fb)
@@ -209,7 +234,13 @@ pub fn render_scanner_settings(
         .draw(fb)
         .ok();
 
-    Text::new("< Back", Point::new(20, 420), on_style)
+    fb.fill_solid(
+        &Rectangle::new(Point::new(10, 415), Size::new(200, 45)),
+        Rgb565::new(0x18, 0x18, 0x18),
+    )
+    .ok();
+
+    Text::new("< Back", Point::new(25, 445), on_style)
         .draw(fb)
         .ok();
 }
