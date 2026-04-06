@@ -172,10 +172,11 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 | Binary | Description |
 |--------|-------------|
-| `stm32f469i-disco-scanner` (sync) | Full firmware: LCD, USB CDC, QR scanner, QR rendering, auto-scan |
+| `stm32f469i-disco-scanner` (sync) | Full firmware: LCD, USB CDC, QR scanner, QR rendering, auto-scan, touch settings |
 | `async_firmware` | Embassy: LCD, USB CDC, QR scanner, LED, concurrent tasks |
 | `hil_test_sync` | Sync HIL: 5 core tests + QR scan test, RTT output |
 | `hil_test_async` | Async HIL: 5 core + 3 extended + QR scan with aim laser + LED blink, RTT output |
+| `touch_test` | Touch calibration: 6 target rectangles, raw coordinate display, hit detection. HW verified |
 
 ## Architecture
 

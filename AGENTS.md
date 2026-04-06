@@ -11,7 +11,17 @@
 
 | Commit | Notes |
 |--------|-------|
-| `6744e98` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. BSP `ea3b1b2`, embassy BSP `373a9ae`. |
+| `83ecbad` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. BSP `ea3b1b2`, embassy BSP `373a9ae`. |
+
+## Touch Calibration
+
+- **Touch controller**: FT6X06 on I2C1 (PB8=SCL, PB9=SDA)
+- **Vendor ID**: 0x11 (verified)
+- **Coordinate transform**: Identity — `dx=tx, dy=ty` (raw FT6X06 coords map directly to display pixels)
+- **Framebuffer**: Portrait 480x800 (display orientation is Portrait, NOT Landscape)
+- **Key finding**: FT6X06 X register (0x03-0x04) ranges 0-480, Y register (0x05-0x06) ranges 0-800
+- **Touch test binary**: `touch_test` — 6 target rectangles, raw coordinate display, hit detection. HW verified.
+- **BSP issue**: embassy-stm32f469i-disco#21 documents the missing orientation-dependent transform
 
 ## Production Build Commands
 
@@ -33,6 +43,12 @@ arm-none-eabi-objcopy -O binary \
   target/thumbv7em-none-eabihf/release/<binary> /tmp/<binary>.bin
 st-flash --connect-under-reset write /tmp/<binary>.bin 0x08000000
 st-flash --connect-under-reset reset
+
+# Touch calibration test (display + touch, no scanner/USB)
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin touch_test \
+  --no-default-features --features sync-mode
 ```
 
 ### Debug builds (with RTT, USB will NOT work)
