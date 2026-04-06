@@ -44,7 +44,7 @@ use embassy_sync::mutex::Mutex;
 #[cfg(feature = "scanner-async")]
 use embassy_sync::signal::Signal;
 #[cfg(feature = "scanner-async")]
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Timer};
 #[cfg(feature = "scanner-async")]
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 #[cfg(feature = "scanner-async")]
@@ -257,7 +257,7 @@ async fn main(_spawner: Spawner) {
             prediv: PllPreDiv::DIV8,
             mul: PllMul::MUL384,
             divp: None,
-            divq: None,
+            divq: Some(PllQDiv::DIV8),
             divr: Some(PllRDiv::DIV7),
         });
     }
@@ -287,11 +287,9 @@ async fn main(_spawner: Spawner) {
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
-    embassy_stm32::interrupt::USART6.disable();
 
     let async_uart = async_shared::AsyncUart {
         inner: uart,
-        yield_threshold: 500_000,
     };
 
     let mut ep_out_buffer = [0u8; 256];
@@ -352,13 +350,17 @@ async fn main(_spawner: Spawner) {
             Ok(model) => {
                 log_info!("Scanner: detected {:?}", model);
                 let model_str = model_to_str(model);
-                let mut shared = SHARED.lock().await;
-                shared.scanner_connected = true;
-                let bytes = model_str.as_bytes();
-                let model_len = bytes.len().min(16);
-                shared.model_len = model_len;
-                shared.model_str[..model_len].copy_from_slice(bytes);
+                {
+                    let mut shared = SHARED.lock().await;
+                    shared.scanner_connected = true;
+                    let bytes = model_str.as_bytes();
+                    let model_len = bytes.len().min(16);
+                    shared.model_len = model_len;
+                    shared.model_str[..model_len].copy_from_slice(bytes);
+                }
+                // Drop lock before async I/O
                 if let Some(settings) = scanner.get_scanner_settings().await {
+                    let mut shared = SHARED.lock().await;
                     shared.settings = Some(settings);
                     let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
                 } else {
@@ -517,11 +519,76 @@ async fn main(_spawner: Spawner) {
     let cdc_task = async {
         use crate::cdc::{Command, FrameDecoder, Status};
 
+        macro_rules! write_cdc_response {
+            ($resp:expr) => {
+                match $resp {
+                    CdcResponse::ScannerStatus { connected, fw_byte } => {
+                        let _ = cdc
+                            .write_packet(&[
+                                Status::Ok.to_byte(),
+                                0,
+                                0,
+                                3,
+                                if connected { 1 } else { 0 },
+                                1,
+                                fw_byte,
+                            ])
+                            .await;
+                    }
+                    CdcResponse::TriggerOk => {
+                        let _ = DISPLAY_CHANNEL
+                            .try_send(DisplayEvent::Status(String::from("Scanning...")));
+                        let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
+                    }
+                    CdcResponse::TriggerFail => {
+                        let _ = cdc
+                            .write_packet(&[Status::ScannerNotConnected.to_byte(), 0, 0])
+                            .await;
+                    }
+                    CdcResponse::ScanData { data, type_byte } => {
+                        let len = data.len();
+                        let mut buf = [0u8; 256];
+                        buf[0] = type_byte;
+                        let copy_len = len.min(255);
+                        buf[1..copy_len + 1].copy_from_slice(&data[..copy_len]);
+                        let _ = cdc
+                            .write_packet(&[Status::Ok.to_byte(), 0, (copy_len + 1) as u8])
+                            .await;
+                        let _ = cdc.write_packet(&buf[..copy_len + 1]).await;
+                        let _ = DISPLAY_CHANNEL
+                            .try_send(DisplayEvent::Scan(ScanResult { data: data.clone() }));
+                    }
+                    CdcResponse::NoScanData => {
+                        let _ = cdc
+                            .write_packet(&[Status::NoScanData.to_byte(), 0, 0])
+                            .await;
+                    }
+                    CdcResponse::Settings { bits } => {
+                        let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 1, bits]).await;
+                    }
+                    CdcResponse::SettingsReadFailed => {
+                        let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
+                    }
+                    CdcResponse::SetSettingsResult { bits } => {
+                        let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 1, bits]).await;
+                    }
+                    CdcResponse::SetSettingsWriteFailed => {
+                        let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
+                    }
+                    CdcResponse::Ok => {
+                        let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
+                    }
+                    CdcResponse::Error => {
+                        let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
+                    }
+                }
+            };
+        }
+
         loop {
             cdc.wait_connection().await;
             log_info!("USB: connected");
 
-            let mut heartbeat = Ticker::every(Duration::from_secs(3));
             let mut rx_buf = [0u8; 256];
             let mut frame_decoder = FrameDecoder::new();
 
@@ -543,10 +610,12 @@ async fn main(_spawner: Spawner) {
                     msg.push_str("\r\n");
                     match cdc.write_packet(msg.as_bytes()).await {
                         Ok(()) => {
-                            let mut shared = SHARED.lock().await;
-                            if shared.auto_scan {
+                            {
+                                let mut shared = SHARED.lock().await;
                                 shared.auto_scan = false;
-                                Timer::after(Duration::from_millis(500)).await;
+                            }
+                            Timer::after(Duration::from_millis(500)).await;
+                            {
                                 let mut shared = SHARED.lock().await;
                                 shared.auto_scan = true;
                             }
@@ -554,71 +623,6 @@ async fn main(_spawner: Spawner) {
                         Err(_) => break,
                     }
                     let _ = cdc.write_packet(&[type_byte]).await;
-                    continue;
-                }
-
-                if let Ok(resp) = CDC_RESPONSE_CHANNEL.try_receive() {
-                    match resp {
-                        CdcResponse::ScannerStatus { connected, fw_byte } => {
-                            let _ = cdc
-                                .write_packet(&[
-                                    Status::Ok.to_byte(),
-                                    0,
-                                    0,
-                                    3,
-                                    if connected { 1 } else { 0 },
-                                    1,
-                                    fw_byte,
-                                ])
-                                .await;
-                        }
-                        CdcResponse::TriggerOk => {
-                            let _ = DISPLAY_CHANNEL
-                                .try_send(DisplayEvent::Status(String::from("Scanning...")));
-                            let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
-                        }
-                        CdcResponse::TriggerFail => {
-                            let _ = cdc
-                                .write_packet(&[Status::ScannerNotConnected.to_byte(), 0, 0])
-                                .await;
-                        }
-                        CdcResponse::ScanData { data, type_byte } => {
-                            let len = data.len();
-                            let mut buf = [0u8; 256];
-                            buf[0] = type_byte;
-                            let copy_len = len.min(255);
-                            buf[1..copy_len + 1].copy_from_slice(&data[..copy_len]);
-                            let _ = cdc
-                                .write_packet(&[Status::Ok.to_byte(), 0, (copy_len + 1) as u8])
-                                .await;
-                            let _ = cdc.write_packet(&buf[..copy_len + 1]).await;
-                            let _ = DISPLAY_CHANNEL
-                                .try_send(DisplayEvent::Scan(ScanResult { data: data.clone() }));
-                        }
-                        CdcResponse::NoScanData => {
-                            let _ = cdc
-                                .write_packet(&[Status::NoScanData.to_byte(), 0, 0])
-                                .await;
-                        }
-                        CdcResponse::Settings { bits } => {
-                            let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 1, bits]).await;
-                        }
-                        CdcResponse::SettingsReadFailed => {
-                            let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
-                        }
-                        CdcResponse::SetSettingsResult { bits } => {
-                            let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 1, bits]).await;
-                        }
-                        CdcResponse::SetSettingsWriteFailed => {
-                            let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
-                        }
-                        CdcResponse::Ok => {
-                            let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
-                        }
-                        CdcResponse::Error => {
-                            let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
-                        }
-                    }
                     continue;
                 }
 
@@ -646,6 +650,8 @@ async fn main(_spawner: Spawner) {
                                 Command::ScannerStatus => {
                                     log_info!("CMD: SCANNER_STATUS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::ScannerStatusCdc);
+                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
+                                    write_cdc_response!(resp);
                                 }
                                 Command::ScannerTrigger => {
                                     log_info!("CMD: SCANNER_TRIGGER");
@@ -654,14 +660,20 @@ async fn main(_spawner: Spawner) {
                                         shared.auto_scan = false;
                                     }
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::Trigger);
+                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
+                                    write_cdc_response!(resp);
                                 }
                                 Command::ScannerData => {
                                     log_info!("CMD: SCANNER_DATA");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::ScannerDataCdc);
+                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
+                                    write_cdc_response!(resp);
                                 }
                                 Command::GetSettings => {
                                     log_info!("CMD: GET_SETTINGS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::GetSettings);
+                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
+                                    write_cdc_response!(resp);
                                 }
                                 Command::SetSettings => {
                                     log_info!("CMD: SET_SETTINGS");
@@ -673,8 +685,9 @@ async fn main(_spawner: Spawner) {
                                     } else if let Some(settings) =
                                         ScannerSettings::from_bits(payload[0])
                                     {
-                                        let _ = COMMAND_CHANNEL
-                                            .try_send(HostCommand::SetSettings(settings));
+                                        let _ = COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings));
+                                        let resp = CDC_RESPONSE_CHANNEL.receive().await;
+                                        write_cdc_response!(resp);
                                     } else {
                                         let _ = cdc
                                             .write_packet(&[Status::InvalidPayload.to_byte(), 0, 0])
@@ -692,6 +705,8 @@ async fn main(_spawner: Spawner) {
                                 Command::EnterSettings => {
                                     log_info!("CMD: ENTER_SETTINGS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::EnterSettings);
+                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
+                                    write_cdc_response!(resp);
                                 }
                             }
                             continue;
@@ -701,11 +716,6 @@ async fn main(_spawner: Spawner) {
                     Err(_) => break,
                 }
 
-                heartbeat.next().await;
-                match cdc.write_packet(b"[ALIVE] gm65-scanner ready\r\n").await {
-                    Ok(()) => {}
-                    Err(_) => break,
-                }
             }
             log_info!("USB: disconnected");
             Timer::after(Duration::from_millis(100)).await;

@@ -41,7 +41,6 @@ use embedded_hal_02::blocking::serial::Write as _;
 #[cfg(feature = "scanner-async")]
 pub struct AsyncUart<'d> {
     pub inner: embassy_stm32::usart::Uart<'d, embassy_stm32::mode::Blocking>,
-    pub yield_threshold: u32,
 }
 
 #[cfg(feature = "scanner-async")]
@@ -57,7 +56,6 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
         }
         let mut total = 0usize;
         for slot in buf.iter_mut() {
-            let mut spins = 0u32;
             loop {
                 match embedded_hal_02::serial::Read::read(&mut self.inner) {
                     Ok(byte) => {
@@ -66,18 +64,9 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
                         break;
                     }
                     Err(nb::Error::WouldBlock) => {
-                        spins += 1;
-                        if spins < self.yield_threshold {
-                            continue;
-                        }
                         embassy_time::Timer::after_micros(100).await;
                     }
                     Err(nb::Error::Other(_e)) => {
-                        unsafe {
-                            const USART6_BASE: usize = 0x4001_1400;
-                            let _sr = core::ptr::read_volatile(USART6_BASE as *const u32);
-                            let _dr = core::ptr::read_volatile((USART6_BASE + 0x04) as *const u32);
-                        }
                         embassy_time::Timer::after_micros(10).await;
                     }
                 }
