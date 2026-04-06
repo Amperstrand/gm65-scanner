@@ -83,6 +83,7 @@ fn main() -> ! {
     let mut led = gpiog.pg6.into_push_pull_output();
     let scanner_tx = gpiog.pg14;
     let scanner_rx = gpiog.pg9;
+    let gpiob = dp.GPIOB.split(&mut rcc);
     let gpioh = dp.GPIOH.split(&mut rcc);
     let gpioi = dp.GPIOI.split(&mut rcc);
 
@@ -214,6 +215,41 @@ fn main() -> ! {
         display::render_home(&mut fb, false, model_str);
     }
 
+    const FT6X06_ADDR: u8 = 0x38;
+    const REG_TD_STATUS: u8 = 0x02;
+    const REG_TOUCH1_XH: u8 = 0x03;
+    const REG_VENDOR_ID: u8 = 0xA8;
+    const TOUCH_MARGIN: u16 = 3;
+    const TOUCH_X_MAX: u16 = 476;
+    const TOUCH_Y_MAX: u16 = 796;
+
+    let pb8 = gpiob.pb8.into_alternate_open_drain::<4>();
+    let pb9 = gpiob.pb9.into_alternate_open_drain::<4>();
+    let mut touch_i2c = dp.I2C1.i2c(
+        (pb8, pb9),
+        hal::i2c::Mode::standard(100_u32.kHz()),
+        &mut rcc,
+    );
+
+    let mut buf1 = [0u8; 1];
+    let probe_ok = touch_i2c
+        .write_read(FT6X06_ADDR, &[REG_VENDOR_ID], &mut buf1)
+        .is_ok();
+    let vendor_id = buf1[0];
+    let touch_found = probe_ok && vendor_id == 0x11;
+
+    if touch_found {
+        render_boot_status(&mut fb, "[OK] Touch I2C1 PB8/PB9", boot_line);
+    } else {
+        let mut msg = heapless::String::<32>::new();
+        core::fmt::write(
+            &mut msg,
+            format_args!("[!!] Touch FAIL (vid=0x{:02X})", vendor_id),
+        )
+        .ok();
+        render_boot_status(&mut fb, &msg, boot_line);
+    }
+
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
     let mut auto_scan: bool = scanner_connected;
@@ -267,6 +303,37 @@ fn main() -> ! {
                         cortex_m::asm::delay(cycles_100ms);
                     }
                     break;
+                }
+            }
+        }
+
+        if touch_found {
+            let mut status_buf = [0u8; 1];
+            if touch_i2c
+                .write_read(FT6X06_ADDR, &[REG_TD_STATUS], &mut status_buf)
+                .is_ok()
+                && (status_buf[0] & 0x0F) > 0
+            {
+                let mut coord_buf = [0u8; 4];
+                if touch_i2c
+                    .write_read(FT6X06_ADDR, &[REG_TOUCH1_XH], &mut coord_buf)
+                    .is_ok()
+                {
+                    let x = (((coord_buf[0] & 0x0F) as u16) << 8) | (coord_buf[1] as u16);
+                    let y = (((coord_buf[2] & 0x0F) as u16) << 8) | (coord_buf[3] as u16);
+                    if x >= TOUCH_MARGIN
+                        && x <= TOUCH_X_MAX
+                        && y >= TOUCH_MARGIN
+                        && y <= TOUCH_Y_MAX
+                    {
+                        let mut msg = heapless::String::<32>::new();
+                        core::fmt::write(&mut msg, format_args!("Touch: ({}, {})", x, y)).ok();
+                        display::render_status(&mut fb, &msg);
+                        let cycles_100ms = sysclk_hz / 10;
+                        led.set_high();
+                        cortex_m::asm::delay(cycles_100ms);
+                        led.set_low();
+                    }
                 }
             }
         }
