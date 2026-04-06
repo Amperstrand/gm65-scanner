@@ -342,37 +342,48 @@ async fn main(_spawner: Spawner) {
 
     log_info!("Async scanner firmware started (168MHz, USB CDC, touch)");
 
-    let scanner_task = async {
-        let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
-        use gm65_scanner::ScannerDriver;
+    // Phase 1: Start USB polling and scanner init concurrently.
+    // USB must be polling before the host enumerates, otherwise
+    // SET_CONFIGURATION is missed and wait_connection() hangs forever.
+    // Scanner init runs alongside USB with only 2 tasks competing,
+    // giving the UART reads enough executor attention to succeed.
+    use embassy_futures::select::{select, Either};
+    let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
+    use gm65_scanner::ScannerDriver;
 
-        match scanner.init().await {
-            Ok(model) => {
-                log_info!("Scanner: detected {:?}", model);
-                let model_str = model_to_str(model);
-                {
-                    let mut shared = SHARED.lock().await;
-                    shared.scanner_connected = true;
-                    let bytes = model_str.as_bytes();
-                    let model_len = bytes.len().min(16);
-                    shared.model_len = model_len;
-                    shared.model_str[..model_len].copy_from_slice(bytes);
+    let init_result = select(usb_dev.run(), scanner.init()).await;
+    match init_result {
+        Either::First(_) => unreachable!(),
+        Either::Second(result) => {
+            match result {
+                Ok(model) => {
+                    log_info!("Scanner: detected {:?}", model);
+                    let model_str = model_to_str(model);
+                    {
+                        let mut shared = SHARED.lock().await;
+                        shared.scanner_connected = true;
+                        let bytes = model_str.as_bytes();
+                        let model_len = bytes.len().min(16);
+                        shared.model_len = model_len;
+                        shared.model_str[..model_len].copy_from_slice(bytes);
+                    }
+                    if let Some(settings) = scanner.get_scanner_settings().await {
+                        let mut shared = SHARED.lock().await;
+                        shared.settings = Some(settings);
+                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
+                    } else {
+                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
+                    }
                 }
-                // Drop lock before async I/O
-                if let Some(settings) = scanner.get_scanner_settings().await {
-                    let mut shared = SHARED.lock().await;
-                    shared.settings = Some(settings);
-                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
-                } else {
-                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
+                Err(_e) => {
+                    log_error!("Scanner: init failed {:?}", _e);
+                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
                 }
-            }
-            Err(_e) => {
-                log_error!("Scanner: init failed {:?}", _e);
-                let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
             }
         }
+    }
 
+    let scanner_task = async {
         let mut pending_cmd: Option<HostCommand> = None;
 
         loop {
@@ -535,10 +546,6 @@ async fn main(_spawner: Spawner) {
                 }
             }
         }
-    };
-
-    let usb_task = async {
-        usb_dev.run().await;
     };
 
     let cdc_task = async {
@@ -857,7 +864,7 @@ async fn main(_spawner: Spawner) {
     };
 
     embassy_futures::join::join4(
-        usb_task,
+        usb_dev.run(),
         embassy_futures::select::select(scanner_task, cdc_task),
         display_task,
         embassy_futures::select::select(touch_task, settings_touch_task),

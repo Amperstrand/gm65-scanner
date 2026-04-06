@@ -64,7 +64,7 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
                         break;
                     }
                     Err(nb::Error::WouldBlock) => {
-                        embassy_time::Timer::after_micros(100).await;
+                        embassy_time::Timer::after_micros(10).await;
                     }
                     Err(nb::Error::Other(_e)) => {
                         embassy_time::Timer::after_micros(10).await;
