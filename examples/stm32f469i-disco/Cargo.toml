@@ -74,3 +74,8 @@ required-features = ["scanner-async", "defmt"]
 name = "touch_test"
 path = "src/bin/touch_test.rs"
 required-features = ["sync-mode"]
+
+[[bin]]
+name = "async_display_test"
+path = "src/bin/async_display_test.rs"
+required-features = ["scanner-async"]
