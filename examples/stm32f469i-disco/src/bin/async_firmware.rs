@@ -274,7 +274,7 @@ async fn main(_spawner: Spawner) {
     });
 
     log_info!("Initializing display...");
-    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::Auto);
+    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::ForceNt35510);
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
     let mut led = embassy_stm32::gpio::Output::new(
@@ -799,7 +799,7 @@ async fn main(_spawner: Spawner) {
             return;
         }
         loop {
-            Timer::after(Durion::from_millis(50)).await;
+            Timer::after(embassy_time::Duration::from_millis(50)).await;
             if let Ok(n) = touch_ctrl.td_status(&mut touch_i2c) {
                 if n > 0 {
                     if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
