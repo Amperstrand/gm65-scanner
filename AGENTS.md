@@ -12,6 +12,7 @@
 | Commit | Notes |
 |--------|-------|
 | `83ecbad` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. BSP `ea3b1b2`, embassy BSP `373a9ae`. |
+| `1c30ef3` (main HEAD) | Async display investigation. 5 DSI init bugs found/fixed in BSP fork `972998f` — screen still black. Sync firmware fully working. See Async Black Screen section below. |
 
 ## Touch Calibration
 
@@ -179,7 +180,30 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 - **Scanner task blocks on auto_scan**: During `read_scan()` (up to 10s timeout), `COMMAND_CHANNEL.try_receive()` is not polled. CDC commands sent during auto_scan are queued but not processed until the scan cycle completes. Fix: use `embassy_futures::select` to handle commands while scanning.
 - **GetSettings/Trigger fail during auto_scan**: Same root cause as above — scanner task can't process CDC commands while awaiting scan result.
 - **PLLSAI1_Q breaks USB enumeration**: BSP commit `c136f11` uses `PLLSAI1_Q` for 48MHz but this doesn't enumerate on our hardware. `PLL1_Q` works (same 48MHz, different PLL source). Likely PLLSAI startup timing issue.
-- Touch controller uses I2C2/PB10/PB11 but BSP doc says I2C1/PB8/PB9
+
+## Async Display Black Screen (IN PROGRESS)
+
+**Bug**: Embassy BSP's `DisplayCtrl::new()` produces a black screen. Sync BSP works with identical hardware. See [embassy-stm32f469i-disco#20](https://github.com/Amperstrand/embassy-stm32f469i-disco/issues/20).
+
+### 5 bugs found and fixed in BSP fork `972998f`
+
+1. **VMCR bit positions completely wrong** — LP transition bits shifted by 2 positions. Missing LPHBPE(12), LPHFPE(13), LPCE(15). Spurious PGM(20) enabled pattern generator instead of LTDC passthrough.
+2. **DSI timing ~1000x too large** — `pixel_clk=27_429` (Hz) used directly instead of kHz ratio. HSA=36,458 instead of 4. Vertical timing clock-scaled instead of raw line counts.
+3. **LTDC GCR missing DEN bit** — Only LTDCEN(0) set, missing DEN(1). Sync HAL sets both.
+4. **CMCR LP/HS mode missing** — No AllInLowPower/AllInHighPower switching around panel init.
+5. **nt35510 v0.1.0 vs git 7d588ef** — Different DCS command sequence (TEEON, COLMOD ordering, WRCTRLD, WRCABC, WRCABCMB).
+
+### Screen still black — remaining hypotheses
+
+- **LTDC/DMA2D peripheral reset**: Sync HAL calls `LTDC::enable_unchecked()` + `LTDC::reset_unchecked()` + `DMA2D::enable_unchecked()` + `DMA2D::reset_unchecked()`. Embassy BSP only sets APB2ENR bits — never asserts APB2RSTR reset.
+- **WPCR0 UIX4**: Sync HAL calculates UIX4=13 from f_phy_bit=312.5 MHz. Embassy hardcodes UIX4=8.
+- **VCCR NUMC**: Sync writes NUMC=1, embassy writes NUMC=0.
+- **PLLSAI reconfiguration**: Sync HAL overwrites PLLSAICFGR from scratch. Embassy relies on `embassy_stm32::init()` config.
+
+### Files
+- BSP fork: `src/display.rs` at commit `972998f`
+- Diagnostic binary: `examples/stm32f469i-disco/src/bin/async_display_test.rs`
+- Workspace `[patch]` in `Cargo.toml` points to local fork
 
 ## Upstream Interaction Policy
 
