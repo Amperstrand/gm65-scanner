@@ -418,15 +418,15 @@ dependencies = [
 [[package]]
 name = "embassy-stm32f469i-disco"
 version = "0.1.0"
-source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=373a9ae#373a9ae4aa856108964cd733cc9668a82c5a08a8"
 dependencies = [
  "cortex-m",
  "embassy-stm32",
  "embassy-time",
  "embedded-display-controller",
  "embedded-graphics",
+ "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
- "nt35510 0.1.0",
+ "nt35510 0.2.0",
  "otm8009a 0.1.0",
  "stm32-fmc",
 ]

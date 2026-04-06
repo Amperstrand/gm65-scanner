@@ -46,6 +46,16 @@ embassy-usb-synopsys-otg = { git = "https://github.com/embassy-rs/embassy", pack
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", package = "embassy-sync", rev = "84444a19" }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", package = "embassy-futures", rev = "84444a19" }
 
+# Override nt35510 v0.1.0 (crates.io) with git rev 7d588ef (refined init sequence)
+# The embassy BSP uses crates.io v0.1.0 which has a different DCS command sequence
+# than the git version used by the sync BSP. The git version includes TEEON,
+# COLMOD=RGB888→RGB565 ordering, WRCTRLD=0x24, WRCABC=0x02, WRCABCMB=0xFF.
+[patch.crates-io]
+nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "7d588ef40d94f51f2ed2df33acbb04a920a4ae0b" }
+
+[patch."https://github.com/Amperstrand/embassy-stm32f469i-disco"]
+embassy-stm32f469i-disco = { path = "../embassy-stm32f469i-disco" }
+
 [profile.release]
 debug = true
 lto = true
