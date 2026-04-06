@@ -72,6 +72,7 @@ fn main() -> ! {
             .require_pll48clk(),
     );
     let mut delay = cp.SYST.delay(&rcc.clocks);
+    let sysclk_hz: u32 = rcc.clocks.sysclk().raw();
 
     let gpioa = dp.GPIOA.split(&mut rcc);
     let gpioc = dp.GPIOC.split(&mut rcc);
@@ -79,6 +80,7 @@ fn main() -> ! {
     let gpioe = dp.GPIOE.split(&mut rcc);
     let gpiof = dp.GPIOF.split(&mut rcc);
     let gpiog = dp.GPIOG.split(&mut rcc);
+    let mut led = gpiog.pg6.into_push_pull_output();
     let scanner_tx = gpiog.pg14;
     let scanner_rx = gpiog.pg9;
     let gpioh = dp.GPIOH.split(&mut rcc);
@@ -257,6 +259,13 @@ fn main() -> ! {
                     buf[..copy_len].copy_from_slice(&data[..copy_len]);
                     last_scan_data = Some(buf);
                     last_scan_len = copy_len;
+                    let cycles_100ms = sysclk_hz / 10;
+                    for _ in 0..3 {
+                        led.set_high();
+                        cortex_m::asm::delay(cycles_100ms);
+                        led.set_low();
+                        cortex_m::asm::delay(cycles_100ms);
+                    }
                     break;
                 }
             }
