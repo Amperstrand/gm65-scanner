@@ -69,3 +69,8 @@ embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32
 name = "baud_probe"
 path = "src/bin/baud_probe.rs"
 required-features = ["scanner-async", "defmt"]
+
+[[bin]]
+name = "touch_test"
+path = "src/bin/touch_test.rs"
+required-features = ["sync-mode"]
