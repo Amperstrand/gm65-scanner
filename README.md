@@ -4,7 +4,7 @@
 
 ## Overview
 
-- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 149 unit tests
+- **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 149 unit tests (175 with async feature)
 - **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
 
 ## Sync vs Async Drivers
@@ -54,9 +54,9 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Library | Stable | 149 unit tests passing, clippy clean |
+| Library | Stable | 149 sync tests (175 with async), clippy clean |
 | Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
-| Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC |
+| Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC. Five root causes fixed (PLLSAI, USART6, AsyncUart yield, CDC channel race, heartbeat framing). CDC enumerates and responds to commands. See #19. |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
 | HIL tests (async) | 9/9 HW verified | 5 core + 3 extended + 1 QR scan |
 
@@ -72,7 +72,7 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 | `embedded-hal-02` | 0.2 | Legacy HAL traits (sync driver) |
 | `embedded-io-async` | 0.7 | Async I/O traits |
 
-## Hardware Test Results (2026-03-28)
+## Hardware Test Results (2026-04-05)
 
 All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=RX) at 115200 baud.
 
@@ -88,7 +88,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 | cancel_then_rescan | PASS | Cancel + re-trigger succeeds, 25 bytes from rescan |
 | rapid_triggers | PASS | 5 rapid trigger/stop cycles |
 | read_idle_no_trigger | PASS | Correctly times out without trigger |
-| **QR scan** | **PASS** | **25 bytes scanned with aim laser + LED blink** |
+| **QR scan** | **PASS** | **23 bytes scanned with aim laser + LED blink** |
 
 ### Sync HIL: 6/6 PASS
 
@@ -99,7 +99,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 | trigger_and_stop | PASS | Trigger ACK, stop ACK |
 | read_scan_timeout | PASS | Ambient barcode tolerated |
 | state_transitions | PASS | Re-init resets to Ready |
-| **QR scan** | **PASS** | **Scanned with aim laser, 50-retry loop (5s window)** |
+| **QR scan** | **PASS** | **25 bytes scanned with aim laser** |
 
 ## Testing
 
@@ -109,7 +109,7 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 cargo test -p gm65-scanner --lib
 ```
 
-**Status**: 149/149 tests passing
+**Status**: 149/149 sync tests passing (175 with `--features async`)
 
 ### Feature Checks
 
@@ -256,6 +256,17 @@ LTDC `set_layer_buffer_address` + `reload_on_vblank` race condition breaks USB D
 ### Ambient barcode detection
 
 In COMMAND mode, the scanner may detect random barcodes in the environment during timeout tests. This is expected GM65 behavior — the HIL tests now tolerate ambient detection as a pass condition.
+
+### Async CDC data flow (#19) — RESOLVED
+
+Async production firmware had five root causes preventing CDC data flow:
+1. **PLLSAI `divq: None`** caused MCU hard fault after USB enumeration
+2. **Double `USART6.disable()`** caused undefined behavior
+3. **`AsyncUart::read()` busy-poll** (500K spins) starved USB in cooperative executor
+4. **CDC task channel race** — `try_receive()` on response channel polled before scanner task processed command; fixed by awaiting response after each command send
+5. **`[ALIVE]` heartbeat** every 3s corrupted protocol framing; fixed by removing heartbeat entirely
+
+All five fixed. Firmware now enumerates as `c0de:cafe` and responds to CDC commands. See issue #19 for full details.
 
 ## License
 

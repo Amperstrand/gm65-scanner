@@ -11,8 +11,7 @@
 
 | Commit | Notes |
 |--------|-------|
-| `2416177` (main HEAD) | Sync USB+Display+Scanner CDC verified. Async USB+Display+Scanner+Touch CDC verified. BSP `799df39`, embassy BSP `e202e9a`. |
-| `1360469` | Sync 6/6, async 9/9, QR scans on both. BSP `56a0bc8`, embassy BSP `890a4d1`. |
+| `6744e98` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + protocol working. BSP `799df39`, embassy BSP `e202e9a`. |
 
 ## Production Build Commands
 
@@ -60,6 +59,24 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 ## HIL Test Results
 
+### 2026-04-05 — Full HIL verification + production firmware test
+
+Both drivers verified with InitAction state machine, BSP `799df39`.
+
+**Sync 6/6 PASS**: init, ping, trigger/stop, timeout, state transitions, QR scan (25 bytes, aim laser)
+
+**Async 9/9 PASS**: init, ping, trigger/stop, timeout, state transitions, cancel+rescan (25 bytes ambient QR), rapid triggers, idle no-trigger, QR scan (23 bytes, aim laser + LED)
+
+Note: BarType VERIFY FAIL observed (wrote 0x01, read 0x05) — expected per known issue #10. cancel_then_rescan picked up ambient QR codes — expected behavior.
+
+### 2026-04-05 — Production Firmware Verification
+
+**Sync**: USB enumerates as `16c0:27dd`, CDC protocol verified (ScannerStatus returns `00 00 03 01 01 01`, GetSettings returns `0x81`). Display + scanner + USB all active. Flash with `st-flash --connect-under-reset`.
+
+**Async**: USB enumerates as `c0de:cafe` but **no data flows** — no heartbeat, no command responses. Firmware runs internally (scanner, display work). See issue #19 for hypotheses and investigation.
+
+**Note**: After this session, two additional fixes were applied: (4) CDC task channel race — `try_receive()` on `CDC_RESPONSE_CHANNEL` polled before scanner task processed the command. Fixed by using `receive().await` after each `COMMAND_CHANNEL.try_send()`. (5) `[ALIVE]` heartbeat every 3s corrupted protocol framing. Fixed by removing heartbeat entirely. Requires on-device verification.
+
 ### 2026-03-31 — Full end-to-end with QR scans
 
 Both drivers verified with InitAction state machine, defmt logging parity, BSP `56a0bc8` (HAL 0.5, embedded-hal 1.0).
@@ -89,11 +106,29 @@ Both sync and async firmware verified on hardware with `st-flash` (no probe-rs):
 - **BarType register not persisted (#10)**: Register 0x002C write accepted but not persisted across GM65 reboots on firmware 0.87. Hardware quirk.
 - **Settings mode comparison (#11)**: 0x81 vs 0xD1 not yet compared. Current firmware uses 0x81.
 - **drain_uart data loss (#12)**: FIXED. `send_command()` skips drain when in `Scanning` state.
+- **Async CDC no data flow (#19)**: RESOLVED. Five root causes found and fixed: (1) PLLSAI `divq: None` crashes MCU, (2) double `USART6.disable()` crashes MCU, (3) `AsyncUart::read()` busy-poll starves USB in cooperative executor, (4) CDC task channel race — `try_receive()` on `CDC_RESPONSE_CHANNEL` polled before scanner task processed command, fixed by using `receive().await` after each command send, (5) `[ALIVE]` heartbeat every 3s corrupted protocol framing, fixed by removing heartbeat entirely. Additional fix: mutex guards held across `.await` causing deadlocks. Async firmware now enumerates and responds to CDC commands. See issue for full details.
+- **BSP memory.x wrong flash size**: embassy-stm32f469i-disco `memory.x` declares 1024K flash but STM32F469NIHx has 2048K. Filed as [Amperstrand/embassy-stm32f469i-disco#19](https://github.com/Amperstrand/embassy-stm32f469i-disco/issues/19).
 - **Heap/framebuffer overlap**: `DisplayOrientation::fb_size()` returns pixels (384,000), not bytes. Framebuffer uses `u16` (2 bytes/pixel), so actual size is `fb_size() * 2` (768,000 bytes). Heap offset must account for this or allocator metadata gets corrupted by display writes.
 
 ## USB CDC + defmt_rtt Incompatibility (RESOLVED)
 
-`defmt_rtt` (even when unused via `use defmt_rtt as _`) prevents USB OTG FS enumeration. Root cause: the BSP's `Cargo.toml` unconditionally includes `"defmt"` in `stm32f4xx-hal` features, making the feature gate useless. See [stm32f469i-disc#23](https://github.com/Amperstrand/stm32f469i-disc/issues/23). **Do NOT use defmt_rtt or panic_probe in firmware that enables USB CDC.**
+`defmt_rtt` (even when unused via `use defmt_rtt as _`) prevents USB OTG FS enumeration. See [stm32f469i-disc#23](https://github.com/Amperstrand/stm32f469i-disc/issues/23).
+
+### Root cause analysis
+
+Two interacting problems:
+
+1. **`defmt_rtt` uses `critical_section::acquire()`** for every log write (defmt-rs/defmt `lib.rs:224`), which disables **all interrupts** including USB OTG. STM32F4 OTG FS requires precise interrupt timing during enumeration (RM0090 §32.4.4, see also [embassy-rs/embassy#2823](https://github.com/embassy-rs/embassy/pull/2823)). Early logging during USB init enters critical sections at the wrong time → host times out.
+
+2. **probe-rs hardcodes blocking mode** for the "defmt" RTT channel ([probe-rs `client.rs:282-284`](https://github.com/probe-rs/probe-rs/blob/7885394/probe-rs-tools/src/bin/probe-rs/util/rtt/client.rs#L282-L284)). If any log occurs during enumeration and the RTT buffer fills, `flush()` busy-waits with interrupts disabled → USB stalls indefinitely. See [knurling-rs/defmt#133](https://github.com/knurling-rs/defmt/issues/133).
+
+This is **not a defmt bug** — it's a fundamental conflict between RTT's interrupt-disabling design and USB OTG's timing requirements. See also [embassy-rs/embassy#3493](https://github.com/embassy-rs/embassy/issues/3493) (defmt-trace timing affects USB behavior) and [embassy-rs/embassy#4008](https://github.com/embassy-rs/embassy/issues/4008) (users requesting defmt-free builds).
+
+### Ecosystem context
+
+This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every major STM32 HAL makes defmt optional: [stm32f4xx-hal](https://github.com/stm32-rs/stm32f4xx-hal/blob/v0.23.0/Cargo.toml#L30-L31), [stm32f1xx-hal](https://github.com/stm32-rs/stm32f1xx-hal/blob/v0.11.0/Cargo.toml#L34-L39), [stm32h7xx-hal](https://github.com/stm32-rs/stm32h7xx-hal/blob/v0.16.0/Cargo.toml#L43-L46), [stm32f3xx-hal](https://github.com/stm32-rs/stm32f3xx-hal/blob/v0.10.0/Cargo.toml#L33-L34), [rp2040-hal](https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/Cargo.toml#L39-L40), and [embassy-stm32](https://github.com/embassy-rs/embassy/blob/embassy-stm32-v0.6.0/embassy-stm32/Cargo.toml#L60-L71) all use `defmt = { optional = true }` with an opt-in feature flag. The official stm32f429i-disc BSP uses `default-features = false` on its HAL dep ([Cargo.toml](https://github.com/stm32-rs/stm32f429i-disc/blob/v0.3.0/Cargo.toml#L25-L27)).
+
+**Do NOT use defmt_rtt or panic_probe in firmware that enables USB CDC.**
 
 ### Fix (applied in this repo)
 
@@ -109,7 +144,24 @@ Both sync and async firmware verified on hardware with `st-flash` (no probe-rs):
 
 **Fix**: Move `Gm65ScannerAsync::with_default_config()` + `scanner.init().await` into the scanner task itself, so USB polling starts concurrently via `join4`.
 
-**Also required**: Disable USART6 interrupt before creating the UART (`embassy_stm32::interrupt::USART6.disable()`), and register a USART6 handler in `bind_interrupts!` to catch spurious interrupts. Reduce `AsyncUart.yield_threshold` from 2M to 500K.
+**Also required**: Disable USART6 interrupt before creating the UART (`embassy_stm32::interrupt::USART6.disable()`), and register a USART6 handler in `bind_interrupts!` to catch spurious interrupts.
+
+## Async CDC: Three Root Causes (RESOLVED)
+
+**Bug**: Async production firmware enumerated as `c0de:cafe` but no data flowed over USB. Three independent root causes found:
+
+1. **PLLSAI `divq: None` crashes MCU**: `config.rcc.pllsai` with `divq: None` causes immediate hard fault after USB enumeration. Fixed by setting `divq: Some(PllQDiv::DIV8)`, matching BSP commit `c136f11`.
+
+2. **Double `USART6.disable()` crashes MCU**: Two consecutive `embassy_stm32::interrupt::USART6.disable()` calls after UART creation — second call triggers undefined behavior. Fixed by removing the duplicate.
+
+3. **`AsyncUart::read()` busy-poll starves USB**: `yield_threshold = 500_000` causes `read()` to spin up to 500K times without yielding, completely starving `usb_dev.run()` in embassy's cooperative executor. Fixed by yielding immediately on every `WouldBlock`.
+
+**Additional**: Mutex guards held across `.await` (e.g., `SHARED.lock().await` held during `scanner.get_scanner_settings().await`) caused deadlocks. Fixed by splitting lock scopes.
+
+## Async CDC: Remaining Issues
+
+- Intermittent CDC hangs under sustained command sequences (mutex contention)
+- Touch controller uses I2C2/PB10/PB11 but BSP doc says I2C1/PB8/PB9
 
 ## Upstream Interaction Policy
 
@@ -133,4 +185,4 @@ probe-rs list
 
 Find PCI address on other machines: `sudo lspci -nn | grep -i "xHCI"`
 
-Use `probe-rs download` + `probe-rs reset` (not `probe-rs run`) for CDC testing so probe-rs releases the ST-LINK.
+Use `st-flash --connect-under-reset` for CDC testing. `probe-rs` holds SWD and prevents the firmware from running — use probe-rs only for RTT-based HIL tests.
