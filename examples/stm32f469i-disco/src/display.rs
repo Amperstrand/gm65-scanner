@@ -68,7 +68,7 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: 
 
     Text::with_text_style(
         "Scan a QR code or send USB command...",
-        Point::new(DISPLAY_CENTER_X, 350),
+        Point::new(DISPLAY_CENTER_X, 500),
         style,
         center_text,
     )
@@ -76,12 +76,12 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: 
     .ok();
 
     fb.fill_solid(
-        &Rectangle::new(Point::new(550, 380), Size::new(220, 70)),
+        &Rectangle::new(Point::new(130, 670), Size::new(220, 60)),
         Rgb565::new(0x18, 0x18, 0x18),
     )
     .ok();
 
-    Text::with_text_style("Settings", Point::new(660, 420), title_style, center_text)
+    Text::with_text_style("Settings", Point::new(240, 710), title_style, center_text)
         .draw(fb)
         .ok();
 }
@@ -130,14 +130,14 @@ pub fn render_scanner_settings(
     .draw(fb)
     .ok();
 
-    let mut y = 80i32;
+    let mut y = 150i32;
     let x_label = 20;
     let x_value = 200;
-    let row_spacing = 50;
+    let row_spacing = 90;
 
     fn draw_row_bg<D: DrawTarget<Color = Rgb565>>(fb: &mut D, y: i32) {
         fb.fill_solid(
-            &Rectangle::new(Point::new(10, y - 25), Size::new(305, 45)),
+            &Rectangle::new(Point::new(10, y - 30), Size::new(460, 60)),
             Rgb565::new(0x18, 0x18, 0x18),
         )
         .ok();
@@ -235,12 +235,12 @@ pub fn render_scanner_settings(
         .ok();
 
     fb.fill_solid(
-        &Rectangle::new(Point::new(10, 415), Size::new(200, 45)),
+        &Rectangle::new(Point::new(40, 715), Size::new(200, 50)),
         Rgb565::new(0x18, 0x18, 0x18),
     )
     .ok();
 
-    Text::new("< Back", Point::new(25, 445), on_style)
+    Text::new("< Back", Point::new(60, 750), on_style)
         .draw(fb)
         .ok();
 }

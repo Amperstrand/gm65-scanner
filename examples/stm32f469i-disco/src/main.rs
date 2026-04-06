@@ -29,8 +29,8 @@ use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings
 mod cdc;
 mod display_utils;
 mod display {
-    const DISPLAY_CENTER_X: i32 = 400;
-    const DISPLAY_MAX_Y: u32 = 480;
+    const DISPLAY_CENTER_X: i32 = 240;
+    const DISPLAY_MAX_Y: u32 = 800;
     include!("display.rs");
 }
 mod qr_display {
@@ -346,13 +346,15 @@ fn main() -> ! {
                         && ty >= TOUCH_MARGIN
                         && ty <= TOUCH_Y_MAX
                     {
+                        let dx = tx;
+                        let dy = ty;
                         if in_settings {
-                            if tx >= 415 && tx < 460 && ty < 220 {
+                            if dy >= 715 && dy < 765 && dx >= 40 && dx < 240 {
                                 in_settings = false;
                                 auto_scan = scanner_connected;
                                 display::render_home(&mut fb, scanner_connected, model_str);
-                            } else if tx >= 55 && tx < 305 {
-                                let row = ((tx - 55) / 50) as usize;
+                            } else if dy >= 120 && dy < 570 && dx >= 10 && dx < 460 {
+                                let row = ((dy - 120) / 90) as usize;
                                 let toggled = match row {
                                     0 => Some(ScannerSettings::SOUND),
                                     1 => Some(ScannerSettings::AIM),
@@ -369,7 +371,7 @@ fn main() -> ! {
                                     display::render_scanner_settings(&mut fb, current_settings);
                                 }
                             }
-                        } else if ty >= 550 && ty < 770 && tx >= 380 && tx < 450 {
+                        } else if dy >= 670 && dy < 730 && dx >= 130 && dx < 350 {
                             in_settings = true;
                             auto_scan = false;
                             if scanner_connected {
