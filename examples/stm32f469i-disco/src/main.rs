@@ -205,15 +205,7 @@ fn main() -> ! {
     boot_line += 1;
     render_boot_status(&mut fb, "[OK] Ready", boot_line);
 
-    if scanner_connected {
-        if let Some(settings) = scanner.get_scanner_settings() {
-            display::render_scanner_settings(&mut fb, settings);
-        } else {
-            display::render_home(&mut fb, true, model_str);
-        }
-    } else {
-        display::render_home(&mut fb, false, model_str);
-    }
+    display::render_home(&mut fb, scanner_connected, model_str);
 
     const FT6X06_ADDR: u8 = 0x38;
     const REG_TD_STATUS: u8 = 0x02;
