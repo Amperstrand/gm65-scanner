@@ -208,6 +208,10 @@ pub fn render_scanner_settings(
     Text::new(&hex, Point::new(x_value, y), val_style)
         .draw(fb)
         .ok();
+
+    Text::new("< Back", Point::new(20, 420), on_style)
+        .draw(fb)
+        .ok();
 }
 
 pub fn render_scan_result(fb: &mut impl DrawTarget<Color = Rgb565>, data: &[u8]) {

@@ -253,6 +253,12 @@ fn main() -> ! {
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
     let mut auto_scan: bool = scanner_connected;
+    let mut in_settings: bool = false;
+    let mut current_settings: ScannerSettings = if scanner_connected {
+        scanner.get_scanner_settings().unwrap_or_default()
+    } else {
+        ScannerSettings::default()
+    };
 
     loop {
         if usb_dev.poll(&mut [cdc_port.serial_mut()]) {
@@ -263,6 +269,7 @@ fn main() -> ! {
                 }
                 let was_auto = auto_scan;
                 auto_scan = false;
+                let was_in_settings = in_settings;
                 let response = handle_command(
                     frame.command,
                     frame.payload(),
@@ -272,35 +279,48 @@ fn main() -> ! {
                     &mut last_scan_len,
                 );
                 cdc_port.send_response(&response);
-                if was_auto {
+                if was_auto && !in_settings {
                     auto_scan = true;
+                }
+                if was_in_settings && in_settings {
+                    if let Some(s) = scanner.get_scanner_settings() {
+                        current_settings = s;
+                    }
+                    display::render_scanner_settings(&mut fb, current_settings);
                 }
             }
         }
 
-        if auto_scan && !scanner.data_ready() && scanner.state() == ScannerState::Ready {
+        if auto_scan
+            && !in_settings
+            && !scanner.data_ready()
+            && scanner.state() == ScannerState::Ready
+        {
             let _ = scanner.trigger_scan();
         }
 
         if !scanner.data_ready() {
             for _ in 0..8 {
                 if let Some(data) = scanner.try_read_scan() {
-                    let payload = gm65_scanner::decode_payload(&data);
-                    render_decoded_scan(&mut fb, &payload);
-                    if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
-                        qr_display::render_qr_mirror(&mut fb, &data);
-                    }
                     let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
                     let mut buf = [0u8; MAX_PAYLOAD_SIZE - 1];
                     buf[..copy_len].copy_from_slice(&data[..copy_len]);
                     last_scan_data = Some(buf);
                     last_scan_len = copy_len;
-                    let cycles_100ms = sysclk_hz / 10;
-                    for _ in 0..3 {
-                        led.set_high();
-                        cortex_m::asm::delay(cycles_100ms);
-                        led.set_low();
-                        cortex_m::asm::delay(cycles_100ms);
+
+                    if !in_settings {
+                        let payload = gm65_scanner::decode_payload(&data);
+                        render_decoded_scan(&mut fb, &payload);
+                        if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
+                            qr_display::render_qr_mirror(&mut fb, &data);
+                        }
+                        let cycles_100ms = sysclk_hz / 10;
+                        for _ in 0..3 {
+                            led.set_high();
+                            cortex_m::asm::delay(cycles_100ms);
+                            led.set_low();
+                            cortex_m::asm::delay(cycles_100ms);
+                        }
                     }
                     break;
                 }
@@ -319,16 +339,46 @@ fn main() -> ! {
                     .write_read(FT6X06_ADDR, &[REG_TOUCH1_XH], &mut coord_buf)
                     .is_ok()
                 {
-                    let x = (((coord_buf[0] & 0x0F) as u16) << 8) | (coord_buf[1] as u16);
-                    let y = (((coord_buf[2] & 0x0F) as u16) << 8) | (coord_buf[3] as u16);
-                    if x >= TOUCH_MARGIN
-                        && x <= TOUCH_X_MAX
-                        && y >= TOUCH_MARGIN
-                        && y <= TOUCH_Y_MAX
+                    let tx = (((coord_buf[0] & 0x0F) as u16) << 8) | (coord_buf[1] as u16);
+                    let ty = (((coord_buf[2] & 0x0F) as u16) << 8) | (coord_buf[3] as u16);
+                    if tx >= TOUCH_MARGIN
+                        && tx <= TOUCH_X_MAX
+                        && ty >= TOUCH_MARGIN
+                        && ty <= TOUCH_Y_MAX
                     {
-                        let mut msg = heapless::String::<32>::new();
-                        core::fmt::write(&mut msg, format_args!("Touch: ({}, {})", x, y)).ok();
-                        display::render_status(&mut fb, &msg);
+                        if in_settings {
+                            let back_zone = 350u16;
+                            if tx >= back_zone && ty < 200 {
+                                in_settings = false;
+                                auto_scan = scanner_connected;
+                                display::render_home(&mut fb, scanner_connected, model_str);
+                            } else if tx >= 80 && tx < 255 {
+                                let row = ((tx - 80) / 35) as usize;
+                                let toggled = match row {
+                                    0 => Some(ScannerSettings::SOUND),
+                                    1 => Some(ScannerSettings::AIM),
+                                    2 => Some(ScannerSettings::LIGHT),
+                                    3 => Some(ScannerSettings::CONTINUOUS),
+                                    4 => Some(ScannerSettings::COMMAND),
+                                    _ => None,
+                                };
+                                if let Some(flag) = toggled {
+                                    current_settings ^= flag;
+                                    if scanner_connected {
+                                        scanner.set_scanner_settings(current_settings);
+                                    }
+                                    display::render_scanner_settings(&mut fb, current_settings);
+                                }
+                            }
+                        } else if ty > 400 {
+                            in_settings = true;
+                            auto_scan = false;
+                            if scanner_connected {
+                                current_settings =
+                                    scanner.get_scanner_settings().unwrap_or_default();
+                            }
+                            display::render_scanner_settings(&mut fb, current_settings);
+                        }
                         let cycles_100ms = sysclk_hz / 10;
                         led.set_high();
                         cortex_m::asm::delay(cycles_100ms);
