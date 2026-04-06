@@ -418,7 +418,7 @@ dependencies = [
 [[package]]
 name = "embassy-stm32f469i-disco"
 version = "0.1.0"
-source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=e202e9a#e202e9a8041c7ed9e76f0f4063123d61015afe92"
+source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=373a9ae#373a9ae4aa856108964cd733cc9668a82c5a08a8"
 dependencies = [
  "cortex-m",
  "embassy-stm32",
@@ -1288,7 +1288,7 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=799df39#799df39a0cc8b5d7367c6cef07e401f49748738a"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=ea3b1b2#ea3b1b29b81ac3033845ff548c171d0e23a7b929"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",

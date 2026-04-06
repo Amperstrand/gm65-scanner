@@ -84,7 +84,6 @@ async fn main(_spawner: Spawner) {
 
     let async_uart = async_shared::AsyncUart {
         inner: uart,
-        yield_threshold: 100_000,
     };
     let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 

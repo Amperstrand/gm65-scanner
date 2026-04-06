@@ -18,7 +18,7 @@ gm65-scanner = { path = "crates/gm65-scanner", default-features = false }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 defmt = "1.0"
-defmt-rtt = "1.0"
+defmt-rtt = { version = "1.0", features = ["disable-blocking-mode"] }
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 panic-halt = "0.2"
 embedded-hal = "1.0"
@@ -35,7 +35,7 @@ qrcodegen-no-heap = "1.8"
 bitflags = "2.6"
 
 # BSP - pinned to latest
-stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "799df39", default-features = false }
+stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "ea3b1b2", default-features = false }
 
 # Embassy - pinned to latest release
 embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19" }

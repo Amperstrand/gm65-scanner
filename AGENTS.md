@@ -11,7 +11,7 @@
 
 | Commit | Notes |
 |--------|-------|
-| `6744e98` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + protocol working. BSP `799df39`, embassy BSP `e202e9a`. |
+| `6744e98` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. BSP `ea3b1b2`, embassy BSP `373a9ae`. |
 
 ## Production Build Commands
 
@@ -160,7 +160,9 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 
 ## Async CDC: Remaining Issues
 
-- Intermittent CDC hangs under sustained command sequences (mutex contention)
+- **Scanner task blocks on auto_scan**: During `read_scan()` (up to 10s timeout), `COMMAND_CHANNEL.try_receive()` is not polled. CDC commands sent during auto_scan are queued but not processed until the scan cycle completes. Fix: use `embassy_futures::select` to handle commands while scanning.
+- **GetSettings/Trigger fail during auto_scan**: Same root cause as above — scanner task can't process CDC commands while awaiting scan result.
+- **PLLSAI1_Q breaks USB enumeration**: BSP commit `c136f11` uses `PLLSAI1_Q` for 48MHz but this doesn't enumerate on our hardware. `PLL1_Q` works (same 48MHz, different PLL source). Likely PLLSAI startup timing issue.
 - Touch controller uses I2C2/PB10/PB11 but BSP doc says I2C1/PB8/PB9
 
 ## Upstream Interaction Policy

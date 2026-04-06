@@ -64,8 +64,8 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 
 | Dependency | Rev | Purpose |
 |------------|-----|---------|
-| `stm32f469i-disc` | `799df39` | Amperstrand BSP fork (sync HAL, SDRAM, LCD, USB) |
-| `embassy-stm32f469i-disco` | `e202e9a` | Amperstrand BSP fork (async embassy wrappers, display) |
+| `stm32f469i-disc` | `ea3b1b2` | Amperstrand BSP fork (sync HAL, SDRAM, LCD, USB) |
+| `embassy-stm32f469i-disco` | `373a9ae` | Amperstrand BSP fork (async embassy wrappers, display) |
 | `embassy-*` | `84444a19` | Embassy framework (executor, time, stm32, usb, futures) |
 | `qrcodegen-no-heap` | 1.8 | QR code generation (zero heap) |
 | `embedded-hal` | 1.0 | Modern HAL traits (async driver) |
