@@ -799,7 +799,7 @@ async fn main(_spawner: Spawner) {
             return;
         }
         loop {
-            Timer::after(Duration::from_millis(50)).await;
+            Timer::after(Durion::from_millis(50)).await;
             if let Ok(n) = touch_ctrl.td_status(&mut touch_i2c) {
                 if n > 0 {
                     if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
