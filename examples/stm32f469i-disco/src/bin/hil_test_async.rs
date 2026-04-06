@@ -74,7 +74,8 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Async HIL Tests (embassy executor)");
     defmt::info!("========================================");
 
-    let p = embassy_stm32::init(Config::default());
+    let config = Config::default();
+    let p = embassy_stm32::init(config);
 
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
