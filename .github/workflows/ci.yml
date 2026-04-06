@@ -96,3 +96,50 @@ jobs:
           echo "NOTE: Full publish dry-run cannot run in this workspace because the"
           echo "example firmware pins embassy to a git rev that conflicts with"
           echo "crates.io embassy-time versions. Publish from an isolated environment."
+
+  on-device-tests:
+    name: On-device tests required
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.base_ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check test report exists
+        id: check_report
+        run: |
+          if [ ! -f .test-report.json ]; then
+            echo "::error::On-device test report (.test-report.json) not found."
+            echo ""
+            echo "Before merging to main, you must run on-device tests:"
+            echo "  python3 scripts/test_on_device.py sync"
+            echo ""
+            echo "This generates .test-report.json. Commit it with your PR."
+            echo "See scripts/test_on_device.py --help for options."
+            echo ""
+            echo "Note: Only sync firmware tests are required for merge."
+            echo "Async firmware tests are optional (experimental embassy support)."
+            exit 1
+          fi
+      - name: Validate test report
+        if: steps.check_report.outcome == 'success'
+        run: |
+          REPORT=$(cat .test-report.json)
+          ALL_PASSED=$(echo "$REPORT" | python3 -c "import json,sys; print(json.load(sys.stdin)['all_passed'])")
+          TIMESTAMP=$(echo "$REPORT" | python3 -c "import json,sys; print(json.load(sys.stdin)['timestamp'])")
+          PASSED=$(echo "$REPORT" | python3 -c "import json,sys; print(json.load(sys.stdin)['passed'])")
+          FAILED=$(echo "$REPORT" | python3 -c "import json,sys; print(json.load(sys.stdin)['failed'])")
+
+          echo "Test report timestamp: $TIMESTAMP"
+          echo "Results: $PASSED passed, $FAILED failed"
+
+          if [ "$ALL_PASSED" != "True" ]; then
+            echo "::error::On-device tests FAILED ($PASSED passed, $FAILED failed). Fix all failures before merging."
+            exit 1
+          fi
+
+          # Check report is not stale (>7 days old)
+          REPORT_AGE_DAYS=$(( ( $(date +%s) - $(date -d "$TIMESTAMP" +%s) ) / 86400 ))
+          if [ "$REPORT_AGE_DAYS" -gt 7 ]; then
+            echo "::warning::Test report is $REPORT_AGE_DAYS days old. Consider re-running tests."
+          fi
+
+          echo "On-device tests verified."

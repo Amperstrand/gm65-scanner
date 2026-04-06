@@ -19,11 +19,11 @@ FLASH_HELPERS  = scripts/flash-helpers.sh
 SHELL          = /bin/bash
 
 .PHONY: build-sync build-async build-all \
-        run-sync run-async \
-        flash-sync flash-async \
-        test-sync test-async test-cdc \
-        recover reset monitor \
-        clean
+         run-sync run-async \
+         flash-sync flash-async \
+         test-sync test-async test-cdc test-device \
+         recover reset monitor \
+         clean
 
 # ── Build ──────────────────────────────────────────────────────────────────
 
@@ -69,7 +69,10 @@ test-async: build-async
 	echo "---"; \
 	python3 $(EXAMPLE_DIR)/tests/hil_test.py --port "$$PORT" protocol
 
-# ── Test CDC against already-running firmware ──────────────────────────────
+# ── On-device test runner (builds, flashes, tests, writes report) ───────────────
+
+test-device:
+	python3 scripts/test_on_device.py both
 
 test-cdc:
 	@source $(FLASH_HELPERS); \
