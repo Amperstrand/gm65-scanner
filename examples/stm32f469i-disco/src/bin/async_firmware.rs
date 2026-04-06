@@ -373,8 +373,16 @@ async fn main(_spawner: Spawner) {
             }
         }
 
+        let mut pending_cmd: Option<HostCommand> = None;
+
         loop {
-            if let Ok(cmd) = COMMAND_CHANNEL.try_receive() {
+            let cmd = if let Some(cmd) = pending_cmd.take() {
+                Some(cmd)
+            } else {
+                COMMAND_CHANNEL.try_receive().ok()
+            };
+
+            if let Some(cmd) = cmd {
                 match cmd {
                     HostCommand::Trigger => {
                         log_info!("Scanner: host trigger");
@@ -391,6 +399,8 @@ async fn main(_spawner: Spawner) {
                         let _ = scanner.stop_scan().await;
                     }
                     HostCommand::GetSettings => {
+                        scanner.cancel_scan();
+                        let _ = scanner.stop_scan().await;
                         if let Some(s) = scanner.get_scanner_settings().await {
                             let mut shared = SHARED.lock().await;
                             shared.settings = Some(s);
@@ -405,6 +415,8 @@ async fn main(_spawner: Spawner) {
                         }
                     }
                     HostCommand::SetSettings(s) => {
+                        scanner.cancel_scan();
+                        let _ = scanner.stop_scan().await;
                         scanner.set_scanner_settings(s).await;
                         Timer::after_millis(50).await;
                         if let Some(readback) = scanner.get_scanner_settings().await {
@@ -420,6 +432,8 @@ async fn main(_spawner: Spawner) {
                         }
                     }
                     HostCommand::ShowSettings => {
+                        scanner.cancel_scan();
+                        let _ = scanner.stop_scan().await;
                         if let Some(s) = scanner.get_scanner_settings().await {
                             let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(s));
                         }
@@ -473,12 +487,15 @@ async fn main(_spawner: Spawner) {
                 continue;
             }
 
-            {
+            let auto_scan = {
                 let shared = SHARED.lock().await;
-                if !shared.auto_scan {
-                    Timer::after(Duration::from_millis(100)).await;
-                    continue;
-                }
+                shared.auto_scan
+            };
+
+            if !auto_scan {
+                let cmd = COMMAND_CHANNEL.receive().await;
+                pending_cmd = Some(cmd);
+                continue;
             }
 
             if scanner.trigger_scan().await.is_err() {
@@ -486,27 +503,35 @@ async fn main(_spawner: Spawner) {
                 continue;
             }
 
-            match embassy_time::with_timeout(Duration::from_secs(10), scanner.read_scan()).await {
-                Ok(Some(data)) => {
-                    let _len = data.len();
-                    log_info!("Scanner: scanned {} bytes", _len);
-                    let result = ScanResult { data: data.clone() };
-                    let _ = SCAN_CHANNEL.try_send(result.clone());
-                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Scan(result));
-                    {
-                        let mut shared = SHARED.lock().await;
-                        shared.last_scan = Some(data);
-                    }
-                    for _ in 0..3 {
-                        led.set_high();
-                        Timer::after(Duration::from_millis(100)).await;
-                        led.set_low();
-                        Timer::after(Duration::from_millis(100)).await;
+            match embassy_futures::select::select(scanner.read_scan(), COMMAND_CHANNEL.receive()).await {
+                embassy_futures::select::Either::First(result) => {
+                    match result {
+                        Some(data) => {
+                            let _len = data.len();
+                            log_info!("Scanner: scanned {} bytes", _len);
+                            let result = ScanResult { data: data.clone() };
+                            let _ = SCAN_CHANNEL.try_send(result.clone());
+                            let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Scan(result));
+                            {
+                                let mut shared = SHARED.lock().await;
+                                shared.last_scan = Some(data);
+                            }
+                            for _ in 0..3 {
+                                led.set_high();
+                                Timer::after(Duration::from_millis(100)).await;
+                                led.set_low();
+                                Timer::after(Duration::from_millis(100)).await;
+                            }
+                        }
+                        None => {
+                            scanner.cancel_scan();
+                            let _ = scanner.stop_scan().await;
+                        }
                     }
                 }
-                Ok(None) | Err(_) => {
+                embassy_futures::select::Either::Second(cmd) => {
                     scanner.cancel_scan();
-                    let _ = scanner.stop_scan().await;
+                    pending_cmd = Some(cmd);
                 }
             }
         }
@@ -526,7 +551,6 @@ async fn main(_spawner: Spawner) {
                         let _ = cdc
                             .write_packet(&[
                                 Status::Ok.to_byte(),
-                                0,
                                 0,
                                 3,
                                 if connected { 1 } else { 0 },
