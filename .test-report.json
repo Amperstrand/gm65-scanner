@@ -1,19 +1,19 @@
 {
-  "timestamp": "2026-04-06T07:28:28Z",
-  "passed": 12,
-  "failed": 0,
+  "timestamp": "2026-04-06T08:22:39Z",
+  "passed": 3,
+  "failed": 7,
   "skipped": 0,
-  "total": 12,
-  "all_passed": true,
+  "total": 10,
+  "all_passed": false,
   "tests": [
     {
-      "firmware": "sync",
-      "binary": "stm32f469i-disco-scanner",
-      "vid": "0x16C0",
-      "pid": "0x27DD",
+      "firmware": "async",
+      "binary": "async_firmware",
+      "vid": "0xC0DE",
+      "pid": "0xCAFE",
       "port": "/dev/ttyACM1",
-      "passed": 12,
-      "failed": 0
+      "passed": 3,
+      "failed": 7
     }
   ]
 }

@@ -61,9 +61,9 @@ embassy-usb-synopsys-otg = { workspace = true, optional = true }
 embassy-sync = { workspace = true, optional = true }
 embassy-futures = { workspace = true, optional = true }
 stm32-fmc = { version = "0.4.0", features = ["sdram"], optional = true }
-nt35510 = { version = "0.1.0", optional = true }
+nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "7d588ef40d94f51f2ed2df33acbb04a920a4ae0b", optional = true }
 embedded-display-controller = { version = "0.2.0", optional = true }
-embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32f469i-disco", rev = "373a9ae", optional = true }
+embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32f469i-disco", rev = "0b85a0f", optional = true, features = ["defmt"] }
 
 [[bin]]
 name = "baud_probe"
