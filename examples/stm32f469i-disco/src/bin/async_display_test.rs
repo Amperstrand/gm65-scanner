@@ -336,14 +336,14 @@ async fn main(_spawner: embassy_executor::Spawner) {
     config.rcc.hse = Some(Hse { freq: embassy_stm32::time::mhz(8), mode: HseMode::Oscillator });
     config.rcc.pll_src = PllSource::HSE;
     config.rcc.pll = Some(Pll {
-        prediv: PllPreDiv::DIV4, mul: PllMul::MUL168,
-        divp: Some(PllPDiv::DIV2), divq: Some(PllQDiv::DIV7), divr: None,
+        prediv: PllPreDiv::DIV8, mul: PllMul::MUL360,
+        divp: Some(PllPDiv::DIV2), divq: Some(PllQDiv::DIV7), divr: Some(PllRDiv::DIV6),
     });
     config.rcc.sys = Sysclk::PLL1_P;
     config.rcc.ahb_pre = AHBPrescaler::DIV1;
     config.rcc.apb1_pre = APBPrescaler::DIV4;
     config.rcc.apb2_pre = APBPrescaler::DIV2;
-    config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+    config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
     config.rcc.pllsai = Some(Pll {
         prediv: PllPreDiv::DIV8,
         mul: PllMul::MUL384,
@@ -356,7 +356,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     defmt::info!("STEP 1: embassy init done");
     step(1);
 
-    let sdram = SdramCtrl::new(&mut p, 168_000_000);
+    let sdram = SdramCtrl::new(&mut p, 180_000_000);
     defmt::info!("STEP 2: SDRAM done");
     step(2);
 

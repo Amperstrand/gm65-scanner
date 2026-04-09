@@ -12,7 +12,10 @@ use embassy_stm32::rcc::{
     PllSource, Sysclk,
 };
 use embassy_stm32f469i_disco::display::SdramCtrl;
+use embedded_display_controller::dsi::{DsiHostCtrlIo, DsiReadCommand, DsiWriteCommand};
 use embassy_time::{Duration, Timer, block_for};
+use nt35510::Nt35510;
+use otm8009a::{ColorMap as OtmColorMap, FrameRate as OtmFrameRate, Mode as OtmMode, Otm8009A, Otm8009AConfig};
 use panic_probe as _;
 
 const DSI_BASE: usize = 0x4001_6C00;
@@ -71,6 +74,19 @@ const LTDC_L1_BASE: usize = 0x84;
 const RCC_PLLSAICFGR: usize = 0x88;
 const RCC_DCKCFGR: usize = 0x8C;
 const RCC_CR: usize = 0x00;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Panel {
+    Nt35510,
+    Otm8009a,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DsiIoError {
+    Read,
+}
+
+struct RawDsi;
 
 #[inline(always)]
 unsafe fn reg32(base: usize, offset: usize) -> u32 {
@@ -134,6 +150,157 @@ fn log_core_state(tag: &str) {
     }
 }
 
+impl RawDsi {
+    const GHCR: usize = DSI_GHCR;
+    const GPDR: usize = DSI_GPDR;
+    const GPSR: usize = DSI_GPSR;
+    const ISR1: usize = 0xC0;
+
+    fn wait_command_fifo_empty(&self) -> Result<(), DsiIoError> {
+        for _ in 0..1000 {
+            if unsafe { reg32(DSI_BASE, Self::GPSR) & (1 << 0) } != 0 {
+                return Ok(());
+            }
+            block_for(Duration::from_millis(1));
+        }
+        Err(DsiIoError::Read)
+    }
+
+    fn raw_ghcr_write(&self, dt: u8, wclsb: u8, wcmsb: u8) {
+        unsafe {
+            reg32_write(
+                DSI_BASE,
+                Self::GHCR,
+                (dt as u32) | ((wclsb as u32) << 8) | ((wcmsb as u32) << 16),
+            );
+        }
+    }
+
+    fn raw_dcs_short_read(&mut self, arg: u8, buf: &mut [u8]) -> Result<(), DsiIoError> {
+        self.wait_command_fifo_empty()?;
+
+        if buf.len() > 2 {
+            self.raw_ghcr_write(0x37, (buf.len() & 0xff) as u8, ((buf.len() >> 8) & 0xff) as u8);
+            self.wait_command_fifo_empty()?;
+        }
+
+        self.raw_ghcr_write(0x06, arg, 0);
+
+        let mut idx = 0usize;
+        let mut bytes_left = buf.len();
+        for _ in 0..1000 {
+            if bytes_left == 0 {
+                break;
+            }
+
+            let gpsr = unsafe { reg32(DSI_BASE, Self::GPSR) };
+            if gpsr & (1 << 3) == 0 {
+                let fifoword = unsafe { reg32(DSI_BASE, Self::GPDR) };
+                for b in fifoword.to_ne_bytes().iter().take(bytes_left.min(4)) {
+                    buf[idx] = *b;
+                    idx += 1;
+                    bytes_left -= 1;
+                }
+            }
+
+            if gpsr & (1 << 6) == 0 && unsafe { reg32(DSI_BASE, Self::ISR1) & (1 << 24) } != 0 {
+                break;
+            }
+
+            block_for(Duration::from_millis(1));
+        }
+
+        if bytes_left == 0 {
+            Ok(())
+        } else {
+            Err(DsiIoError::Read)
+        }
+    }
+}
+
+impl DsiHostCtrlIo for RawDsi {
+    type Error = DsiIoError;
+
+    fn write(&mut self, command: DsiWriteCommand) -> Result<(), Self::Error> {
+        match command {
+            DsiWriteCommand::DcsShortP0 { arg } => unsafe { raw_dsi_write_cmd(arg, &[]) },
+            DsiWriteCommand::DcsShortP1 { arg, data } => unsafe { raw_dsi_write_cmd(arg, &[data]) },
+            DsiWriteCommand::DcsLongWrite { arg, data } => unsafe { raw_dsi_write_cmd(arg, data) },
+            DsiWriteCommand::SetMaximumReturnPacketSize(_) => {}
+            DsiWriteCommand::GenericShortP0
+            | DsiWriteCommand::GenericShortP1
+            | DsiWriteCommand::GenericShortP2
+            | DsiWriteCommand::GenericLongWrite { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn read(&mut self, command: DsiReadCommand, buf: &mut [u8]) -> Result<(), Self::Error> {
+        match command {
+            DsiReadCommand::DcsShort { arg } => self.raw_dcs_short_read(arg, buf),
+            DsiReadCommand::GenericShortP0
+            | DsiReadCommand::GenericShortP1 { .. }
+            | DsiReadCommand::GenericShortP2 { .. } => Err(DsiIoError::Read),
+        }
+    }
+}
+
+fn detect_panel() -> Panel {
+    let mut raw_dsi = RawDsi;
+    let mut nt = Nt35510::new();
+    let mut delay = BusyDelay;
+    let mut mismatch_count = 0u8;
+    let mut first_mismatch: Option<u8> = None;
+    let mut consistent_mismatch = true;
+
+    for attempt in 1..=3 {
+        match nt.probe(&mut raw_dsi, &mut delay) {
+            Ok(()) => {
+                info!("panel detect: NT35510 on attempt {}", attempt);
+                return Panel::Nt35510;
+            }
+            Err(nt35510::Error::ProbeMismatch(id)) => {
+                info!("panel detect: NT35510 mismatch attempt {} id=0x{:02x}", attempt, id);
+                mismatch_count = mismatch_count.saturating_add(1);
+                match first_mismatch {
+                    None => first_mismatch = Some(id),
+                    Some(first) if first != id => consistent_mismatch = false,
+                    Some(_) => {}
+                }
+            }
+            Err(nt35510::Error::DsiRead) => {
+                info!("panel detect: NT35510 read error attempt {}", attempt);
+            }
+            Err(_) => {
+                info!("panel detect: NT35510 other error attempt {}", attempt);
+            }
+        }
+        block_for(Duration::from_millis(5));
+    }
+
+    if mismatch_count >= 2 && consistent_mismatch {
+        let mut otm = Otm8009A::new();
+        if otm.id_matches(&mut raw_dsi).unwrap_or(false) {
+            info!("panel detect: OTM8009A fallback");
+            return Panel::Otm8009a;
+        }
+    }
+
+    info!("panel detect: defaulting to NT35510");
+    Panel::Nt35510
+}
+
+struct BusyDelay;
+
+impl embedded_hal::delay::DelayNs for BusyDelay {
+    fn delay_ns(&mut self, ns: u32) {
+        let us = (ns.saturating_add(999)) / 1000;
+        if us > 0 {
+            block_for(Duration::from_micros(us as u64));
+        }
+    }
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
@@ -167,6 +334,8 @@ async fn main(_spawner: Spawner) {
     let sdram = SdramCtrl::new(&mut p, 168_000_000);
     let mut led_green = Output::new(p.PG6, Level::High, Speed::Low);
     let mut led_orange = Output::new(p.PD4, Level::High, Speed::Low);
+    let mut led_red = Output::new(p.PD5, Level::High, Speed::Low);
+    let mut led_blue = Output::new(p.PK3, Level::High, Speed::Low);
     let mut reset = Output::new(p.PH7, Level::Low, Speed::High);
 
     // LED phase signaling: blinks green LED N times to show which init phase we reached.
@@ -284,6 +453,19 @@ async fn main(_spawner: Spawner) {
     led_phase(&mut led_green, 4);
     log_core_state("dsi-config");
 
+    dsi.enable();
+    info!("after dsi.enable");
+    led_phase(&mut led_green, 5);
+    dsi.enable_wrapper_dsi();
+    info!("after dsi.enable_wrapper_dsi");
+    led_phase(&mut led_green, 6);
+    block_for(Duration::from_millis(20));
+    info!("after dsi enable + 20ms delay");
+
+    let panel = detect_panel();
+    info!("after panel detect");
+    led_phase(&mut led_green, 7);
+
     ltdc.disable();
     unsafe {
         reg32_write(RCC_BASE, RCC_PLLSAICFGR, (384 << 6) | (7 << 28));
@@ -304,24 +486,26 @@ async fn main(_spawner: Spawner) {
         reg32_write(LTDC_BASE, LTDC_SRCR, 0x01);
     }
     info!("after ltdc config (DEN+LTDCEN set)");
-    led_phase(&mut led_green, 5);
-
-    dsi.enable();
-    info!("after dsi.enable");
-    led_phase(&mut led_green, 6);
-    dsi.enable_wrapper_dsi();
-    info!("after dsi.enable_wrapper_dsi");
-    led_phase(&mut led_green, 7);
-    block_for(Duration::from_millis(120));
-    info!("after dsi enable + 120ms delay");
+    led_phase(&mut led_green, 8);
 
     // Match sync BSP: force RX low power + AllInLowPower before panel init
     unsafe {
         reg32_set(DSI_BASE, DSI_WPCR1, 1 << 0); // FLPRXLPM
     }
 
-    write_nt35510_init();
-    led_phase(&mut led_green, 8);
+    match panel {
+        Panel::Nt35510 => {
+            led_blue.set_high();
+            led_red.set_high();
+            write_nt35510_init();
+        }
+        Panel::Otm8009a => {
+            led_blue.set_low();
+            led_red.set_high();
+            write_otm8009a_init();
+        }
+    }
+    led_phase(&mut led_green, 9);
     info!("after panel init");
 
     // Match sync BSP: disable force RX low power + switch to AllInHighSpeed
@@ -359,7 +543,7 @@ async fn main(_spawner: Spawner) {
         unsafe { reg32(LTDC_BASE, LTDC_L1_BASE + 0x30) },
     );
 
-    led_phase(&mut led_green, 9);
+    led_phase(&mut led_green, 10);
     info!("embassy_display_bsp_minimal: init done");
     loop {
         led_orange.set_high();
@@ -464,6 +648,22 @@ fn write_nt35510_init() {
     block_for(Duration::from_millis(10));
 
     info!("panel init: done");
+}
+
+fn write_otm8009a_init() {
+    info!("panel init: OTM8009A start");
+    let mut raw_dsi = RawDsi;
+    let mut panel = Otm8009A::new();
+    let mut delay = BusyDelay;
+    let config = Otm8009AConfig {
+        frame_rate: OtmFrameRate::_60Hz,
+        mode: OtmMode::Portrait,
+        color_map: OtmColorMap::Rgb,
+        cols: LCD_X_SIZE,
+        rows: LCD_Y_SIZE,
+    };
+    panel.init(&mut raw_dsi, config, &mut delay).unwrap();
+    info!("panel init: OTM8009A done");
 }
 
 const NT35510_PAGE1: &[&[u8]] = &[
