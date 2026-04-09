@@ -1,7 +1,7 @@
 use embedded_graphics::{
     draw_target::DrawTarget,
     mono_font::{ascii::FONT_10X20, MonoTextStyle},
-    pixelcolor::Rgb565,
+    pixelcolor::Rgb888,
     prelude::*,
     primitives::Rectangle,
     text::{Alignment, Text, TextStyleBuilder},
@@ -10,11 +10,11 @@ use qrcodegen_no_heap::{QrCode, QrCodeEcc, Version};
 
 use crate::display_utils::truncate_str;
 
-const BLACK: Rgb565 = Rgb565::BLACK;
-const WHITE: Rgb565 = Rgb565::WHITE;
+const BLACK: Rgb888 = Rgb888::BLACK;
+const WHITE: Rgb888 = Rgb888::WHITE;
 const QR_BUF_SIZE: usize = Version::MAX.buffer_len();
 
-pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb565>, text: &str) -> bool {
+pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> bool {
     let mut temp_buf = [0u8; QR_BUF_SIZE];
     let mut out_buf = [0u8; QR_BUF_SIZE];
 
@@ -47,7 +47,7 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb565>, text: &str) -> b
     let offset_x = (fb_width as u32 - qr_pixel_w) / 2;
     let offset_y = 20 + (fb_height as u32 - qr_pixel_h - 40) / 2;
 
-    let _ = fb.clear(Rgb565::BLACK);
+    let _ = fb.clear(Rgb888::BLACK);
 
     for qr_y in 0..qr_size {
         for qr_x in 0..qr_size {
@@ -66,7 +66,7 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb565>, text: &str) -> b
         }
     }
 
-    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 255));
     let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
     let label = truncate_str(text, 50);
     Text::with_text_style(
@@ -81,12 +81,12 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb565>, text: &str) -> b
     true
 }
 
-pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb565>, data: &[u8]) {
+pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
     match core::str::from_utf8(data) {
         Ok(text) if data.len() <= 200 => {
             if !render_qr_code(fb, text) {
-                let _ = fb.clear(Rgb565::BLACK);
-                let style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_RED);
+                let _ = fb.clear(Rgb888::BLACK);
+                let style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 0, 0));
                 let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
                 Text::with_text_style("QR encode failed", Point::new(240, 240), style, center)
                     .draw(fb)
@@ -94,8 +94,8 @@ pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb565>, data: &[u8]) {
             }
         }
         _ => {
-            let _ = fb.clear(Rgb565::BLACK);
-            let style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_RED);
+            let _ = fb.clear(Rgb888::BLACK);
+            let style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 0, 0));
             let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
             Text::with_text_style("Data too long for QR", Point::new(240, 240), style, center)
                 .draw(fb)

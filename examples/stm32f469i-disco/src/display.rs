@@ -1,7 +1,7 @@
 use embedded_graphics::{
     draw_target::DrawTarget,
     mono_font::{ascii::FONT_10X20, MonoTextStyle},
-    pixelcolor::Rgb565,
+    pixelcolor::Rgb888,
     prelude::*,
     primitives::Rectangle,
     text::{Alignment, Text, TextStyleBuilder},
@@ -11,9 +11,9 @@ use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings};
 
 use crate::display_utils::{format_byte, format_u32_len, truncate_str};
 
-pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
-    let _ = fb.clear(Rgb565::BLACK);
-    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
+    let _ = fb.clear(Rgb888::BLACK);
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb888::WHITE);
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
         truncate_str(message, 60),
@@ -25,13 +25,13 @@ pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
     .ok();
 }
 
-pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: bool, model: &str) {
-    let _ = fb.clear(Rgb565::BLACK);
+pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb888>, scanner_connected: bool, model: &str) {
+    let _ = fb.clear(Rgb888::BLACK);
 
-    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
-    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    let ok_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_GREEN);
-    let err_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_RED);
+    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 255));
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb888::WHITE);
+    let ok_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 0));
+    let err_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 0, 0));
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
 
     Text::with_text_style(
@@ -77,7 +77,7 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: 
 
     fb.fill_solid(
         &Rectangle::new(Point::new(130, 670), Size::new(220, 60)),
-        Rgb565::new(0x18, 0x18, 0x18),
+        Rgb888::new(0x18, 0x18, 0x18),
     )
     .ok();
 
@@ -86,10 +86,10 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb565>, scanner_connected: 
         .ok();
 }
 
-pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
-    let _ = fb.clear(Rgb565::BLACK);
-    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::RED);
-    let msg_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
+    let _ = fb.clear(Rgb888::BLACK);
+    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb888::RED);
+    let msg_style = MonoTextStyle::new(&FONT_10X20, Rgb888::WHITE);
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
         "ERROR",
@@ -110,16 +110,16 @@ pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb565>, message: &str) {
 }
 
 pub fn render_scanner_settings(
-    fb: &mut impl DrawTarget<Color = Rgb565>,
+    fb: &mut impl DrawTarget<Color = Rgb888>,
     settings: ScannerSettings,
 ) {
-    let _ = fb.clear(Rgb565::BLACK);
+    let _ = fb.clear(Rgb888::BLACK);
 
-    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
-    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_YELLOW);
-    let on_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_GREEN);
-    let off_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_RED);
-    let val_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 255));
+    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 0));
+    let on_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 0));
+    let off_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 0, 0));
+    let val_style = MonoTextStyle::new(&FONT_10X20, Rgb888::WHITE);
 
     Text::with_text_style(
         "Scanner Settings",
@@ -135,10 +135,10 @@ pub fn render_scanner_settings(
     let x_value = 200;
     let row_spacing = 90;
 
-    fn draw_row_bg<D: DrawTarget<Color = Rgb565>>(fb: &mut D, y: i32) {
+    fn draw_row_bg<D: DrawTarget<Color = Rgb888>>(fb: &mut D, y: i32) {
         fb.fill_solid(
             &Rectangle::new(Point::new(10, y - 30), Size::new(460, 60)),
-            Rgb565::new(0x18, 0x18, 0x18),
+            Rgb888::new(0x18, 0x18, 0x18),
         )
         .ok();
     }
@@ -236,7 +236,7 @@ pub fn render_scanner_settings(
 
     fb.fill_solid(
         &Rectangle::new(Point::new(40, 715), Size::new(200, 50)),
-        Rgb565::new(0x18, 0x18, 0x18),
+        Rgb888::new(0x18, 0x18, 0x18),
     )
     .ok();
 
@@ -245,18 +245,18 @@ pub fn render_scanner_settings(
         .ok();
 }
 
-pub fn render_scan_result(fb: &mut impl DrawTarget<Color = Rgb565>, data: &[u8]) {
+pub fn render_scan_result(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
     let payload = gm65_scanner::decode_payload(data);
     render_decoded_scan(fb, &payload);
 }
 
-pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &DecodedPayload) {
-    let _ = fb.clear(Rgb565::BLACK);
+pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb888>, payload: &DecodedPayload) {
+    let _ = fb.clear(Rgb888::BLACK);
 
-    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_CYAN);
-    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_YELLOW);
-    let value_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    let ok_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_GREEN);
+    let title_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 255));
+    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 0));
+    let value_style = MonoTextStyle::new(&FONT_10X20, Rgb888::WHITE);
+    let ok_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(0, 255, 0));
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
 
     Text::with_text_style(
@@ -339,15 +339,15 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb565>, payload: &D
 
 #[allow(clippy::too_many_arguments)]
 fn draw_toggle(
-    fb: &mut impl DrawTarget<Color = Rgb565>,
+    fb: &mut impl DrawTarget<Color = Rgb888>,
     x_label: i32,
     x_value: i32,
     y: i32,
     name: &str,
     enabled: bool,
-    label_style: &MonoTextStyle<'_, Rgb565>,
-    on_style: &MonoTextStyle<'_, Rgb565>,
-    off_style: &MonoTextStyle<'_, Rgb565>,
+    label_style: &MonoTextStyle<'_, Rgb888>,
+    on_style: &MonoTextStyle<'_, Rgb888>,
+    off_style: &MonoTextStyle<'_, Rgb888>,
 ) {
     Text::new(name, Point::new(x_label, y), *label_style)
         .draw(fb)
@@ -361,11 +361,11 @@ fn draw_toggle(
 }
 
 fn render_raw_data(
-    fb: &mut impl DrawTarget<Color = Rgb565>,
+    fb: &mut impl DrawTarget<Color = Rgb888>,
     raw: &[u8],
     start_y: u32,
-    label_style: &MonoTextStyle<'_, Rgb565>,
-    value_style: &MonoTextStyle<'_, Rgb565>,
+    label_style: &MonoTextStyle<'_, Rgb888>,
+    value_style: &MonoTextStyle<'_, Rgb888>,
 ) {
     let mut y = start_y;
 
