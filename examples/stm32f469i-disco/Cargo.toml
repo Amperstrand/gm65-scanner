@@ -98,3 +98,28 @@ required-features = ["scanner-async", "defmt"]
 name = "embassy_display_bsp_minimal"
 path = "src/bin/embassy_display_bsp_minimal.rs"
 required-features = ["scanner-async", "defmt"]
+
+[[bin]]
+name = "hil_test_sync"
+path = "src/bin/hil_test_sync.rs"
+required-features = ["hil-tests", "defmt"]
+
+[[bin]]
+name = "hil_test_async"
+path = "src/bin/hil_test_async.rs"
+required-features = ["scanner-async", "defmt", "gm65-scanner/hil-tests"]
+
+[[bin]]
+name = "async_firmware"
+path = "src/bin/async_firmware.rs"
+required-features = ["scanner-async"]
+
+[[bin]]
+name = "async_cdc_minimal"
+path = "src/bin/async_cdc_minimal.rs"
+required-features = ["scanner-async"]
+
+[[bin]]
+name = "usb_minimal"
+path = "src/bin/usb_minimal.rs"
+required-features = ["sync-mode"]
