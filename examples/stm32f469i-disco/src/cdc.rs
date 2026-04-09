@@ -2,9 +2,15 @@
 use stm32f469i_disc::hal::otg_fs::UsbBusType;
 
 pub const MAX_PAYLOAD_SIZE: usize = 256;
+#[cfg(not(feature = "scanner-async"))]
+const STATUS_HEADER_SIZE: usize = 3;
+#[cfg(not(feature = "scanner-async"))]
+const USB_RX_BUF_SIZE: usize = 64;
+#[cfg(not(feature = "scanner-async"))]
+const MAX_USB_WRITE_RETRIES: u32 = 10;
 
 #[cfg(not(feature = "scanner-async"))]
-const RX_BUF_SIZE: usize = 3 + MAX_PAYLOAD_SIZE;
+const RX_BUF_SIZE: usize = STATUS_HEADER_SIZE + MAX_PAYLOAD_SIZE;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,19 +126,19 @@ impl Response {
     }
 
     pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let total_len = 3 + self.length as usize;
+        let total_len = STATUS_HEADER_SIZE + self.length as usize;
         if buf.len() < total_len {
             return 0;
         }
         buf[0] = self.status.to_byte();
         buf[1] = (self.length >> 8) as u8;
         buf[2] = (self.length & 0xFF) as u8;
-        buf[3..total_len].copy_from_slice(self.payload());
+        buf[STATUS_HEADER_SIZE..total_len].copy_from_slice(self.payload());
         total_len
     }
 
     pub fn encoded_size(&self) -> usize {
-        3 + self.length as usize
+        STATUS_HEADER_SIZE + self.length as usize
     }
 }
 
@@ -241,7 +247,7 @@ impl<'a> CdcPort<'a> {
     }
 
     pub fn receive_frame(&mut self) -> Option<Frame> {
-        let mut rx_buf = [0u8; 64];
+        let mut rx_buf = [0u8; USB_RX_BUF_SIZE];
 
         match self.serial.read(&mut rx_buf) {
             Ok(count) if count > 0 => self.decoder.decode(&rx_buf[..count]),
@@ -264,7 +270,7 @@ impl<'a> CdcPort<'a> {
                 }
                 _ => {
                     attempts += 1;
-                    if attempts >= 10 {
+                    if attempts >= MAX_USB_WRITE_RETRIES {
                         break;
                     }
                     let _ = self.serial.flush();

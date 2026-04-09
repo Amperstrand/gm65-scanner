@@ -21,13 +21,59 @@ mod theme {
     pub const _TEXT_SECONDARY: Rgb888 = Rgb888::new(0xA0, 0xA0, 0xA0);
 }
 
+const Y_HOME_TITLE: i32 = 80;
+const Y_HOME_READY: i32 = 120;
+const Y_HOME_SCANNER_ROW: i32 = 200;
+const Y_HOME_HELP: i32 = 500;
+const Y_PAGE_TITLE: i32 = 30;
+const Y_ERROR_TITLE: i32 = 200;
+const Y_MESSAGE: i32 = 240;
+const Y_SETTINGS_START: i32 = 150;
+const Y_RESULT_TYPE_NAME: i32 = 60;
+const Y_RESULT_START: i32 = 100;
+
+const X_LABEL: i32 = 20;
+const X_MODEL_VALUE: i32 = 140;
+const X_RESULT_VALUE: i32 = 120;
+const X_PROGRESS_VALUE: i32 = 160;
+const X_SETTINGS_VALUE: i32 = 200;
+
+const ROW_SPACING: i32 = 90;
+const ROW_BG_X_OFFSET: i32 = 10;
+const ROW_BG_Y_OFFSET: i32 = -30;
+const ROW_BG_WIDTH: u32 = 460;
+const ROW_BG_HEIGHT: u32 = 60;
+const ROW_HEIGHT: i32 = 30;
+
+const BTN_SETTINGS_X: i32 = 130;
+const BTN_SETTINGS_Y: i32 = 670;
+const BTN_SETTINGS_W: u32 = 220;
+const BTN_SETTINGS_H: u32 = 60;
+const Y_SETTINGS_LABEL: i32 = 710;
+
+const BTN_BACK_X: i32 = 40;
+const BTN_BACK_Y: i32 = 715;
+const BTN_BACK_W: u32 = 200;
+const BTN_BACK_H: u32 = 50;
+const X_BACK_LABEL: i32 = 60;
+const Y_BACK_LABEL: i32 = 750;
+
+const MAX_MESSAGE_LEN: usize = 60;
+const HEX_BUF_SIZE: usize = 8;
+const CHARS_PER_LINE: usize = 76;
+const DATA_LINE_HEIGHT: i32 = 22;
+
+const MODE_LABEL_Y_OFFSET: i32 = 35;
+const DATA_LABEL_Y_OFFSET: i32 = 25;
+const BOTTOM_MARGIN: i32 = 20;
+
 pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
     let _ = fb.clear(Rgb888::BLACK);
     let style = MonoTextStyle::new(&FONT_10X20, theme::TEXT_PRIMARY);
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
-        truncate_str(message, 60),
-        Point::new(DISPLAY_CENTER_X, 240),
+        truncate_str(message, MAX_MESSAGE_LEN),
+        Point::new(DISPLAY_CENTER_X, Y_MESSAGE),
         style,
         center_text,
     )
@@ -46,7 +92,7 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb888>, scanner_connected: 
 
     Text::with_text_style(
         "QR Scanner",
-        Point::new(DISPLAY_CENTER_X, 80),
+        Point::new(DISPLAY_CENTER_X, Y_HOME_TITLE),
         title_style,
         center_text,
     )
@@ -55,30 +101,38 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb888>, scanner_connected: 
 
     Text::with_text_style(
         "Ready",
-        Point::new(DISPLAY_CENTER_X, 120),
+        Point::new(DISPLAY_CENTER_X, Y_HOME_READY),
         style,
         center_text,
     )
     .draw(fb)
     .ok();
 
-    Text::new("Scanner:", Point::new(20, 200), style)
+    Text::new("Scanner:", Point::new(X_LABEL, Y_HOME_SCANNER_ROW), style)
         .draw(fb)
         .ok();
 
     if scanner_connected {
-        Text::new(model, Point::new(140, 200), ok_style)
-            .draw(fb)
-            .ok();
+        Text::new(
+            model,
+            Point::new(X_MODEL_VALUE, Y_HOME_SCANNER_ROW),
+            ok_style,
+        )
+        .draw(fb)
+        .ok();
     } else {
-        Text::new("NOT FOUND", Point::new(140, 200), err_style)
-            .draw(fb)
-            .ok();
+        Text::new(
+            "NOT FOUND",
+            Point::new(X_MODEL_VALUE, Y_HOME_SCANNER_ROW),
+            err_style,
+        )
+        .draw(fb)
+        .ok();
     }
 
     Text::with_text_style(
         "Scan a QR code or send USB command...",
-        Point::new(DISPLAY_CENTER_X, 500),
+        Point::new(DISPLAY_CENTER_X, Y_HOME_HELP),
         style,
         center_text,
     )
@@ -86,14 +140,22 @@ pub fn render_home(fb: &mut impl DrawTarget<Color = Rgb888>, scanner_connected: 
     .ok();
 
     fb.fill_solid(
-        &Rectangle::new(Point::new(130, 670), Size::new(220, 60)),
+        &Rectangle::new(
+            Point::new(BTN_SETTINGS_X, BTN_SETTINGS_Y),
+            Size::new(BTN_SETTINGS_W, BTN_SETTINGS_H),
+        ),
         theme::BG_DARK,
     )
     .ok();
 
-    Text::with_text_style("Settings", Point::new(240, 710), title_style, center_text)
-        .draw(fb)
-        .ok();
+    Text::with_text_style(
+        "Settings",
+        Point::new(DISPLAY_CENTER_X, Y_SETTINGS_LABEL),
+        title_style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
 }
 
 pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
@@ -103,15 +165,15 @@ pub fn render_error(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
     let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
         "ERROR",
-        Point::new(DISPLAY_CENTER_X, 200),
+        Point::new(DISPLAY_CENTER_X, Y_ERROR_TITLE),
         title_style,
         center_text,
     )
     .draw(fb)
     .ok();
     Text::with_text_style(
-        truncate_str(message, 60),
-        Point::new(DISPLAY_CENTER_X, 240),
+        truncate_str(message, MAX_MESSAGE_LEN),
+        Point::new(DISPLAY_CENTER_X, Y_MESSAGE),
         msg_style,
         center_text,
     )
@@ -133,21 +195,23 @@ pub fn render_scanner_settings(
 
     Text::with_text_style(
         "Scanner Settings",
-        Point::new(DISPLAY_CENTER_X, 30),
+        Point::new(DISPLAY_CENTER_X, Y_PAGE_TITLE),
         title_style,
         TextStyleBuilder::new().alignment(Alignment::Center).build(),
     )
     .draw(fb)
     .ok();
 
-    let mut y = 150i32;
-    let x_label = 20;
-    let x_value = 200;
-    let row_spacing = 90;
+    let mut y = Y_SETTINGS_START;
+    let x_label = X_LABEL;
+    let x_value = X_SETTINGS_VALUE;
 
     fn draw_row_bg<D: DrawTarget<Color = Rgb888>>(fb: &mut D, y: i32) {
         fb.fill_solid(
-            &Rectangle::new(Point::new(10, y - 30), Size::new(460, 60)),
+            &Rectangle::new(
+                Point::new(ROW_BG_X_OFFSET, y + ROW_BG_Y_OFFSET),
+                Size::new(ROW_BG_WIDTH, ROW_BG_HEIGHT),
+            ),
             theme::BG_DARK,
         )
         .ok();
@@ -165,7 +229,7 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += row_spacing;
+    y += ROW_SPACING;
     draw_row_bg(fb, y);
     draw_toggle(
         fb,
@@ -178,7 +242,7 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += row_spacing;
+    y += ROW_SPACING;
     draw_row_bg(fb, y);
     draw_toggle(
         fb,
@@ -191,7 +255,7 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += row_spacing;
+    y += ROW_SPACING;
     draw_row_bg(fb, y);
     draw_toggle(
         fb,
@@ -204,7 +268,7 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += row_spacing;
+    y += ROW_SPACING;
     draw_row_bg(fb, y);
     draw_toggle(
         fb,
@@ -217,7 +281,7 @@ pub fn render_scanner_settings(
         &on_style,
         &off_style,
     );
-    y += row_spacing;
+    y += ROW_SPACING;
 
     Text::new("Mode:", Point::new(x_label, y), label_style)
         .draw(fb)
@@ -232,12 +296,12 @@ pub fn render_scanner_settings(
     Text::new(mode_str, Point::new(x_value, y), on_style)
         .draw(fb)
         .ok();
-    y += 35;
+    y += MODE_LABEL_Y_OFFSET;
 
     Text::new("Raw:", Point::new(x_label, y), label_style)
         .draw(fb)
         .ok();
-    let mut hex = heapless::String::<8>::new();
+    let mut hex = heapless::String::<HEX_BUF_SIZE>::new();
     let _ = hex.push_str("0x");
     let _ = hex.push_str(&format_byte(settings.bits()));
     Text::new(&hex, Point::new(x_value, y), val_style)
@@ -245,12 +309,15 @@ pub fn render_scanner_settings(
         .ok();
 
     fb.fill_solid(
-        &Rectangle::new(Point::new(40, 715), Size::new(200, 50)),
+        &Rectangle::new(
+            Point::new(BTN_BACK_X, BTN_BACK_Y),
+            Size::new(BTN_BACK_W, BTN_BACK_H),
+        ),
         theme::BG_DARK,
     )
     .ok();
 
-    Text::new("< Back", Point::new(60, 750), on_style)
+    Text::new("< Back", Point::new(X_BACK_LABEL, Y_BACK_LABEL), on_style)
         .draw(fb)
         .ok();
 }
@@ -271,7 +338,7 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb888>, payload: &D
 
     Text::with_text_style(
         "Scan Result",
-        Point::new(DISPLAY_CENTER_X, 30),
+        Point::new(DISPLAY_CENTER_X, Y_PAGE_TITLE),
         title_style,
         center_text,
     )
@@ -279,42 +346,59 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb888>, payload: &D
     .ok();
 
     let tn = type_name(&payload.payload_type);
-    Text::with_text_style(tn, Point::new(DISPLAY_CENTER_X, 60), ok_style, center_text)
-        .draw(fb)
-        .ok();
+    Text::with_text_style(
+        tn,
+        Point::new(DISPLAY_CENTER_X, Y_RESULT_TYPE_NAME),
+        ok_style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
 
     let raw = &payload.raw;
     let len_label = format_u32_len(raw.len());
 
-    let mut y = 100u32;
+    let mut y = Y_RESULT_START as u32;
 
-    Text::new("Size:", Point::new(20, y as i32), label_style)
+    Text::new("Size:", Point::new(X_LABEL, y as i32), label_style)
         .draw(fb)
         .ok();
-    Text::new(&len_label, Point::new(120, y as i32), value_style)
-        .draw(fb)
-        .ok();
-    y += 30;
+    Text::new(
+        &len_label,
+        Point::new(X_RESULT_VALUE, y as i32),
+        value_style,
+    )
+    .draw(fb)
+    .ok();
+    y += ROW_HEIGHT as u32;
 
     match payload.payload_type {
         PayloadType::CashuV4 => {
-            Text::new("Type:", Point::new(20, y as i32), label_style)
+            Text::new("Type:", Point::new(X_LABEL, y as i32), label_style)
                 .draw(fb)
                 .ok();
-            Text::new("Cashu V4 Token", Point::new(120, y as i32), value_style)
-                .draw(fb)
-                .ok();
-            y += 30;
+            Text::new(
+                "Cashu V4 Token",
+                Point::new(X_RESULT_VALUE, y as i32),
+                value_style,
+            )
+            .draw(fb)
+            .ok();
+            y += ROW_HEIGHT as u32;
             render_raw_data(fb, raw, y, &label_style, &value_style);
         }
         PayloadType::CashuV3 => {
-            Text::new("Type:", Point::new(20, y as i32), label_style)
+            Text::new("Type:", Point::new(X_LABEL, y as i32), label_style)
                 .draw(fb)
                 .ok();
-            Text::new("Cashu V3 (legacy)", Point::new(120, y as i32), value_style)
-                .draw(fb)
-                .ok();
-            y += 30;
+            Text::new(
+                "Cashu V3 (legacy)",
+                Point::new(X_RESULT_VALUE, y as i32),
+                value_style,
+            )
+            .draw(fb)
+            .ok();
+            y += ROW_HEIGHT as u32;
             render_raw_data(fb, raw, y, &label_style, &value_style);
         }
         PayloadType::UrFragment => {
@@ -323,21 +407,25 @@ pub fn render_decoded_scan(fb: &mut impl DrawTarget<Color = Rgb888>, payload: &D
                 let _ = frag_str.push_str(&format_u32_len(parsed.index as usize));
                 let _ = frag_str.push('/');
                 let _ = frag_str.push_str(&format_u32_len(parsed.total as usize));
-                Text::new("Progress:", Point::new(20, y as i32), label_style)
+                Text::new("Progress:", Point::new(X_LABEL, y as i32), label_style)
                     .draw(fb)
                     .ok();
-                Text::new(&frag_str, Point::new(160, y as i32), value_style)
-                    .draw(fb)
-                    .ok();
-                y += 30;
+                Text::new(
+                    &frag_str,
+                    Point::new(X_PROGRESS_VALUE, y as i32),
+                    value_style,
+                )
+                .draw(fb)
+                .ok();
+                y += ROW_HEIGHT as u32;
 
                 let mut type_str = heapless::String::<32>::new();
                 let _ = type_str.push_str("UR Type: ");
                 let _ = type_str.push_str(&parsed.ur_type);
-                Text::new(&type_str, Point::new(20, y as i32), label_style)
+                Text::new(&type_str, Point::new(X_LABEL, y as i32), label_style)
                     .draw(fb)
                     .ok();
-                y += 30;
+                y += ROW_HEIGHT as u32;
             }
             render_raw_data(fb, raw, y, &label_style, &value_style);
         }
@@ -379,25 +467,24 @@ fn render_raw_data(
 ) {
     let mut y = start_y;
 
-    Text::new("Data:", Point::new(20, y as i32), *label_style)
+    Text::new("Data:", Point::new(X_LABEL, y as i32), *label_style)
         .draw(fb)
         .ok();
-    y += 25;
+    y += DATA_LABEL_Y_OFFSET as u32;
 
     let data_str = core::str::from_utf8(raw).unwrap_or("<binary data>");
-    let chars_per_line = 76;
     let mut offset = 0;
-    while offset < data_str.len() && y < DISPLAY_MAX_Y - 20 {
-        let end = core::cmp::min(offset + chars_per_line, data_str.len());
+    while offset < data_str.len() && y < DISPLAY_MAX_Y - BOTTOM_MARGIN as u32 {
+        let end = core::cmp::min(offset + CHARS_PER_LINE, data_str.len());
         Text::new(
             &data_str[offset..end],
-            Point::new(20, y as i32),
+            Point::new(X_LABEL, y as i32),
             *value_style,
         )
         .draw(fb)
         .ok();
         offset = end;
-        y += 22;
+        y += DATA_LINE_HEIGHT as u32;
     }
 }
 

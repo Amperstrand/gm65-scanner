@@ -1,3 +1,5 @@
+const MAX_DIGITS: usize = 8;
+
 pub fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s
@@ -22,9 +24,9 @@ pub fn format_u32_len(len: usize) -> heapless::String<16> {
         let _ = s.push((b'0' + (len % 10) as u8) as char);
     } else {
         let mut n = len;
-        let mut digits = [0u8; 8];
+        let mut digits = [0u8; MAX_DIGITS];
         let mut i = 0;
-        while n > 0 && i < 8 {
+        while n > 0 && i < MAX_DIGITS {
             digits[i] = (n % 10) as u8;
             n /= 10;
             i += 1;
