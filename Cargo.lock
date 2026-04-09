@@ -692,6 +692,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e639847d312d9a82d2e75b0edcc1e934efcc64e6cb7aa94f0b1fbec0bc231d6"
 dependencies = [
+ "defmt 0.3.100",
  "gcd",
 ]
 
@@ -914,6 +915,9 @@ name = "nb"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
+dependencies = [
+ "defmt 0.3.100",
+]
 
 [[package]]
 name = "nt35510"
@@ -1273,6 +1277,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
+ "defmt 1.0.1",
  "portable-atomic",
  "vcell",
 ]
@@ -1280,10 +1285,10 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=ea3b1b2#ea3b1b29b81ac3033845ff548c171d0e23a7b929"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "embedded-graphics",
  "embedded-graphics-core",
  "embedded-hal 1.0.0",
  "nt35510",
@@ -1340,6 +1345,7 @@ dependencies = [
  "bare-metal 1.0.0",
  "cortex-m",
  "cortex-m-rt",
+ "defmt 1.0.1",
  "document-features",
  "embedded-display-controller",
  "embedded-dma",

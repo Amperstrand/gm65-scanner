@@ -7,16 +7,18 @@ extern crate alloc;
 use cortex_m_rt::entry;
 use panic_halt as _;
 
-use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::*};
+use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888, prelude::*};
 use static_cell::ConstStaticCell;
 use stm32f469i_disc::{
     hal,
-    hal::ltdc::{Layer, LtdcFramebuffer},
+    hal::ltdc::Layer,
     hal::pac::{self, CorePeripherals},
     hal::prelude::*,
     hal::rcc,
     hal::serial::Serial6,
-    lcd, sdram,
+    lcd,
+    lcd::FramebufferView,
+    sdram,
     sdram::alt,
     usb,
 };
@@ -43,10 +45,10 @@ use display::render_decoded_scan;
 
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
 
-fn render_boot_status(fb: &mut impl DrawTarget<Color = Rgb565>, line: &str, line_num: u32) {
+fn render_boot_status(fb: &mut impl DrawTarget<Color = Rgb888>, line: &str, line_num: u32) {
     use embedded_graphics::mono_font::{ascii::FONT_6X10, MonoTextStyle};
     use embedded_graphics::text::{Alignment, Text, TextStyleBuilder};
-    let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
+    let style = MonoTextStyle::new(&FONT_6X10, Rgb888::WHITE);
     let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
     Text::with_text_style(
         line,
@@ -104,7 +106,7 @@ fn main() -> ! {
     {
         const HEAP_SIZE: usize = 64 * 1024;
         let heap_start = sdram.mem as *mut u8;
-        let fb_bytes = lcd::DisplayOrientation::Portrait.fb_size() * core::mem::size_of::<u16>();
+        let fb_bytes = lcd::DisplayOrientation::Portrait.fb_size() * core::mem::size_of::<u32>();
         unsafe {
             let heap_ptr = heap_start.add(fb_bytes);
             ALLOCATOR.lock().init(heap_ptr, HEAP_SIZE);
@@ -112,12 +114,11 @@ fn main() -> ! {
     }
 
     let orientation = lcd::DisplayOrientation::Portrait;
-    let fb_buffer: &'static mut [u16] = unsafe {
-        &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem as *mut u16, orientation.fb_size())
+    let fb_buffer: &'static mut [u32] = unsafe {
+        &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem as *mut u32, orientation.fb_size())
     };
-    let mut fb = LtdcFramebuffer::new(fb_buffer, orientation.width(), orientation.height());
 
-    let (mut display_ctrl, _controller, _orient) = lcd::init_display_full(
+    let (mut display_ctrl, _controller, _orient) = lcd::init_display_full_argb8888(
         dp.DSI,
         dp.LTDC,
         dp.DMA2D,
@@ -127,18 +128,19 @@ fn main() -> ! {
         orientation,
     );
 
-    fb.clear(Rgb565::CSS_BLACK).ok();
-
-    let fb_buffer = fb.into_inner();
-    display_ctrl.config_layer(Layer::L1, fb_buffer, hal::ltdc::PixelFormat::RGB565);
+    display_ctrl.config_layer(Layer::L1, fb_buffer, hal::ltdc::PixelFormat::ARGB8888);
     display_ctrl.enable_layer(Layer::L1);
     display_ctrl.reload();
 
     let fb_ptr = display_ctrl
         .layer_buffer_mut(Layer::L1)
         .expect("layer L1 buffer");
-    let fb_buf: &'static mut [u16] = unsafe { core::mem::transmute(fb_ptr) };
-    let mut fb = LtdcFramebuffer::new(fb_buf, orientation.width(), orientation.height());
+    let fb_buf: &'static mut [u32] = unsafe { core::mem::transmute(fb_ptr) };
+    let mut fb = FramebufferView::new(
+        fb_buf,
+        orientation.width() as u32,
+        orientation.height() as u32,
+    );
 
     let mut boot_line: u32 = 0;
     render_boot_status(&mut fb, "[OK] Display", boot_line);
@@ -376,7 +378,7 @@ fn main() -> ! {
 fn handle_command(
     command: Command,
     payload: &[u8],
-    fb: &mut LtdcFramebuffer<u16>,
+    fb: &mut FramebufferView<'_>,
     scanner: &mut Gm65Scanner<Serial6>,
     last_scan_data: &mut Option<[u8; MAX_PAYLOAD_SIZE - 1]>,
     last_scan_len: &mut usize,
@@ -407,7 +409,7 @@ fn handle_scanner_status(scanner: &mut Gm65Scanner<Serial6>) -> Response {
 
 fn handle_scanner_trigger(
     scanner: &mut Gm65Scanner<Serial6>,
-    fb: &mut LtdcFramebuffer<u16>,
+    fb: &mut FramebufferView<'_>,
 ) -> Response {
     match scanner.trigger_scan() {
         Ok(()) => {
@@ -422,7 +424,7 @@ fn handle_scanner_trigger(
 }
 
 fn handle_scanner_data(
-    fb: &mut LtdcFramebuffer<u16>,
+    fb: &mut FramebufferView<'_>,
     last_scan_data: &mut Option<[u8; MAX_PAYLOAD_SIZE - 1]>,
     last_scan_len: &mut usize,
 ) -> Response {
@@ -446,7 +448,7 @@ fn handle_scanner_data(
 
 fn handle_get_settings(
     scanner: &mut Gm65Scanner<Serial6>,
-    fb: &mut LtdcFramebuffer<u16>,
+    fb: &mut FramebufferView<'_>,
 ) -> Response {
     let _ = scanner.stop_scan();
     match scanner.get_scanner_settings() {
@@ -465,7 +467,7 @@ fn handle_get_settings(
 fn handle_set_settings(
     scanner: &mut Gm65Scanner<Serial6>,
     payload: &[u8],
-    fb: &mut LtdcFramebuffer<u16>,
+    fb: &mut FramebufferView<'_>,
 ) -> Response {
     let _ = scanner.stop_scan();
     if payload.is_empty() {
@@ -493,7 +495,7 @@ fn handle_set_settings(
     }
 }
 
-fn handle_display_qr(payload: &[u8], fb: &mut LtdcFramebuffer<u16>) -> Response {
+fn handle_display_qr(payload: &[u8], fb: &mut FramebufferView<'_>) -> Response {
     let text = core::str::from_utf8(payload).unwrap_or("<invalid utf8>");
     if qr_display::render_qr_code(fb, text) {
         Response::new(Status::Ok)
