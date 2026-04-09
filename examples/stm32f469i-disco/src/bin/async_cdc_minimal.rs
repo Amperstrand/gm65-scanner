@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
     let _sdram_base = sdram.base_address();
     let _sdram_ok = sdram.test_quick();
 
-    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::Auto);
+    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.LTDC, p.DSIHOST, p.PJ2, p.PH7, embassy_stm32f469i_disco::BoardHint::Auto);
     let _ = display;
 
     embassy_stm32::interrupt::USART6.disable();

@@ -274,7 +274,7 @@ async fn main(_spawner: Spawner) {
     });
 
     log_info!("Initializing display...");
-    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.PH7, embassy_stm32f469i_disco::BoardHint::ForceNt35510);
+    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.LTDC, p.DSIHOST, p.PJ2, p.PH7, embassy_stm32f469i_disco::BoardHint::ForceNt35510);
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
     let mut led = embassy_stm32::gpio::Output::new(
