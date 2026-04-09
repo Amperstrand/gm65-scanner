@@ -38,6 +38,11 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> b
     let qr_size = qr.size();
     let total = qr_size + border * 2;
 
+    let max_total = ((fb_width - 40) / (border * 2 + 1)).min((fb_height - 80) / (border * 2 + 1));
+    if total > max_total {
+        return false;
+    }
+
     let max_scale_x = (fb_width - 40) / total;
     let max_scale_y = (fb_height - 80) / total;
     let scale = max_scale_x.min(max_scale_y).max(1) as u32;

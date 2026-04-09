@@ -253,12 +253,17 @@ impl<'a> CdcPort<'a> {
         }
 
         let mut offset = 0;
+        let mut attempts = 0u32;
         while offset < len {
             match self.serial.write(&self.tx_buf[offset..len]) {
                 Ok(written) if written > 0 => {
                     offset += written;
                 }
                 _ => {
+                    attempts += 1;
+                    if attempts >= 10 {
+                        break;
+                    }
                     let _ = self.serial.flush();
                 }
             }

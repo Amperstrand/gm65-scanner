@@ -37,10 +37,11 @@ pub fn format_u32_len(len: usize) -> heapless::String<16> {
     s
 }
 
+const HEX_TABLE: &[u8; 16] = b"0123456789ABCDEF";
+
 pub fn format_byte(b: u8) -> heapless::String<4> {
     let mut s = heapless::String::new();
-    let hex = b"0123456789ABCDEF";
-    let _ = s.push(hex[(b >> 4) as usize] as char);
-    let _ = s.push(hex[(b & 0x0F) as usize] as char);
+    let _ = s.push(HEX_TABLE[(b >> 4) as usize] as char);
+    let _ = s.push(HEX_TABLE[(b & 0x0F) as usize] as char);
     s
 }
