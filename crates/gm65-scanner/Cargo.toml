@@ -19,7 +19,6 @@ default = ["sync"]
 sync = ["dep:embedded-hal-02", "dep:nb"]
 async = ["dep:embedded-io-async", "sync", "dep:embassy-time"]
 defmt = ["dep:defmt"]
-std = []
 
 # Testing
 hil-tests = ["async", "defmt"]

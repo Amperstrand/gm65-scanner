@@ -31,6 +31,7 @@ impl ScanBuffer {
     }
 
     /// Append a byte. Returns `false` if the buffer is full.
+    #[must_use]
     pub fn push(&mut self, byte: u8) -> bool {
         if self.len >= MAX_SCAN_SIZE {
             return false;
