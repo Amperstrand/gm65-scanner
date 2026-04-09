@@ -96,7 +96,7 @@ impl fmt::Display for ScannerError {
 impl core::error::Error for ScannerError {}
 
 /// Scanner configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScannerConfig {
     /// Detected or expected scanner model.

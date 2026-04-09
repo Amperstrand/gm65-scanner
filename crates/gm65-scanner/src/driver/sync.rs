@@ -624,14 +624,6 @@ mod tests {
             self.inner.borrow().written.clone()
         }
 
-        #[allow(dead_code)]
-        fn push_response(&self, data: &[u8]) {
-            self.inner
-                .borrow_mut()
-                .pending_responses
-                .push(Vec::from(data));
-        }
-
         fn load_read_queue(&self, data: &[u8]) {
             self.inner.borrow_mut().read_queue.extend_from_slice(data);
         }

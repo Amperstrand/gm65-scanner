@@ -720,11 +720,6 @@ mod time_driver {
     extern "C" fn _embassy_time_schedule_wake(at: u64) {
         MOCK_TIME.store(at, Ordering::Relaxed);
     }
-
-    #[allow(dead_code)]
-    pub fn advance_time(nanos: u64) {
-        MOCK_TIME.fetch_add(nanos, Ordering::Relaxed);
-    }
 }
 
 #[cfg(test)]

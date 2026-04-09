@@ -11,6 +11,7 @@
 pub const MAX_SCAN_SIZE: usize = 2048;
 
 /// Fixed-size ring buffer for accumulating UART scan data.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanBuffer {
     data: [u8; MAX_SCAN_SIZE],
     len: usize,

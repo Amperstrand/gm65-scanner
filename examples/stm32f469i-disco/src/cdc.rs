@@ -35,14 +35,17 @@ impl Command {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Status {
     Ok = 0x00,
     Error = 0xFF,
+    #[allow(dead_code)]
     InvalidCommand = 0x01,
+    #[allow(dead_code)]
     InvalidPayload = 0x02,
+    #[allow(dead_code)]
     BufferOverflow = 0x03,
     ScannerNotConnected = 0x10,
+    #[allow(dead_code)]
     ScannerBusy = 0x11,
     NoScanData = 0x12,
 }
