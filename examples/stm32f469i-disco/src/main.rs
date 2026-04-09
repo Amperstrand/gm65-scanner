@@ -24,10 +24,11 @@ use stm32f469i_disc::{
 use hal::otg_fs::{UsbBus, UsbBusType};
 use usb_device::prelude::*;
 
-use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerModel, ScannerSettings, ScannerState};
+use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerSettings, ScannerState};
 
 mod cdc;
 mod display_utils;
+mod scanner_utils;
 mod display {
     const DISPLAY_CENTER_X: i32 = 240;
     const DISPLAY_MAX_Y: u32 = 800;
@@ -186,12 +187,7 @@ fn main() -> ! {
     let mut model_str: &str = "Unknown";
     let scanner_connected = match scanner.init() {
         Ok(model) => {
-            model_str = match model {
-                ScannerModel::Gm65 => "GM65",
-                ScannerModel::M3Y => "M3Y",
-                ScannerModel::Generic => "Generic",
-                ScannerModel::Unknown => "Unknown",
-            };
+            model_str = scanner_utils::model_to_str(model);
             true
         }
         Err(_) => false,
@@ -347,14 +343,7 @@ fn main() -> ! {
                                 display::render_home(&mut fb, scanner_connected, model_str);
                             } else if dy >= 120 && dy < 570 && dx >= 10 && dx < 460 {
                                 let row = ((dy - 120) / 90) as usize;
-                                let toggled = match row {
-                                    0 => Some(ScannerSettings::SOUND),
-                                    1 => Some(ScannerSettings::AIM),
-                                    2 => Some(ScannerSettings::LIGHT),
-                                    3 => Some(ScannerSettings::CONTINUOUS),
-                                    4 => Some(ScannerSettings::COMMAND),
-                                    _ => None,
-                                };
+                                let toggled = scanner_utils::row_to_settings_flag(row);
                                 if let Some(flag) = toggled {
                                     current_settings ^= flag;
                                     if scanner_connected {
@@ -406,25 +395,14 @@ fn handle_command(
 fn handle_scanner_status(scanner: &mut Gm65Scanner<Serial6>) -> Response {
     let _ = scanner.stop_scan();
     let status = scanner.status();
-    let mut payload = [0u8; MAX_PAYLOAD_SIZE];
-    let mut offset = 0;
+    let model_byte = scanner_utils::model_to_status_byte(status.model);
+    let payload = scanner_utils::build_scanner_status_payload(
+        status.connected,
+        status.initialized,
+        model_byte,
+    );
 
-    payload[offset] = if status.connected { 1 } else { 0 };
-    offset += 1;
-    payload[offset] = if status.initialized { 1 } else { 0 };
-    offset += 1;
-
-    let model_byte: u8 = match status.model {
-        ScannerModel::Gm65 => 0x01,
-        ScannerModel::M3Y => 0x02,
-        ScannerModel::Generic => 0x03,
-        ScannerModel::Unknown => 0x00,
-    };
-    payload[offset] = model_byte;
-    offset += 1;
-
-    Response::with_payload(Status::Ok, &payload[..offset])
-        .unwrap_or_else(|| Response::new(Status::Error))
+    Response::with_payload(Status::Ok, &payload).unwrap_or_else(|| Response::new(Status::Error))
 }
 
 fn handle_scanner_trigger(
@@ -455,13 +433,7 @@ fn handle_scanner_data(
             let payload = gm65_scanner::decode_payload(&data[..len]);
             render_decoded_scan(fb, &payload);
 
-            let type_byte: u8 = match payload_type {
-                gm65_scanner::PayloadType::CashuV4 => 0x01,
-                gm65_scanner::PayloadType::CashuV3 => 0x02,
-                gm65_scanner::PayloadType::UrFragment => 0x03,
-                gm65_scanner::PayloadType::PlainText | gm65_scanner::PayloadType::Url => 0x00,
-                gm65_scanner::PayloadType::Binary => 0x04,
-            };
+            let type_byte = scanner_utils::payload_type_to_byte(payload_type);
             let mut buf = [0u8; MAX_PAYLOAD_SIZE];
             buf[0] = type_byte;
             buf[1..len + 1].copy_from_slice(&data[..len]);

@@ -68,6 +68,61 @@ mod async_shared {
 use embassy_stm32::bind_interrupts;
 
 #[cfg(feature = "scanner-async")]
+const CHANNEL_CAPACITY: usize = 4;
+#[cfg(feature = "scanner-async")]
+const CMD_CHANNEL_CAPACITY: usize = 8;
+#[cfg(feature = "scanner-async")]
+const MODEL_STR_LEN: usize = 16;
+
+#[cfg(feature = "scanner-async")]
+const USB_BUF_SIZE: usize = 256;
+#[cfg(feature = "scanner-async")]
+const USB_SMALL_BUF_SIZE: usize = 64;
+#[cfg(feature = "scanner-async")]
+const MAX_PAYLOAD_COPY: usize = 255;
+#[cfg(feature = "scanner-async")]
+const QR_MAX_DATA_LEN: usize = 200;
+
+#[cfg(feature = "scanner-async")]
+const TOUCH_POLL_MS: u64 = 20;
+#[cfg(feature = "scanner-async")]
+const SETTINGS_COMMIT_DELAY_MS: u64 = 50;
+#[cfg(feature = "scanner-async")]
+const LED_BLINK_MS: u64 = 100;
+#[cfg(feature = "scanner-async")]
+const AUTO_SCAN_PAUSE_MS: u64 = 200;
+#[cfg(feature = "scanner-async")]
+const TRIGGER_RETRY_MS: u64 = 500;
+#[cfg(feature = "scanner-async")]
+const TOUCH_RETRY_DELAY_MS: u64 = 50;
+#[cfg(feature = "scanner-async")]
+const TOUCH_DEBOUNCE_MS: u64 = 200;
+#[cfg(feature = "scanner-async")]
+const USB_DISCONNECT_DELAY_MS: u64 = 100;
+
+#[cfg(feature = "scanner-async")]
+const HSE_FREQ_HZ: u32 = 8_000_000;
+#[cfg(feature = "scanner-async")]
+const SYSCLK_HZ: u32 = 180_000_000;
+#[cfg(feature = "scanner-async")]
+const UART_BAUD: u32 = 115200;
+
+#[cfg(feature = "scanner-async")]
+const USB_VID: u16 = 0xc0de;
+#[cfg(feature = "scanner-async")]
+const USB_PID: u16 = 0xcafe;
+
+#[cfg(feature = "scanner-async")]
+const DISPLAY_MAX_X: i32 = 479;
+#[cfg(feature = "scanner-async")]
+const SETTINGS_ROW_X_START: i32 = 10;
+#[cfg(feature = "scanner-async")]
+const SETTINGS_ROW_X_END: i32 = 460;
+
+#[cfg(feature = "scanner-async")]
+const LED_BLINK_COUNT: u8 = 3;
+
+#[cfg(feature = "scanner-async")]
 macro_rules! log_info {
     ($($arg:tt)*) => {
         #[cfg(feature = "defmt")]
@@ -101,17 +156,17 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 #[cfg(feature = "scanner-async")]
-static SCAN_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, 4> = Channel::new();
+static SCAN_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
-static SDRAM_CHANNEL: Channel<CriticalSectionRawMutex, SdramStatus, 4> = Channel::new();
+static SDRAM_CHANNEL: Channel<CriticalSectionRawMutex, SdramStatus, CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
-static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayEvent, 4> = Channel::new();
+static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayEvent, CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
-static TOUCH_CHANNEL: Channel<CriticalSectionRawMutex, TouchEvent, 4> = Channel::new();
+static TOUCH_CHANNEL: Channel<CriticalSectionRawMutex, TouchEvent, CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
-static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, HostCommand, 8> = Channel::new();
+static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, HostCommand, CMD_CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
-static CDC_RESPONSE_CHANNEL: Channel<CriticalSectionRawMutex, CdcResponse, 8> = Channel::new();
+static CDC_RESPONSE_CHANNEL: Channel<CriticalSectionRawMutex, CdcResponse, CMD_CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
 static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState::new());
 #[cfg(feature = "scanner-async")]
@@ -165,7 +220,7 @@ pub enum HostCommand {
 #[cfg(feature = "scanner-async")]
 #[derive(Clone)]
 pub enum CdcResponse {
-    ScannerStatus { connected: bool, fw_byte: u8 },
+    ScannerStatus([u8; 3]),
     TriggerOk,
     TriggerFail,
     ScanData { data: Vec<u8>, type_byte: u8 },
@@ -181,7 +236,9 @@ pub enum CdcResponse {
 #[cfg(feature = "scanner-async")]
 pub struct SharedState {
     pub scanner_connected: bool,
-    pub model_str: [u8; 16],
+    pub scanner_initialized: bool,
+    pub model: ScannerModel,
+    pub model_str: [u8; MODEL_STR_LEN],
     pub model_len: usize,
     pub last_scan: Option<Vec<u8>>,
     pub settings: Option<ScannerSettings>,
@@ -193,22 +250,14 @@ impl SharedState {
     const fn new() -> Self {
         Self {
             scanner_connected: false,
-            model_str: [0; 16],
+            scanner_initialized: false,
+            model: ScannerModel::Unknown,
+            model_str: [0; MODEL_STR_LEN],
             model_len: 0,
             last_scan: None,
             settings: None,
             auto_scan: false,
         }
-    }
-}
-
-#[cfg(feature = "scanner-async")]
-fn model_to_str(model: ScannerModel) -> &'static str {
-    match model {
-        ScannerModel::Gm65 => "GM65",
-        ScannerModel::M3Y => "M3Y",
-        ScannerModel::Generic => "Generic",
-        ScannerModel::Unknown => "Unknown",
     }
 }
 
@@ -237,7 +286,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
+            freq: Hertz(HSE_FREQ_HZ),
             mode: HseMode::Oscillator,
         });
         config.rcc.pll_src = PllSource::HSE;
@@ -272,7 +321,7 @@ async fn main(_spawner: Spawner) {
     });
 
     log_info!("Initializing SDRAM...");
-    let sdram = SdramCtrl::new(&mut p, 180_000_000);
+    let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ);
     let sdram_base = sdram.base_address();
     let sdram_ok = sdram.test_quick();
     log_info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
@@ -293,14 +342,14 @@ async fn main(_spawner: Spawner) {
 
     embassy_stm32::interrupt::USART6.disable();
     let mut uart_config = usart::Config::default();
-    uart_config.baudrate = 115200;
+    uart_config.baudrate = UART_BAUD;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
 
     let async_uart = async_shared::AsyncUart {
         inner: uart,
     };
 
-    let mut ep_out_buffer = [0u8; 256];
+    let mut ep_out_buffer = [0u8; USB_BUF_SIZE];
     let mut usb_config = usb::Config::default();
     usb_config.vbus_detection = false;
     let usb_driver = usb::Driver::new_fs(
@@ -312,15 +361,15 @@ async fn main(_spawner: Spawner) {
         usb_config,
     );
 
-    let mut usb_config_desc = embassy_usb::Config::new(0xc0de, 0xcafe);
+    let mut usb_config_desc = embassy_usb::Config::new(USB_VID, USB_PID);
     usb_config_desc.manufacturer = Some("gm65-scanner");
     usb_config_desc.product = Some("QR Scanner");
     usb_config_desc.serial_number = Some("f469disco");
 
-    let mut config_descriptor = [0; 256];
-    let mut bos_descriptor = [0; 256];
-    let mut msos_descriptor = [0; 256];
-    let mut control_buf = [0; 64];
+    let mut config_descriptor = [0; USB_BUF_SIZE];
+    let mut bos_descriptor = [0; USB_BUF_SIZE];
+    let mut msos_descriptor = [0; USB_BUF_SIZE];
+    let mut control_buf = [0; USB_SMALL_BUF_SIZE];
 
     let mut usb_state = State::new();
     let mut usb_builder = Builder::new(
@@ -331,7 +380,7 @@ async fn main(_spawner: Spawner) {
         &mut msos_descriptor,
         &mut control_buf,
     );
-    let mut cdc = CdcAcmClass::new(&mut usb_builder, &mut usb_state, 64);
+    let mut cdc = CdcAcmClass::new(&mut usb_builder, &mut usb_state, USB_SMALL_BUF_SIZE as u16);
     let mut usb_dev = usb_builder.build();
 
     log_info!("Initializing touch controller...");
@@ -366,12 +415,14 @@ async fn main(_spawner: Spawner) {
             match result {
                 Ok(model) => {
                     log_info!("Scanner: detected {:?}", model);
-                    let model_str = model_to_str(model);
+                    let model_str = scanner_utils::model_to_str(model);
                     {
                         let mut shared = SHARED.lock().await;
                         shared.scanner_connected = true;
+                        shared.scanner_initialized = true;
+                        shared.model = model;
                         let bytes = model_str.as_bytes();
-                        let model_len = bytes.len().min(16);
+                        let model_len = bytes.len().min(MODEL_STR_LEN);
                         shared.model_len = model_len;
                         shared.model_str[..model_len].copy_from_slice(bytes);
                     }
@@ -437,7 +488,7 @@ async fn main(_spawner: Spawner) {
                         scanner.cancel_scan();
                         let _ = scanner.stop_scan().await;
                         scanner.set_scanner_settings(s).await;
-                        Timer::after_millis(50).await;
+                        Timer::after_millis(SETTINGS_COMMIT_DELAY_MS).await;
                         if let Some(readback) = scanner.get_scanner_settings().await {
                             let mut shared = SHARED.lock().await;
                             shared.settings = Some(readback);
@@ -475,23 +526,21 @@ async fn main(_spawner: Spawner) {
                         scanner.cancel_scan();
                         let _ = scanner.stop_scan().await;
                         let shared = SHARED.lock().await;
-                        let _ = CDC_RESPONSE_CHANNEL.try_send(CdcResponse::ScannerStatus {
-                            connected: shared.scanner_connected,
-                            fw_byte: 0x01,
-                        });
+                        let model_byte = scanner_utils::model_to_status_byte(shared.model);
+                        let payload = scanner_utils::build_scanner_status_payload(
+                            shared.scanner_connected,
+                            shared.scanner_initialized,
+                            model_byte,
+                        );
+                        let _ = CDC_RESPONSE_CHANNEL.try_send(CdcResponse::ScannerStatus(payload));
                     }
                     HostCommand::ScannerDataCdc => {
                         let mut shared = SHARED.lock().await;
                         match shared.last_scan.take() {
                             Some(data) => {
-                                let type_byte: u8 = match gm65_scanner::classify_payload(&data) {
-                                    gm65_scanner::PayloadType::CashuV4 => 0x01,
-                                    gm65_scanner::PayloadType::CashuV3 => 0x02,
-                                    gm65_scanner::PayloadType::UrFragment => 0x03,
-                                    gm65_scanner::PayloadType::PlainText
-                                    | gm65_scanner::PayloadType::Url => 0x00,
-                                    gm65_scanner::PayloadType::Binary => 0x04,
-                                };
+                                let type_byte = scanner_utils::payload_type_to_byte(
+                                    gm65_scanner::classify_payload(&data),
+                                );
                                 let _ = CDC_RESPONSE_CHANNEL.try_send(CdcResponse::ScanData {
                                     data: data.clone(),
                                     type_byte,
@@ -518,7 +567,7 @@ async fn main(_spawner: Spawner) {
             }
 
             if scanner.trigger_scan().await.is_err() {
-                Timer::after(Duration::from_millis(500)).await;
+                Timer::after(Duration::from_millis(TRIGGER_RETRY_MS)).await;
                 continue;
             }
 
@@ -535,11 +584,11 @@ async fn main(_spawner: Spawner) {
                                 let mut shared = SHARED.lock().await;
                                 shared.last_scan = Some(data);
                             }
-                            for _ in 0..3 {
+                            for _ in 0..LED_BLINK_COUNT {
                                 led.set_high();
-                                Timer::after(Duration::from_millis(100)).await;
+                                Timer::after(Duration::from_millis(LED_BLINK_MS)).await;
                                 led.set_low();
-                                Timer::after(Duration::from_millis(100)).await;
+                                Timer::after(Duration::from_millis(LED_BLINK_MS)).await;
                             }
                         }
                         None => {
@@ -562,17 +611,11 @@ async fn main(_spawner: Spawner) {
         macro_rules! write_cdc_response {
             ($resp:expr) => {
                 match $resp {
-                    CdcResponse::ScannerStatus { connected, fw_byte } => {
+                    CdcResponse::ScannerStatus(payload) => {
                         let _ = cdc
-                            .write_packet(&[
-                                Status::Ok.to_byte(),
-                                0,
-                                3,
-                                if connected { 1 } else { 0 },
-                                1,
-                                fw_byte,
-                            ])
+                            .write_packet(&[Status::Ok.to_byte(), 0, payload.len() as u8])
                             .await;
+                        let _ = cdc.write_packet(&payload).await;
                     }
                     CdcResponse::TriggerOk => {
                         let _ = DISPLAY_CHANNEL
@@ -586,9 +629,9 @@ async fn main(_spawner: Spawner) {
                     }
                     CdcResponse::ScanData { data, type_byte } => {
                         let len = data.len();
-                        let mut buf = [0u8; 256];
+                        let mut buf = [0u8; USB_BUF_SIZE];
                         buf[0] = type_byte;
-                        let copy_len = len.min(255);
+                        let copy_len = len.min(MAX_PAYLOAD_COPY);
                         buf[1..copy_len + 1].copy_from_slice(&data[..copy_len]);
                         let _ = cdc
                             .write_packet(&[Status::Ok.to_byte(), 0, (copy_len + 1) as u8])
@@ -628,22 +671,16 @@ async fn main(_spawner: Spawner) {
             cdc.wait_connection().await;
             log_info!("USB: connected");
 
-            let mut rx_buf = [0u8; 256];
+            let mut rx_buf = [0u8; USB_BUF_SIZE];
             let mut frame_decoder = FrameDecoder::new();
 
             loop {
                 if let Ok(result) = SCAN_CHANNEL.try_receive() {
                     let data_str = String::from_utf8_lossy(&result.data);
                     let payload = &result.data;
-                    let type_byte: u8 = match gm65_scanner::classify_payload(payload) {
-                        gm65_scanner::PayloadType::CashuV4 => 0x01,
-                        gm65_scanner::PayloadType::CashuV3 => 0x02,
-                        gm65_scanner::PayloadType::UrFragment => 0x03,
-                        gm65_scanner::PayloadType::PlainText | gm65_scanner::PayloadType::Url => {
-                            0x00
-                        }
-                        gm65_scanner::PayloadType::Binary => 0x04,
-                    };
+                    let type_byte = scanner_utils::payload_type_to_byte(
+                        gm65_scanner::classify_payload(payload),
+                    );
                     let mut msg = String::from("[SCAN] ");
                     msg.push_str(&data_str);
                     msg.push_str("\r\n");
@@ -653,7 +690,7 @@ async fn main(_spawner: Spawner) {
                                 let mut shared = SHARED.lock().await;
                                 shared.auto_scan = false;
                             }
-                    Timer::after(Duration::from_millis(200)).await;
+                            Timer::after(Duration::from_millis(AUTO_SCAN_PAUSE_MS)).await;
                             {
                                 let mut shared = SHARED.lock().await;
                                 shared.auto_scan = true;
@@ -757,7 +794,7 @@ async fn main(_spawner: Spawner) {
 
             }
             log_info!("USB: disconnected");
-            Timer::after(Duration::from_millis(100)).await;
+            Timer::after(Duration::from_millis(USB_DISCONNECT_DELAY_MS)).await;
         }
     };
 
@@ -768,7 +805,7 @@ async fn main(_spawner: Spawner) {
             match event {
                 DisplayEvent::Scan(result) => {
                     let data_str = core::str::from_utf8(&result.data);
-                    if data_str.is_ok() && result.data.len() <= 200 {
+                    if data_str.is_ok() && result.data.len() <= QR_MAX_DATA_LEN {
                         crate::qr_display_async::render_qr_mirror(&mut display.fb(), &result.data);
                     } else {
                         crate::display_async::render_scan_result(&mut display.fb(), &result.data);
@@ -811,7 +848,7 @@ async fn main(_spawner: Spawner) {
         let mut pending_tap: Option<(u16, u16)> = None;
 
         loop {
-            Timer::after(embassy_time::Duration::from_millis(20)).await;
+            Timer::after(embassy_time::Duration::from_millis(TOUCH_POLL_MS)).await;
             if let Ok(n) = touch_ctrl.td_status(&mut touch_i2c) {
                 if n > 0 {
                     if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
@@ -819,7 +856,7 @@ async fn main(_spawner: Spawner) {
                         let ty = point.y;
                         // FT6X06 reports phantom touches at edges (BSP touch.rs)
                         if tx >= TOUCH_MARGIN
-                            && tx <= 479 - TOUCH_MARGIN
+                            && i32::from(tx) <= DISPLAY_MAX_X - i32::from(TOUCH_MARGIN)
                             && ty >= TOUCH_MARGIN
                             && ty <= 799 - TOUCH_MARGIN
                         {
@@ -832,7 +869,7 @@ async fn main(_spawner: Spawner) {
                         let _ = TOUCH_CHANNEL.try_send(TouchEvent::Tap { x, y });
                     }
                     finger_down = false;
-                    Timer::after(Duration::from_millis(200)).await;
+                    Timer::after(Duration::from_millis(TOUCH_DEBOUNCE_MS)).await;
                 }
             }
         }
@@ -863,30 +900,20 @@ async fn main(_spawner: Spawner) {
                         continue;
                     }
 
-                    if y >= ROW_Y_START && y < ROW_Y_END && x >= 10 && x < 460 {
+                    if y >= ROW_Y_START
+                        && y < ROW_Y_END
+                        && i32::from(x) >= SETTINGS_ROW_X_START
+                        && i32::from(x) < SETTINGS_ROW_X_END
+                    {
                         let row = ((y - ROW_Y_START) / ROW_SPACING) as usize;
                         let mut shared = SHARED.lock().await;
                         let mut settings =
                             shared.settings.unwrap_or(ScannerSettings::default());
 
-                        match row {
-                            0 => {
-                                settings ^= ScannerSettings::SOUND;
-                            }
-                            1 => {
-                                settings ^= ScannerSettings::AIM;
-                            }
-                            2 => {
-                                settings ^= ScannerSettings::LIGHT;
-                            }
-                            3 => {
-                                settings ^= ScannerSettings::CONTINUOUS;
-                            }
-                            4 => {
-                                settings ^= ScannerSettings::COMMAND;
-                            }
-                            _ => continue,
-                        }
+                        let Some(flag) = scanner_utils::row_to_settings_flag(row) else {
+                            continue;
+                        };
+                        settings ^= flag;
 
                         shared.settings = Some(settings);
                         let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
@@ -895,7 +922,7 @@ async fn main(_spawner: Spawner) {
                     }
                 }
                 Err(_) => {
-                    Timer::after(Duration::from_millis(50)).await;
+                    Timer::after(Duration::from_millis(TOUCH_RETRY_DELAY_MS)).await;
                 }
             }
         }
@@ -925,6 +952,8 @@ fn main() -> ! {
 
 #[path = "../display_utils.rs"]
 mod display_utils;
+#[path = "../scanner_utils.rs"]
+mod scanner_utils;
 mod display_async {
     const DISPLAY_CENTER_X: i32 = 240;
     const DISPLAY_MAX_Y: u32 = 800;
