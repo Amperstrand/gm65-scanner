@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["sync-mode", "hil-tests", "defmt"]
+default = ["sync-mode"]
 sync-mode = [
     "gm65-scanner/sync",
     "dep:stm32f469i-disc", "dep:usbd-serial", "dep:panic-halt",
