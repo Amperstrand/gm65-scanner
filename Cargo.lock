@@ -430,6 +430,7 @@ dependencies = [
  "nt35510",
  "otm8009a 0.1.0",
  "stm32-fmc",
+ "stm32-metapac",
 ]
 
 [[package]]
@@ -1318,11 +1319,13 @@ dependencies = [
  "linked_list_allocator",
  "nb 1.1.0",
  "nt35510",
+ "otm8009a 0.2.0",
  "panic-halt",
  "panic-probe",
  "qrcodegen-no-heap",
  "static_cell",
  "stm32-fmc",
+ "stm32-metapac",
  "stm32f4",
  "stm32f469i-disc",
  "usb-device",

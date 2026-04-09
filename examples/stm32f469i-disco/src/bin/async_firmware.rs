@@ -242,17 +242,17 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
+            prediv: PllPreDiv::DIV8,
+            mul: PllMul::MUL360,
             divp: Some(PllPDiv::DIV2),
             divq: Some(PllQDiv::DIV7),
-            divr: None,
+            divr: Some(PllRDiv::DIV6),
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
         config.rcc.apb1_pre = APBPrescaler::DIV4;
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
         config.rcc.pllsai = Some(Pll {
             prediv: PllPreDiv::DIV8,
             mul: PllMul::MUL384,
@@ -263,8 +263,16 @@ async fn main(_spawner: Spawner) {
     }
     let mut p = embassy_stm32::init(config);
 
+    // WORKAROUND: embassy-stm32 writes CK48MSEL to DCKCFGR (wrong register on STM32F469).
+    // USB 48MHz mux is in DCKCFGR2 bit 27, not DCKCFGR bit 27.
+    // Without this, USB uses default PLL1_Q (51.4MHz at 180MHz), which fails enumeration.
+    // See: https://github.com/Amperstrand/gm65-scanner/issues/23
+    stm32_metapac::RCC.dckcfgr2().modify(|w| {
+        w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q);
+    });
+
     log_info!("Initializing SDRAM...");
-    let sdram = SdramCtrl::new(&mut p, 168_000_000);
+    let sdram = SdramCtrl::new(&mut p, 180_000_000);
     let sdram_base = sdram.base_address();
     let sdram_ok = sdram.test_quick();
     log_info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
@@ -328,7 +336,7 @@ async fn main(_spawner: Spawner) {
 
     log_info!("Initializing touch controller...");
     let i2c_config = i2c::Config::default();
-    let mut touch_i2c = i2c::I2c::new_blocking(p.I2C2, p.PB10, p.PB11, i2c_config);
+    let mut touch_i2c = i2c::I2c::new_blocking(p.I2C1, p.PB8, p.PB9, i2c_config);
     let touch_ctrl = TouchCtrl::new();
     let touch_ok = touch_ctrl.read_vendor_id(&mut touch_i2c).is_ok();
     log_info!("Touch: vendor_id read {}", touch_ok);
@@ -645,7 +653,7 @@ async fn main(_spawner: Spawner) {
                                 let mut shared = SHARED.lock().await;
                                 shared.auto_scan = false;
                             }
-                            Timer::after(Duration::from_millis(500)).await;
+                    Timer::after(Duration::from_millis(200)).await;
                             {
                                 let mut shared = SHARED.lock().await;
                                 shared.auto_scan = true;
@@ -798,16 +806,33 @@ async fn main(_spawner: Spawner) {
         if !touch_ok {
             return;
         }
+        const TOUCH_MARGIN: u16 = 3;
+        let mut finger_down = false;
+        let mut pending_tap: Option<(u16, u16)> = None;
+
         loop {
-            Timer::after(embassy_time::Duration::from_millis(50)).await;
+            Timer::after(embassy_time::Duration::from_millis(20)).await;
             if let Ok(n) = touch_ctrl.td_status(&mut touch_i2c) {
                 if n > 0 {
                     if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
-                        let _ = TOUCH_CHANNEL.try_send(TouchEvent::Tap {
-                            x: point.x,
-                            y: point.y,
-                        });
+                        let tx = point.x;
+                        let ty = point.y;
+                        // FT6X06 reports phantom touches at edges (BSP touch.rs)
+                        if tx >= TOUCH_MARGIN
+                            && tx <= 479 - TOUCH_MARGIN
+                            && ty >= TOUCH_MARGIN
+                            && ty <= 799 - TOUCH_MARGIN
+                        {
+                            pending_tap = Some((tx, ty));
+                        }
+                        finger_down = true;
                     }
+                } else if finger_down {
+                    if let Some((x, y)) = pending_tap.take() {
+                        let _ = TOUCH_CHANNEL.try_send(TouchEvent::Tap { x, y });
+                    }
+                    finger_down = false;
+                    Timer::after(Duration::from_millis(200)).await;
                 }
             }
         }
@@ -817,47 +842,60 @@ async fn main(_spawner: Spawner) {
         if !touch_ok {
             return;
         }
+        // Hit zones must match display.rs render_scanner_settings() layout
+        const ROW_SPACING: u16 = 90;
+        const ROW_Y_START: u16 = 120;
+        const ROW_Y_END: u16 = 570;
+        const BACK_Y: u16 = 715;
+        const BACK_Y_END: u16 = 765;
+        const BACK_X_START: u16 = 40;
+        const BACK_X_END: u16 = 240;
+
         loop {
             match TOUCH_CHANNEL.try_receive() {
                 Ok(TouchEvent::Tap { x, y }) => {
-                    if y < 80 {
-                        continue;
-                    }
-
-                    let back_y = 80u16 + 5 * 35;
-                    if y >= back_y && y < back_y + 40 && x < 200 {
+                    if y >= BACK_Y
+                        && y < BACK_Y_END
+                        && x >= BACK_X_START
+                        && x < BACK_X_END
+                    {
                         let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
                         continue;
                     }
 
-                    let row = ((y - 80) / 35) as usize;
-                    let mut shared = SHARED.lock().await;
-                    let mut settings = shared.settings.unwrap_or(ScannerSettings::default());
+                    if y >= ROW_Y_START && y < ROW_Y_END && x >= 10 && x < 460 {
+                        let row = ((y - ROW_Y_START) / ROW_SPACING) as usize;
+                        let mut shared = SHARED.lock().await;
+                        let mut settings =
+                            shared.settings.unwrap_or(ScannerSettings::default());
 
-                    match row {
-                        0 => {
-                            settings ^= ScannerSettings::SOUND;
+                        match row {
+                            0 => {
+                                settings ^= ScannerSettings::SOUND;
+                            }
+                            1 => {
+                                settings ^= ScannerSettings::AIM;
+                            }
+                            2 => {
+                                settings ^= ScannerSettings::LIGHT;
+                            }
+                            3 => {
+                                settings ^= ScannerSettings::CONTINUOUS;
+                            }
+                            4 => {
+                                settings ^= ScannerSettings::COMMAND;
+                            }
+                            _ => continue,
                         }
-                        1 => {
-                            settings ^= ScannerSettings::AIM;
-                        }
-                        2 => {
-                            settings ^= ScannerSettings::LIGHT;
-                        }
-                        3 => {
-                            settings ^= ScannerSettings::CONTINUOUS;
-                        }
-                        4 => {
-                            settings ^= ScannerSettings::COMMAND;
-                        }
-                        _ => continue,
+
+                        shared.settings = Some(settings);
+                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
+                        let _ =
+                            COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings));
                     }
-
-                    shared.settings = Some(settings);
-                    let _ = COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings));
                 }
                 Err(_) => {
-                    Timer::after(Duration::from_millis(100)).await;
+                    Timer::after(Duration::from_millis(50)).await;
                 }
             }
         }
