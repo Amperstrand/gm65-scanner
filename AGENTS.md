@@ -6,13 +6,18 @@
 - Scanner: GM65/M3Y, firmware 0x87
 - UART: USART6, PG14 (TX) / PG9 (RX), 115200 baud
 - USB: USB OTG FS, PA12 (DP) / PA11 (DM)
+- Display: 480×800 portrait via DSI/LTDC (NT35510), RGB888/ARGB8888 pixel format
+- SDRAM: 16MB via FMC, framebuffer 1.5MB (u32 × 384000 pixels)
+- Touch: FT6X06 on I2C1 (PB8=SCL, PB9=SDA), identity transform
+- Clock: 180MHz SYSCLK, PLLSAI_Q=48MHz for USB, PLLSAI_R for LTDC pixel clock
 
 ## Known-Good Pins
 
 | Commit | Notes |
 |--------|-------|
 | `83ecbad` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. BSP `ea3b1b2`, embassy BSP `373a9ae`. |
-| `1c30ef3` (main HEAD) | Async display investigation. 5 DSI init bugs found/fixed in BSP fork `972998f` — screen still black. Sync firmware fully working. See Async Black Screen section below. |
+| `UNCOMMITTED` | **Async display + DisplayCtrl WORKS.** `display_minimal` and `display_hybrid` both HW verified. `display_hybrid` uses BSP fork's `DisplayCtrl::new()` API with hardcoded NT35510 init, stm32_metapac typed LTDC accessors, RGB888/ARGB8888, portrait 480x800 at 180MHz. `async_firmware` updated to 180MHz clock (PLL1 DIV8/MUL360, PLLSAI_Q for USB 48MHz). All render code migrated from Rgb565 to Rgb888. See Async Display Resolved section below. |
+| `UNCOMMITTED` | **defmt leak fix in BSP dep.** `embassy-stm32f469i-disco` dependency changed from `features = ["defmt"]` (unconditional) to `default-features = false, features = ["display", "touch"]` + conditional `embassy-stm32f469i-disco/defmt` via workspace `defmt` feature. Both `scanner-async` (no defmt, USB works) and `scanner-async,defmt` (RTT logging, no USB) builds pass. |
 
 ## Touch Calibration
 
@@ -125,7 +130,7 @@ Both sync and async firmware verified on hardware with `st-flash` (no probe-rs):
 - **drain_uart data loss (#12)**: FIXED. `send_command()` skips drain when in `Scanning` state.
 - **Async CDC no data flow (#19)**: RESOLVED. Five root causes found and fixed: (1) PLLSAI `divq: None` crashes MCU, (2) double `USART6.disable()` crashes MCU, (3) `AsyncUart::read()` busy-poll starves USB in cooperative executor, (4) CDC task channel race — `try_receive()` on `CDC_RESPONSE_CHANNEL` polled before scanner task processed command, fixed by using `receive().await` after each command send, (5) `[ALIVE]` heartbeat every 3s corrupted protocol framing, fixed by removing heartbeat entirely. Additional fix: mutex guards held across `.await` causing deadlocks. Async firmware now enumerates and responds to CDC commands. See issue for full details.
 - **BSP memory.x wrong flash size**: embassy-stm32f469i-disco `memory.x` declares 1024K flash but STM32F469NIHx has 2048K. Filed as [Amperstrand/embassy-stm32f469i-disco#19](https://github.com/Amperstrand/embassy-stm32f469i-disco/issues/19).
-- **Heap/framebuffer overlap**: `DisplayOrientation::fb_size()` returns pixels (384,000), not bytes. Framebuffer uses `u16` (2 bytes/pixel), so actual size is `fb_size() * 2` (768,000 bytes). Heap offset must account for this or allocator metadata gets corrupted by display writes.
+- **Heap/framebuffer overlap**: `DisplayOrientation::fb_size()` returns pixels (384,000), not bytes. Framebuffer uses `u32` (4 bytes/pixel, ARGB8888), so actual size is `fb_size() * 4` (1,536,000 bytes). Heap offset must account for this or allocator metadata gets corrupted by display writes. Previously was `u16` (Rgb565) at 2 bytes/pixel.
 
 ## USB CDC + defmt_rtt Incompatibility (RESOLVED)
 
@@ -154,6 +159,7 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 3. **Conditional panic handlers**: Production builds use `panic_halt`; `panic_probe` only with `defmt` feature.
 4. **Conditional `defmt.x`**: `build.rs` generates an empty `defmt.x` in OUT_DIR when defmt is OFF (satisfying `-Tdefmt.x` in `.cargo/config.toml`). When defmt IS ON, the build.rs skips generation so the `defmt` crate's real `defmt.x` (with `_defmt_timestamp` PROVIDE) is found via its own `cargo:rustc-link-search`.
 5. **Feature structure**: `sync-mode` does NOT include `defmt-rtt`. `scanner-async` does NOT include `hil-tests` or `defmt`. `defmt` feature enables RTT + probe for debug/HIL builds only.
+6. **BSP fork defmt leak** (2026-04-09): `embassy-stm32f469i-disco` workspace dependency changed from `features = ["defmt"]` (unconditional) to `default-features = false, features = ["display", "touch"]` + conditional `embassy-stm32f469i-disco/defmt` via workspace `defmt` feature. This prevents defmt symbols from leaking into production (USB CDC) builds.
 
 ## Embassy Async: USB + Scanner Init Ordering (RESOLVED)
 
@@ -169,6 +175,8 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 
 1. **PLLSAI `divq: None` crashes MCU**: `config.rcc.pllsai` with `divq: None` causes immediate hard fault after USB enumeration. Fixed by setting `divq: Some(PllQDiv::DIV8)`, matching BSP commit `c136f11`.
 
+   **IMPORTANT UPDATE (2026-04-09)**: `divq: None` does NOT crash MCU — this was a misdiagnosis. The display works with `divq: None`. The real crash was caused by other issues (double USART6.disable, AsyncUart yield starvation). The display requires `divq: None` + PLLSAI_R for pixel clock. USB 48MHz comes from PLL1_Q (not PLLSAI_Q). These are separate clock paths.
+
 2. **Double `USART6.disable()` crashes MCU**: Two consecutive `embassy_stm32::interrupt::USART6.disable()` calls after UART creation — second call triggers undefined behavior. Fixed by removing the duplicate.
 
 3. **`AsyncUart::read()` busy-poll starves USB**: `yield_threshold = 500_000` causes `read()` to spin up to 500K times without yielding, completely starving `usb_dev.run()` in embassy's cooperative executor. Fixed by yielding immediately on every `WouldBlock`.
@@ -179,31 +187,76 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 
 - **Scanner task blocks on auto_scan**: During `read_scan()` (up to 10s timeout), `COMMAND_CHANNEL.try_receive()` is not polled. CDC commands sent during auto_scan are queued but not processed until the scan cycle completes. Fix: use `embassy_futures::select` to handle commands while scanning.
 - **GetSettings/Trigger fail during auto_scan**: Same root cause as above — scanner task can't process CDC commands while awaiting scan result.
-- **PLLSAI1_Q breaks USB enumeration**: BSP commit `c136f11` uses `PLLSAI1_Q` for 48MHz but this doesn't enumerate on our hardware. `PLL1_Q` works (same 48MHz, different PLL source). Likely PLLSAI startup timing issue.
+- ~~**PLLSAI1_Q breaks USB enumeration**~~: RESOLVED (2026-04-09). At 180MHz SYSCLK, PLLSAI_Q=DIV8 gives exact 48MHz and USB enumerates correctly via `mux::Clk48sel::PLLSAI1_Q`. The previous failure was at 168MHz where PLLSAI configuration was different.
 
-## Async Display Black Screen (IN PROGRESS)
+## Async Display Black Screen (RESOLVED)
 
-**Bug**: Embassy BSP's `DisplayCtrl::new()` produces a black screen. Sync BSP works with identical hardware. See [embassy-stm32f469i-disco#20](https://github.com/Amperstrand/embassy-stm32f469i-disco/issues/20).
+**Bug**: Embassy BSP's `DisplayCtrl::new()` produced a black screen. Sync BSP works with identical hardware. See [embassy-stm32f469i-disco#20](https://github.com/Amperstrand/embassy-stm32f469i-disco/issues/20).
 
-### 5 bugs found and fixed in BSP fork `972998f`
+### Resolution: `display_minimal` + `display_hybrid` HW verified (2026-04-09)
 
-1. **VMCR bit positions completely wrong** — LP transition bits shifted by 2 positions. Missing LPHBPE(12), LPHFPE(13), LPCE(15). Spurious PGM(20) enabled pattern generator instead of LTDC passthrough.
-2. **DSI timing ~1000x too large** — `pixel_clk=27_429` (Hz) used directly instead of kHz ratio. HSA=36,458 instead of 4. Vertical timing clock-scaled instead of raw line counts.
-3. **LTDC GCR missing DEN bit** — Only LTDCEN(0) set, missing DEN(1). Sync HAL sets both.
-4. **CMCR LP/HS mode missing** — No AllInLowPower/AllInHighPower switching around panel init.
-5. **nt35510 v0.1.0 vs git 7d588ef** — Different DCS command sequence (TEEON, COLMOD ordering, WRCTRLD, WRCABC, WRCABCMB).
+`display_minimal` shows 4 color bands (red/green/blue/white) in portrait 480x800. Mirrors the verified-working embassy example `examples/stm32f469/src/bin/dsi_bsp.rs` (commit `83e0d37`).
 
-### Screen still black — remaining hypotheses
+`display_hybrid` uses BSP fork's `DisplayCtrl::new()` API in embassy context — proves the BSP driver itself works, not just standalone DSI/LTDC code. HW verified.
 
-- **LTDC/DMA2D peripheral reset**: Sync HAL calls `LTDC::enable_unchecked()` + `LTDC::reset_unchecked()` + `DMA2D::enable_unchecked()` + `DMA2D::reset_unchecked()`. Embassy BSP only sets APB2ENR bits — never asserts APB2RSTR reset.
-- **WPCR0 UIX4**: Sync HAL calculates UIX4=13 from f_phy_bit=312.5 MHz. Embassy hardcodes UIX4=8.
-- **VCCR NUMC**: Sync writes NUMC=1, embassy writes NUMC=0.
-- **PLLSAI reconfiguration**: Sync HAL overwrites PLLSAICFGR from scratch. Embassy relies on `embassy_stm32::init()` config.
+### Root cause: BSP fork DSI timing and PLL config wrong
+
+The BSP fork's `display.rs` had **multiple incorrect values** that diverged from the ST BSP and the working embassy example:
+
+1. **DSI vertical timing completely wrong**: BSP used VSA=1/VBP=15/VFP=16. Working values are **VSA=120/VBP=150/VFP=150** (from ST BSP). These are raw line counts, not DSI lane clock cycles.
+2. **DSI NULL_PACKET missing**: BSP set NULL_PACKET_SIZE=0. Working value is **0xFFF**.
+3. **DSI VCCR NUMC wrong**: BSP set NUMC=1. Working value is **0**.
+4. **DSI LPMCR wrong**: BSP used LPSIZE=64/VLPSIZE=64. Working values are **LPSIZE=16/VLPSIZE=0**.
+5. **PLLSAI divq was incorrectly "fixed"**: We set `divq: Some(DIV8)` as a "fix" for CDC, but the working display example uses **`divq: None`**. The display and USB have different PLL requirements — this was a false fix.
+6. **PLL SYSCLK**: Working display requires 180MHz (DIV8/MUL360). Our async firmware used 168MHz (DIV4/MUL168) for USB 48MHz.
+7. **Pixel format**: Working example uses **RGB888 (DSI) + ARGB8888 (LTDC layer)**, not RGB565.
+8. **Panel init**: Working example uses hardcoded DSI commands, not the nt35510 crate. The crate's `init_rgb565()` sends different sequences.
+9. **No LP/HS mode switching needed**: The working example does NOT switch between AllInLowPower/AllInHighSpeed around panel init. The BSP fork added this incorrectly.
+
+### Previous BSP fork fixes (still valid but insufficient)
+
+These were fixed in BSP fork `972998f` and are still correct:
+1. VMCR bit positions corrected
+2. DSI horizontal timing calculation fixed (pixel→DSI lane cycle conversion)
+3. LTDC GCR DEN bit added
+4. CMCR LP/HS mode switching (unnecessary but harmless)
+
+### Key learnings
+
+- **DSI vertical timing values are RAW line counts**, not scaled to DSI lane byte clocks. Only horizontal timing (HSA, HBP, HLINE) needs scaling via `LANE_BYTE_CLK_KHZ / LCD_CLOCK_KHZ`.
+- **PLLSAI config reconciled**: At 180MHz, PLLSAI_Q=DIV8 gives exact 48MHz for USB via `mux::Clk48sel::PLLSAI1_Q`. PLLSAI_R=DIV7 gives pixel clock for LTDC. PLL1_Q is NOT used for USB (it can't produce 48MHz at 180MHz SYSCLK). `divq: None` on PLL1 is fine — PLL1 provides SYSCLK and APB clocks only.
+- **Raw `reg32_write()` vs stm32_metapac typed accessors**: This was the critical unexpected finding. Raw register writes that overwrite entire registers (including reserved bits) produced black screens even when the written values appeared correct. `stm32_metapac::LTDC` typed accessors (`.modify()`, `.write()`) work because they use read-modify-write, preserving reserved bits. Also, embassy's `init_layer()` had a CFBLL off-by-one bug for STM32F4: used `+7` instead of `+3` (per RM0090 §17.7.6).
+- **The nt35510 crate may have incorrect init sequences** for embassy's DSI implementation. The hardcoded commands from the working example should be preferred.
+- **180MHz SYSCLK is required** for display (PLLSAI pixel clock derivation). 168MHz (USB-optimized config) doesn't work.
+- **Panel autodetection works**: Reading 0xDA/0xDB/0xDC via `DsiReadCommand` returns valid panel ID bytes after init.
 
 ### Files
-- BSP fork: `src/display.rs` at commit `972998f`
-- Diagnostic binary: `examples/stm32f469i-disco/src/bin/async_display_test.rs`
-- Workspace `[patch]` in `Cargo.toml` points to local fork
+- Working binary: `examples/stm32f469i-disco/src/bin/display_minimal.rs`
+- BSP DisplayCtrl test: `examples/stm32f469i-disco/src/bin/display_hybrid.rs`
+- Reference: [embassy dsi_bsp.rs](https://github.com/embassy-rs/embassy/blob/83e0d3780e42e3edf1f85d8ce75057baeb6927b4/examples/stm32f469/src/bin/dsi_bsp.rs) (commit `83e0d37`)
+- BSP fork: `src/display.rs` at `/home/ubuntu/src/embassy-stm32f469i-disco/`
+- ST BSP reference: [stm32469i_discovery_lcd.c](https://github.com/STMicroelectronics/32f469idiscovery-bsp/blob/main/stm32469i_discovery_lcd.c)
+
+### Build + Flash
+```bash
+# display_minimal (standalone DSI/LTDC, defmt, no USB)
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin display_minimal --no-default-features --features scanner-async,defmt
+arm-none-eabi-objcopy -O binary target/thumbv7em-none-eabihf/release/display_minimal /tmp/display_minimal.bin
+st-flash --connect-under-reset write /tmp/display_minimal.bin 0x08000000
+st-flash --connect-under-reset reset
+
+# display_hybrid (BSP DisplayCtrl::new(), defmt, no USB)
+cargo build --release --target thumbv7em-none-eabihf \
+  --manifest-path examples/stm32f469i-disco/Cargo.toml \
+  --bin display_hybrid --no-default-features --features scanner-async,defmt
+```
+
+## Future Work
+
+- **RGB565 + RGB888 dual pixel format support** ([#21](https://github.com/Amperstrand/gm65-scanner/issues/21)): BSP currently hardcodes RGB888/ARGB8888. Future refactoring to support both formats (via generics, config enum, or separate examples). embedded-graphics natively favors RGB565. DMA throughput difference (2x) unlikely to matter at 60Hz with 480×800 panel.
+- **nt35510 crate improvements** ([#22](https://github.com/Amperstrand/gm65-scanner/issues/22)): Crate's `init_rgb565()` has incorrect register values (B5/B6/B7/BA differ from ST BSP). Missing TEEON command. No RGB888 init sequence. No builder/raw API for custom init.
 
 ## Upstream Interaction Policy
 
