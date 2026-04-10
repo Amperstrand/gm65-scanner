@@ -125,16 +125,16 @@ mod tests {
     #[test]
     fn test_as_slice() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'h');
-        buf.push(b'i');
-        assert_eq!(buf.as_slice(), &[b'h', b'i']);
+        let _ = buf.push(b'h');
+        let _ = buf.push(b'i');
+        assert_eq!(buf.as_slice(), b"hi");
     }
 
     #[test]
     fn test_clear() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'x');
-        buf.push(b'y');
+        let _ = buf.push(b'x');
+        let _ = buf.push(b'y');
         buf.clear();
         assert_eq!(buf.len(), 0);
         assert!(buf.is_empty());
@@ -160,70 +160,70 @@ mod tests {
     #[test]
     fn test_has_eol_crlf() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'd');
-        buf.push(b'\r');
-        buf.push(b'\n');
+        let _ = buf.push(b'd');
+        let _ = buf.push(b'\r');
+        let _ = buf.push(b'\n');
         assert!(buf.has_eol());
     }
 
     #[test]
     fn test_has_eol_cr_only() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'd');
-        buf.push(b'\r');
+        let _ = buf.push(b'd');
+        let _ = buf.push(b'\r');
         assert!(buf.has_eol());
     }
 
     #[test]
     fn test_has_eol_lf_only() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'd');
-        buf.push(b'\n');
+        let _ = buf.push(b'd');
+        let _ = buf.push(b'\n');
         assert!(buf.has_eol());
     }
 
     #[test]
     fn test_has_eol_no_eol() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'h');
-        buf.push(b'e');
-        buf.push(b'l');
-        buf.push(b'l');
-        buf.push(b'o');
+        let _ = buf.push(b'h');
+        let _ = buf.push(b'e');
+        let _ = buf.push(b'l');
+        let _ = buf.push(b'l');
+        let _ = buf.push(b'o');
         assert!(!buf.has_eol());
     }
 
     #[test]
     fn test_data_without_eol_crlf() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'd');
-        buf.push(b'\r');
-        buf.push(b'\n');
-        assert_eq!(buf.data_without_eol(), &[b'd']);
+        let _ = buf.push(b'd');
+        let _ = buf.push(b'\r');
+        let _ = buf.push(b'\n');
+        assert_eq!(buf.data_without_eol(), b"d");
     }
 
     #[test]
     fn test_data_without_eol_cr_only() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'd');
-        buf.push(b'\r');
-        assert_eq!(buf.data_without_eol(), &[b'd']);
+        let _ = buf.push(b'd');
+        let _ = buf.push(b'\r');
+        assert_eq!(buf.data_without_eol(), b"d");
     }
 
     #[test]
     fn test_data_without_eol_lf_only() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'd');
-        buf.push(b'\n');
-        assert_eq!(buf.data_without_eol(), &[b'd']);
+        let _ = buf.push(b'd');
+        let _ = buf.push(b'\n');
+        assert_eq!(buf.data_without_eol(), b"d");
     }
 
     #[test]
     fn test_data_without_eol_no_eol() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'h');
-        buf.push(b'i');
-        assert_eq!(buf.data_without_eol(), &[b'h', b'i']);
+        let _ = buf.push(b'h');
+        let _ = buf.push(b'i');
+        assert_eq!(buf.data_without_eol(), b"hi");
     }
 
     #[test]
@@ -235,28 +235,28 @@ mod tests {
     #[test]
     fn test_data_without_eol_lone_cr() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'\r');
+        let _ = buf.push(b'\r');
         assert_eq!(buf.data_without_eol(), &[]);
     }
 
     #[test]
     fn test_data_without_eol_lone_lf() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'\n');
+        let _ = buf.push(b'\n');
         assert_eq!(buf.data_without_eol(), &[]);
     }
 
     #[test]
     fn test_has_eol_single_cr() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'\r');
+        let _ = buf.push(b'\r');
         assert!(buf.has_eol());
     }
 
     #[test]
     fn test_has_eol_single_lf() {
         let mut buf = ScanBuffer::new();
-        buf.push(b'\n');
+        let _ = buf.push(b'\n');
         assert!(buf.has_eol());
     }
 }

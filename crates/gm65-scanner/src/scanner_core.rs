@@ -844,8 +844,8 @@ mod tests {
 
         assert_eq!(initial_len, 0);
 
-        core.buffer_mut().push(0x01);
-        core.buffer_mut().push(0x02);
+        let _ = core.buffer_mut().push(0x01);
+        let _ = core.buffer_mut().push(0x02);
 
         assert_eq!(core.buffer().len(), 2);
     }

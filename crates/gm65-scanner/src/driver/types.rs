@@ -194,7 +194,7 @@ mod tests {
             model: ScannerModel::Gm65,
             connected: true,
             initialized: true,
-            config: config.clone(),
+            config,
             last_scan_len: Some(42),
         };
         assert_eq!(status.model, ScannerModel::Gm65);
