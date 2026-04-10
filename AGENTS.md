@@ -15,9 +15,7 @@
 
 | Commit | Notes |
 |--------|-------|
-| `83ecbad` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. BSP `ea3b1b2`, embassy BSP `373a9ae`. |
-| `UNCOMMITTED` | **Async display + DisplayCtrl WORKS.** `display_minimal` and `display_hybrid` both HW verified. `display_hybrid` uses BSP fork's `DisplayCtrl::new()` API with hardcoded NT35510 init, stm32_metapac typed LTDC accessors, RGB888/ARGB8888, portrait 480x800 at 180MHz. `async_firmware` updated to 180MHz clock (PLL1 DIV8/MUL360, PLLSAI_Q for USB 48MHz). All render code migrated from Rgb565 to Rgb888. See Async Display Resolved section below. |
-| `UNCOMMITTED` | **defmt leak fix in BSP dep.** `embassy-stm32f469i-disco` dependency changed from `features = ["defmt"]` (unconditional) to `default-features = false, features = ["display", "touch"]` + conditional `embassy-stm32f469i-disco/defmt` via workspace `defmt` feature. Both `scanner-async` (no defmt, USB works) and `scanner-async,defmt` (RTT logging, no USB) builds pass. |
+| `d1e6878` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. Sync firmware migrated to Rgb888/ARGB8888 (17 type errors fixed). BSP fork `f124546`, embassy BSP fork `c95444e`. |
 
 ## Touch Calibration
 
@@ -95,9 +93,9 @@ Note: BarType VERIFY FAIL observed (wrote 0x01, read 0x05) — expected per know
 
 **Sync**: USB enumerates as `16c0:27dd`, CDC protocol verified (ScannerStatus returns `00 00 03 01 01 01`, GetSettings returns `0x81`). Display + scanner + USB all active. Flash with `st-flash --connect-under-reset`.
 
-**Async**: USB enumerates as `c0de:cafe` but **no data flows** — no heartbeat, no command responses. Firmware runs internally (scanner, display work). See issue #19 for hypotheses and investigation.
+**Async**: USB enumerates as `c0de:cafe`, CDC protocol verified (ScannerStatus returns `00 00 03 01 01 01`, GetSettings returns `0x81`). Display + scanner + USB all active. See issue #19 for root causes and fixes.
 
-**Note**: After this session, two additional fixes were applied: (4) CDC task channel race — `try_receive()` on `CDC_RESPONSE_CHANNEL` polled before scanner task processed the command. Fixed by using `receive().await` after each `COMMAND_CHANNEL.try_send()`. (5) `[ALIVE]` heartbeat every 3s corrupted protocol framing. Fixed by removing heartbeat entirely. Requires on-device verification.
+**Note**: Five root causes found and fixed: (1) PLLSAI `divq: None` was a misdiagnosis — the display works with `divq: None` (USB 48MHz comes from PLL1_Q, not PLLSAI_Q). (2) Double `USART6.disable()` crashes MCU — second call triggers undefined behavior. (3) `AsyncUart::read()` busy-poll starved USB — fixed by yielding immediately on every `WouldBlock`. (4) CDC task channel race — `try_receive()` on `CDC_RESPONSE_CHANNEL` polled before scanner task processed command, fixed by using `receive().await`. (5) `[ALIVE]` heartbeat corrupted protocol framing — fixed by removing heartbeat. All fixes verified on-device.
 
 ### 2026-03-31 — Full end-to-end with QR scans
 
@@ -169,7 +167,7 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 
 **Also required**: Disable USART6 interrupt before creating the UART (`embassy_stm32::interrupt::USART6.disable()`), and register a USART6 handler in `bind_interrupts!` to catch spurious interrupts.
 
-## Async CDC: Three Root Causes (RESOLVED)
+## Async CDC: Root Causes (RESOLVED)
 
 **Bug**: Async production firmware enumerated as `c0de:cafe` but no data flowed over USB. Three independent root causes found:
 
