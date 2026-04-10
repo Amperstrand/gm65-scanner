@@ -370,7 +370,7 @@ impl ScannerCore {
             model: self.detected_model,
             connected: self.initialized,
             initialized: self.initialized,
-            config: self.config.clone(),
+            config: self.config,
             last_scan_len: self.last_scan_len,
         }
     }

@@ -855,10 +855,8 @@ async fn main(_spawner: Spawner) {
                         let tx = point.x;
                         let ty = point.y;
                         // FT6X06 reports phantom touches at edges (BSP touch.rs)
-                        if tx >= TOUCH_MARGIN
-                            && i32::from(tx) <= DISPLAY_MAX_X - i32::from(TOUCH_MARGIN)
-                            && ty >= TOUCH_MARGIN
-                            && ty <= 799 - TOUCH_MARGIN
+                        if (i32::from(TOUCH_MARGIN)..=(DISPLAY_MAX_X - i32::from(TOUCH_MARGIN))).contains(&i32::from(tx))
+                            && (TOUCH_MARGIN..=(799 - TOUCH_MARGIN)).contains(&ty)
                         {
                             pending_tap = Some((tx, ty));
                         }
@@ -891,19 +889,15 @@ async fn main(_spawner: Spawner) {
         loop {
             match TOUCH_CHANNEL.try_receive() {
                 Ok(TouchEvent::Tap { x, y }) => {
-                    if y >= BACK_Y
-                        && y < BACK_Y_END
-                        && x >= BACK_X_START
-                        && x < BACK_X_END
+                    if (BACK_Y..BACK_Y_END).contains(&y)
+                        && (BACK_X_START..BACK_X_END).contains(&x)
                     {
                         let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
                         continue;
                     }
 
-                    if y >= ROW_Y_START
-                        && y < ROW_Y_END
-                        && i32::from(x) >= SETTINGS_ROW_X_START
-                        && i32::from(x) < SETTINGS_ROW_X_END
+                    if (ROW_Y_START..ROW_Y_END).contains(&y)
+                        && (SETTINGS_ROW_X_START..SETTINGS_ROW_X_END).contains(&i32::from(x))
                     {
                         let row = ((y - ROW_Y_START) / ROW_SPACING) as usize;
                         let mut shared = SHARED.lock().await;

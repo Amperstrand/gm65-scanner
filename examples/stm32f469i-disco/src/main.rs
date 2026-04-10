@@ -114,9 +114,8 @@ fn main() -> ! {
     }
 
     let orientation = lcd::DisplayOrientation::Portrait;
-    let fb_buffer: &'static mut [u32] = unsafe {
-        &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem as *mut u32, orientation.fb_size())
-    };
+    let fb_buffer: &'static mut [u32] =
+        unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem, orientation.fb_size()) };
 
     let (mut display_ctrl, _controller, _orient) = lcd::init_display_full_argb8888(
         dp.DSI,
@@ -331,19 +330,17 @@ fn main() -> ! {
                 {
                     let tx = (((coord_buf[0] & 0x0F) as u16) << 8) | (coord_buf[1] as u16);
                     let ty = (((coord_buf[2] & 0x0F) as u16) << 8) | (coord_buf[3] as u16);
-                    if tx >= TOUCH_MARGIN
-                        && tx <= TOUCH_X_MAX
-                        && ty >= TOUCH_MARGIN
-                        && ty <= TOUCH_Y_MAX
+                    if (TOUCH_MARGIN..=TOUCH_X_MAX).contains(&tx)
+                        && (TOUCH_MARGIN..=TOUCH_Y_MAX).contains(&ty)
                     {
                         let dx = tx;
                         let dy = ty;
                         if in_settings {
-                            if dy >= 715 && dy < 765 && dx >= 40 && dx < 240 {
+                            if (715..765).contains(&dy) && (40..240).contains(&dx) {
                                 in_settings = false;
                                 auto_scan = scanner_connected;
                                 display::render_home(&mut fb, scanner_connected, model_str);
-                            } else if dy >= 120 && dy < 570 && dx >= 10 && dx < 460 {
+                            } else if (120..570).contains(&dy) && (10..460).contains(&dx) {
                                 let row = ((dy - 120) / 90) as usize;
                                 let toggled = scanner_utils::row_to_settings_flag(row);
                                 if let Some(flag) = toggled {
@@ -354,7 +351,7 @@ fn main() -> ! {
                                     display::render_scanner_settings(&mut fb, current_settings);
                                 }
                             }
-                        } else if dy >= 670 && dy < 730 && dx >= 130 && dx < 350 {
+                        } else if (670..730).contains(&dy) && (130..350).contains(&dx) {
                             in_settings = true;
                             auto_scan = false;
                             if scanner_connected {
