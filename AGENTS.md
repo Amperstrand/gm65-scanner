@@ -27,6 +27,31 @@
 - **Touch test binary**: `touch_test` — 6 target rectangles, raw coordinate display, hit detection. HW verified.
 - **BSP issue**: embassy-stm32f469i-disco#21 documents the missing orientation-dependent transform
 
+## BSP Diagnostic Examples
+
+BSP-level diagnostic binaries have been moved out of this repo to their respective BSP forks.
+
+### Embassy BSP (`/home/ubuntu/src/embassy-stm32f469i-disco/examples/`)
+
+| Binary | Purpose |
+|--------|---------|
+| `display_minimal.rs` | Standalone DSI/LTDC, 4 color bands, portrait 480x800 |
+| `display_hybrid.rs` | BSP `DisplayCtrl::new()` in embassy context |
+| `async_display_test.rs` | Async display rendering test |
+| `embassy_display_bsp_minimal.rs` | Minimal embassy display BSP test |
+| `nt35510_hwtest.rs` | NT35510 panel hardware test (register reads) |
+| `async_cdc_minimal.rs` | Minimal embassy USB CDC test |
+| `display_test_rgb565.rs` | RGB565 pixel format display test |
+
+### Sync BSP (`/home/ubuntu/src/stm32f469i-disc/examples/`)
+
+| Binary | Purpose |
+|--------|---------|
+| `usb_minimal.rs` | Minimal blocking USB CDC test |
+| `display_test_rgb888.rs` | RGB888 pixel format display test |
+
+Build and flash from each BSP repo directory, not from this repo.
+
 ## Production Build Commands
 
 ```bash
@@ -229,8 +254,8 @@ These were fixed in BSP fork `972998f` and are still correct:
 - **Panel autodetection works**: Reading 0xDA/0xDB/0xDC via `DsiReadCommand` returns valid panel ID bytes after init.
 
 ### Files
-- Working binary: `examples/stm32f469i-disco/src/bin/display_minimal.rs`
-- BSP DisplayCtrl test: `examples/stm32f469i-disco/src/bin/display_hybrid.rs`
+- Working binary: `/home/ubuntu/src/embassy-stm32f469i-disco/examples/display_minimal.rs`
+- BSP DisplayCtrl test: `/home/ubuntu/src/embassy-stm32f469i-disco/examples/display_hybrid.rs`
 - Reference: [embassy dsi_bsp.rs](https://github.com/embassy-rs/embassy/blob/83e0d3780e42e3edf1f85d8ce75057baeb6927b4/examples/stm32f469/src/bin/dsi_bsp.rs) (commit `83e0d37`)
 - BSP fork: `src/display.rs` at `/home/ubuntu/src/embassy-stm32f469i-disco/`
 - ST BSP reference: [stm32469i_discovery_lcd.c](https://github.com/STMicroelectronics/32f469idiscovery-bsp/blob/main/stm32469i_discovery_lcd.c)
@@ -238,17 +263,17 @@ These were fixed in BSP fork `972998f` and are still correct:
 ### Build + Flash
 ```bash
 # display_minimal (standalone DSI/LTDC, defmt, no USB)
+# Build from /home/ubuntu/src/embassy-stm32f469i-disco/
 cargo build --release --target thumbv7em-none-eabihf \
-  --manifest-path examples/stm32f469i-disco/Cargo.toml \
-  --bin display_minimal --no-default-features --features scanner-async,defmt
+  --bin display_minimal --no-default-features --features defmt
 arm-none-eabi-objcopy -O binary target/thumbv7em-none-eabihf/release/display_minimal /tmp/display_minimal.bin
 st-flash --connect-under-reset write /tmp/display_minimal.bin 0x08000000
 st-flash --connect-under-reset reset
 
 # display_hybrid (BSP DisplayCtrl::new(), defmt, no USB)
+# Build from /home/ubuntu/src/embassy-stm32f469i-disco/
 cargo build --release --target thumbv7em-none-eabihf \
-  --manifest-path examples/stm32f469i-disco/Cargo.toml \
-  --bin display_hybrid --no-default-features --features scanner-async,defmt
+  --bin display_hybrid --no-default-features --features defmt
 ```
 
 ## Future Work
