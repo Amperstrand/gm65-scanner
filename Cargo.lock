@@ -427,7 +427,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
- "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=90320bcb3bf4e56dd6dbf4fdf7154c4479f55721)",
+ "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=9703d395257f1237a79ced851f212cef47287355)",
  "otm8009a 0.1.0",
  "stm32-fmc",
  "stm32-metapac",
@@ -927,7 +927,7 @@ dependencies = [
 [[package]]
 name = "nt35510"
 version = "0.2.0"
-source = "git+https://github.com/Amperstrand/nt35510?rev=90320bcb3bf4e56dd6dbf4fdf7154c4479f55721#90320bcb3bf4e56dd6dbf4fdf7154c4479f55721"
+source = "git+https://github.com/Amperstrand/nt35510?rev=9703d395257f1237a79ced851f212cef47287355#9703d395257f1237a79ced851f212cef47287355"
 dependencies = [
  "embedded-display-controller",
  "embedded-hal 1.0.0",
@@ -1327,7 +1327,7 @@ dependencies = [
  "heapless 0.8.0",
  "linked_list_allocator",
  "nb 1.1.0",
- "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=90320bcb3bf4e56dd6dbf4fdf7154c4479f55721)",
+ "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=9703d395257f1237a79ced851f212cef47287355)",
  "otm8009a 0.2.0",
  "panic-halt",
  "panic-probe",
