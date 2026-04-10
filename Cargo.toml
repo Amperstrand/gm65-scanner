@@ -47,7 +47,7 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy", package = "embas
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", package = "embassy-futures", rev = "84444a19" }
 
 [patch.crates-io]
-nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "9703d395257f1237a79ced851f212cef47287355" }
+nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "ea1ac3a" }
 
 [patch."https://github.com/Amperstrand/stm32f469i-disc"]
 stm32f469i-disc = { path = "../stm32f469i-disc" }

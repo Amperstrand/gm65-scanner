@@ -64,7 +64,7 @@ embassy-usb-synopsys-otg = { workspace = true, optional = true }
 embassy-sync = { workspace = true, optional = true }
 embassy-futures = { workspace = true, optional = true }
 stm32-fmc = { version = "0.4.0", features = ["sdram"], optional = true }
-nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "9703d395257f1237a79ced851f212cef47287355", optional = true }
+nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "ea1ac3a", optional = true }
 otm8009a = { git = "https://github.com/Amperstrand/otm8009a", rev = "76dcda9", optional = true }
 embedded-display-controller = { version = "0.2.0", optional = true }
 embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32f469i-disco", rev = "72f2357", optional = true, default-features = false, features = ["display", "touch"] }
