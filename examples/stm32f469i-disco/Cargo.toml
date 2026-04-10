@@ -80,31 +80,6 @@ path = "src/bin/touch_test.rs"
 required-features = ["sync-mode"]
 
 [[bin]]
-name = "async_display_test"
-path = "src/bin/async_display_test.rs"
-required-features = ["scanner-async"]
-
-[[bin]]
-name = "display_minimal"
-path = "src/bin/display_minimal.rs"
-required-features = ["scanner-async", "defmt"]
-
-[[bin]]
-name = "display_hybrid"
-path = "src/bin/display_hybrid.rs"
-required-features = ["scanner-async", "defmt"]
-
-[[bin]]
-name = "nt35510_hwtest"
-path = "src/bin/nt35510_hwtest.rs"
-required-features = ["scanner-async"]
-
-[[bin]]
-name = "embassy_display_bsp_minimal"
-path = "src/bin/embassy_display_bsp_minimal.rs"
-required-features = ["scanner-async", "defmt"]
-
-[[bin]]
 name = "hil_test_sync"
 path = "src/bin/hil_test_sync.rs"
 required-features = ["hil-tests", "defmt"]
@@ -118,13 +93,3 @@ required-features = ["scanner-async", "defmt", "gm65-scanner/hil-tests"]
 name = "async_firmware"
 path = "src/bin/async_firmware.rs"
 required-features = ["scanner-async"]
-
-[[bin]]
-name = "async_cdc_minimal"
-path = "src/bin/async_cdc_minimal.rs"
-required-features = ["scanner-async"]
-
-[[bin]]
-name = "usb_minimal"
-path = "src/bin/usb_minimal.rs"
-required-features = ["sync-mode"]
