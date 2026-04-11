@@ -90,7 +90,7 @@ pub fn render_qr_code_with_yield(
             }
 
             module_count += 1;
-            if module_count % YIELD_INTERVAL == 0 {
+            if module_count.is_multiple_of(YIELD_INTERVAL) {
                 yield_fn();
             }
         }
