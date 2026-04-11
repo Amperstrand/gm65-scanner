@@ -44,15 +44,9 @@ impl Command {
 pub enum Status {
     Ok = 0x00,
     Error = 0xFF,
-    #[allow(dead_code)]
-    InvalidCommand = 0x01,
-    #[allow(dead_code)]
     InvalidPayload = 0x02,
-    #[allow(dead_code)]
     BufferOverflow = 0x03,
     ScannerNotConnected = 0x10,
-    #[allow(dead_code)]
-    ScannerBusy = 0x11,
     NoScanData = 0x12,
 }
 
@@ -135,11 +129,6 @@ impl Response {
         buf[2] = (self.length & 0xFF) as u8;
         buf[STATUS_HEADER_SIZE..total_len].copy_from_slice(self.payload());
         total_len
-    }
-
-    #[allow(dead_code)]
-    pub fn encoded_size(&self) -> usize {
-        STATUS_HEADER_SIZE + self.length as usize
     }
 }
 
@@ -281,12 +270,6 @@ impl<'a> CdcPort<'a> {
 
         let _ = self.serial.flush();
         true
-    }
-
-    #[allow(dead_code)]
-    pub fn send_error(&mut self, status: Status) -> bool {
-        let response = Response::new(status);
-        self.send_response(&response)
     }
 
     pub fn serial_mut(&mut self) -> &mut usbd_serial::SerialPort<'a, UsbBusType> {

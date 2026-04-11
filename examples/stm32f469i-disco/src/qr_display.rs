@@ -26,7 +26,6 @@ const QR_MAX_DATA_LEN: usize = 200;
 const QR_ERROR_CENTER: i32 = 240;
 const YIELD_INTERVAL: u32 = 8;
 
-#[allow(dead_code)]
 pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> bool {
     render_qr_code_with_yield(fb, text, || {})
 }
@@ -114,7 +113,6 @@ pub fn render_qr_code_with_yield(
     true
 }
 
-#[allow(dead_code)]
 pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
     render_qr_mirror_with_yield(fb, data, || {});
 }
