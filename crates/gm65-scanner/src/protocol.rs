@@ -107,10 +107,15 @@ impl Register {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BaudRate {
+    /// 9600 baud.
     Bps9600 = 0x00,
+    /// 19200 baud.
     Bps19200 = 0x01,
+    /// 38400 baud.
     Bps38400 = 0x02,
+    /// 57600 baud.
     Bps57600 = 0x03,
+    /// 115200 baud (recommended default).
     Bps115200 = 0x1A,
 }
 
@@ -264,6 +269,7 @@ impl Gm65Response {
     }
 
     /// Returns `true` if the response indicates success.
+    #[must_use]
     pub fn is_success(&self) -> bool {
         !matches!(self, Gm65Response::Invalid)
     }

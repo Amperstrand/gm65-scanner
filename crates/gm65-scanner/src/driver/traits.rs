@@ -11,6 +11,7 @@ use super::types::{ScannerError, ScannerModel, ScannerState, ScannerStatus};
 pub trait ScannerDriverSync {
     /// Initialize the scanner and detect model.
     /// Returns the detected model on success, or an error.
+    #[must_use = "scanner must be initialized before use"]
     fn init(&mut self) -> Result<ScannerModel, ScannerError>;
 
     /// Ping the scanner to check communication.
@@ -20,6 +21,7 @@ pub trait ScannerDriverSync {
 
     /// Trigger a scan.
     /// Returns Ok(()) if the trigger command was sent successfully.
+    #[must_use = "ignoring trigger result may leave scanner in wrong state"]
     fn trigger_scan(&mut self) -> Result<(), ScannerError>;
 
     /// Stop an ongoing scan.
@@ -39,12 +41,14 @@ pub trait ScannerDriverSync {
     fn try_read_scan(&mut self) -> Option<alloc::vec::Vec<u8>>;
 
     /// Get the current scanner state.
+    #[must_use]
     fn state(&self) -> ScannerState;
 
     /// Get the scanner status.
     fn status(&self) -> ScannerStatus;
 
     /// Check if scanned data is ready.
+    #[must_use]
     fn data_ready(&self) -> bool;
 }
 
@@ -53,6 +57,7 @@ pub trait ScannerDriverSync {
 pub trait ScannerDriver {
     /// Initialize the scanner and detect model.
     /// Returns the detected model on success, or an error.
+    #[must_use = "scanner must be initialized before use"]
     fn init(&mut self) -> impl core::future::Future<Output = Result<ScannerModel, ScannerError>>;
 
     /// Ping the scanner to check communication.
@@ -62,6 +67,7 @@ pub trait ScannerDriver {
 
     /// Trigger a scan.
     /// Returns Ok(()) if the trigger command was sent successfully.
+    #[must_use = "ignoring trigger result may leave scanner in wrong state"]
     fn trigger_scan(&mut self) -> impl core::future::Future<Output = Result<(), ScannerError>>;
 
     /// Stop an ongoing scan.
@@ -75,11 +81,13 @@ pub trait ScannerDriver {
     fn read_scan(&mut self) -> impl core::future::Future<Output = Option<alloc::vec::Vec<u8>>>;
 
     /// Get the current scanner state.
+    #[must_use]
     fn state(&self) -> ScannerState;
 
     /// Get the scanner status.
     fn status(&self) -> ScannerStatus;
 
     /// Check if scanned data is ready.
+    #[must_use]
     fn data_ready(&self) -> bool;
 }

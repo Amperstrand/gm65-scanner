@@ -140,6 +140,7 @@ pub fn special_registers() -> [Register; 3] {
 ///
 /// `true` if bits 0-1 are set (value needs fixing), `false` otherwise.
 #[inline]
+#[must_use]
 pub fn serial_output_needs_fix(value: u8) -> bool {
     value & 0x03 != 0
 }
@@ -150,6 +151,7 @@ pub fn serial_output_needs_fix(value: u8) -> bool {
 ///
 /// The value with bits 0-1 cleared.
 #[inline]
+#[must_use]
 pub fn fix_serial_output(value: u8) -> u8 {
     value & 0xFC
 }
@@ -167,6 +169,7 @@ pub fn fix_serial_output(value: u8) -> u8 {
 ///
 /// `true` if the version requires the raw mode fix.
 #[inline]
+#[must_use]
 pub fn version_needs_raw_fix(version: u8) -> bool {
     version == config::VERSION_NEEDS_RAW
 }
@@ -196,15 +199,22 @@ pub enum ScanByteResult {
 #[cfg(feature = "hil-tests")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct HilTestResults {
+    /// Scanner was detected during initialization.
     pub init_detects_scanner: bool,
+    /// Scanner responded to ping after init.
     pub ping_after_init: bool,
+    /// Trigger and stop commands succeeded.
     pub trigger_and_stop: bool,
+    /// Read scan correctly timed out.
     pub read_scan_timeout: bool,
+    /// State transitions work correctly.
     pub state_transitions: bool,
 }
 
 #[cfg(feature = "hil-tests")]
 impl HilTestResults {
+    /// Returns `true` if all HIL tests passed.
+    #[must_use]
     pub fn all_passed(&self) -> bool {
         self.init_detects_scanner
             && self.ping_after_init
@@ -213,6 +223,8 @@ impl HilTestResults {
             && self.state_transitions
     }
 
+    /// Returns the number of tests that passed.
+    #[must_use]
     pub fn passed_count(&self) -> usize {
         [
             self.init_detects_scanner,
@@ -350,11 +362,13 @@ impl ScannerCore {
     }
 
     /// Get the current scanner state.
+    #[must_use]
     pub fn state(&self) -> ScannerState {
         self.state
     }
 
     /// Check if scanner is initialized.
+    #[must_use]
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
@@ -376,6 +390,7 @@ impl ScannerCore {
     }
 
     /// Check if scan data is ready to be read.
+    #[must_use]
     pub fn data_ready(&self) -> bool {
         self.state == ScannerState::ScanComplete
     }
@@ -385,6 +400,7 @@ impl ScannerCore {
     // ========================================================================
 
     /// Get the current init step.
+    #[must_use]
     pub fn init_step(&self) -> InitStep {
         self.init_step
     }
@@ -651,6 +667,7 @@ impl ScannerCore {
     }
 
     /// Get a reference to the scan buffer.
+    #[must_use]
     pub fn buffer(&self) -> &ScanBuffer {
         &self.buffer
     }

@@ -5,6 +5,7 @@ use core::fmt;
 /// Scanner model identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[must_use = "ignoring detected scanner model is likely a bug"]
 pub enum ScannerModel {
     /// GM65 scanner module.
     Gm65,
@@ -62,6 +63,7 @@ pub enum ScannerState {
 /// Scanner error types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[must_use = "ignoring a scanner error is likely a bug"]
 pub enum ScannerError {
     /// Scanner did not respond to probe ping.
     NotDetected,
@@ -98,6 +100,7 @@ impl core::error::Error for ScannerError {}
 /// Scanner configuration.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[must_use = "ignoring scanner configuration is likely a bug"]
 pub struct ScannerConfig {
     /// Detected or expected scanner model.
     pub model: ScannerModel,
@@ -123,6 +126,7 @@ impl Default for ScannerConfig {
 /// Scanner status snapshot.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[must_use = "ignoring scanner status is likely a bug"]
 pub struct ScannerStatus {
     /// Detected scanner model.
     pub model: ScannerModel,

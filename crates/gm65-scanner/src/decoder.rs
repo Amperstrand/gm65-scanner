@@ -18,6 +18,7 @@ const UR_PREFIX: &[u8] = b"ur:";
 /// Classification of a scanned QR payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[must_use = "ignoring payload classification is likely a bug"]
 pub enum PayloadType {
     /// Cashu V4 token (starts with `cashuB`).
     CashuV4,
@@ -80,6 +81,7 @@ pub fn decode_payload(data: &[u8]) -> DecodedPayload {
 
 /// A decoded scan payload with classification metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "ignoring decoded payload is likely a bug"]
 pub struct DecodedPayload {
     /// Raw bytes from the scanner.
     pub raw: Vec<u8>,
@@ -106,6 +108,7 @@ impl fmt::Display for DecodedPayload {
 ///
 /// UR fragments follow the format: `ur:<type>/<index>-<total>/<hash>/<data>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "ignoring a parsed UR fragment is likely a bug"]
 pub struct ParsedUrFragment {
     /// Fragment data type (e.g., "bytes", "crypto-psbt").
     pub ur_type: String,
@@ -239,16 +242,19 @@ impl UrDecoder {
     }
 
     /// Return `(received, total)` fragment progress.
+    #[must_use]
     pub fn progress(&self) -> (u32, u32) {
         (self.received, self.total.unwrap_or(0))
     }
 
     /// Return `true` if at least one fragment has been fed.
+    #[must_use]
     pub fn is_active(&self) -> bool {
         self.total.is_some()
     }
 
     /// Return `true` if all fragments have been received and assembled.
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.total.map(|t| self.received == t).unwrap_or(false)
     }
