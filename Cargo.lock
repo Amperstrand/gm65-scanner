@@ -428,7 +428,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
- "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=6252d17)",
+ "nt35510",
  "otm8009a 0.1.0",
  "stm32-fmc",
  "stm32-metapac",
@@ -926,15 +926,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nt35510"
-version = "0.2.0"
-source = "git+https://github.com/Amperstrand/nt35510?rev=7d588ef40d94f51f2ed2df33acbb04a920a4ae0b#7d588ef40d94f51f2ed2df33acbb04a920a4ae0b"
-dependencies = [
- "embedded-display-controller",
- "embedded-hal 1.0.0",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1290,13 +1281,14 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=ea3b1b2#ea3b1b29b81ac3033845ff548c171d0e23a7b929"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=a61214a#a61214ae7952d2416415ac8230ea5b091e5a1aae"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "embedded-graphics",
  "embedded-graphics-core",
  "embedded-hal 1.0.0",
- "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=7d588ef40d94f51f2ed2df33acbb04a920a4ae0b)",
+ "nt35510",
  "otm8009a 0.2.0",
  "stm32-fmc",
  "stm32f4xx-hal",
@@ -1328,7 +1320,7 @@ dependencies = [
  "heapless 0.8.0",
  "linked_list_allocator",
  "nb 1.1.0",
- "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=6252d17)",
+ "nt35510",
  "otm8009a 0.2.0",
  "panic-halt",
  "panic-probe",
