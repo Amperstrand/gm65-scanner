@@ -63,8 +63,31 @@ fn render_boot_status(fb: &mut impl DrawTarget<Color = Rgb888>, line: &str, line
 #[global_allocator]
 static ALLOCATOR: linked_list_allocator::LockedHeap = linked_list_allocator::LockedHeap::empty();
 
-#[entry]
-fn main() -> ! {
+/// Touch controller I2C constants (FT6X06)
+const FT6X06_ADDR: u8 = 0x38;
+const REG_TD_STATUS: u8 = 0x02;
+const REG_TOUCH1_XH: u8 = 0x03;
+const REG_VENDOR_ID: u8 = 0xA8;
+const TOUCH_MARGIN: u16 = 3;
+const TOUCH_X_MAX: u16 = 476;
+const TOUCH_Y_MAX: u16 = 796;
+
+/// All initialized hardware returned by `init_hardware()`.
+struct Hardware {
+    fb: FramebufferView<'static>,
+    usb_dev: UsbDevice<'static, UsbBusType>,
+    cdc_port: CdcPort<'static>,
+    scanner: Gm65Scanner<Serial6>,
+    scanner_connected: bool,
+    model_str: &'static str,
+    led: hal::gpio::gpiog::PG6<hal::gpio::Output<hal::gpio::PushPull>>,
+    touch_i2c: hal::i2c::I2c<hal::pac::I2C1>,
+    touch_found: bool,
+    sysclk_hz: u32,
+}
+
+/// Initialize all peripherals: RCC, SDRAM, display, USB CDC, scanner UART, touch I2C.
+fn init_hardware() -> Hardware {
     let dp = pac::Peripherals::take().unwrap();
     let cp = CorePeripherals::take().unwrap();
 
@@ -83,19 +106,21 @@ fn main() -> ! {
     let gpioe = dp.GPIOE.split(&mut rcc);
     let gpiof = dp.GPIOF.split(&mut rcc);
     let gpiog = dp.GPIOG.split(&mut rcc);
-    let mut led = gpiog.pg6.into_push_pull_output();
+    let led = gpiog.pg6.into_push_pull_output();
     let scanner_tx = gpiog.pg14;
     let scanner_rx = gpiog.pg9;
     let gpiob = dp.GPIOB.split(&mut rcc);
     let gpioh = dp.GPIOH.split(&mut rcc);
     let gpioi = dp.GPIOI.split(&mut rcc);
 
+    // LCD reset sequence
     let mut lcd_reset = gpioh.ph7.into_push_pull_output();
     lcd_reset.set_low();
     delay.delay_ms(20u32);
     lcd_reset.set_high();
     delay.delay_ms(10u32);
 
+    // SDRAM init + heap placement
     let sdram = sdram::Sdram::new(
         dp.FMC,
         sdram::sdram_pins!(gpioc, gpiod, gpioe, gpiof, gpiog, gpioh, gpioi),
@@ -113,6 +138,7 @@ fn main() -> ! {
         }
     }
 
+    // Display init (portrait 480x800, ARGB8888)
     let orientation = lcd::DisplayOrientation::Portrait;
     let fb_buffer: &'static mut [u32] =
         unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem, orientation.fb_size()) };
@@ -141,12 +167,14 @@ fn main() -> ! {
         orientation.height() as u32,
     );
 
+    // Boot status display
     let mut boot_line: u32 = 0;
     render_boot_status(&mut fb, "[OK] Display", boot_line);
     boot_line += 1;
     render_boot_status(&mut fb, "[..] USB...", boot_line);
     boot_line += 1;
 
+    // USB CDC init
     let usb_periph = usb::init(
         (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
         gpioa.pa11,
@@ -159,7 +187,7 @@ fn main() -> ! {
     let serial: usbd_serial::SerialPort<'static, UsbBusType> =
         unsafe { core::mem::transmute(usbd_serial::SerialPort::new(&usb_bus)) };
 
-    let mut usb_dev: UsbDevice<'static, UsbBusType> = unsafe {
+    let usb_dev: UsbDevice<'static, UsbBusType> = unsafe {
         core::mem::transmute(
             UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
@@ -172,12 +200,13 @@ fn main() -> ! {
         )
     };
 
-    let mut cdc_port = CdcPort::new(serial);
+    let cdc_port = CdcPort::new(serial);
 
     render_boot_status(&mut fb, "[OK] USB", boot_line - 1);
     render_boot_status(&mut fb, "[..] Scanner...", boot_line);
     boot_line += 1;
 
+    // Scanner UART init
     let baud = 115200;
     let uart = dp
         .USART6
@@ -204,14 +233,7 @@ fn main() -> ! {
 
     display::render_home(&mut fb, scanner_connected, model_str);
 
-    const FT6X06_ADDR: u8 = 0x38;
-    const REG_TD_STATUS: u8 = 0x02;
-    const REG_TOUCH1_XH: u8 = 0x03;
-    const REG_VENDOR_ID: u8 = 0xA8;
-    const TOUCH_MARGIN: u16 = 3;
-    const TOUCH_X_MAX: u16 = 476;
-    const TOUCH_Y_MAX: u16 = 796;
-
+    // Touch controller init (FT6X06 on I2C1)
     let pb8 = gpiob.pb8.into_alternate_open_drain::<4>();
     let pb9 = gpiob.pb9.into_alternate_open_drain::<4>();
     let mut touch_i2c = dp.I2C1.i2c(
@@ -239,19 +261,39 @@ fn main() -> ! {
         render_boot_status(&mut fb, &msg, boot_line);
     }
 
+    // Leak model_str to get 'static lifetime for Hardware struct
+    let model_str: &'static str = unsafe { core::mem::transmute(model_str) };
+
+    Hardware {
+        fb,
+        usb_dev,
+        cdc_port,
+        scanner,
+        scanner_connected,
+        model_str,
+        led,
+        touch_i2c,
+        touch_found,
+        sysclk_hz,
+    }
+}
+
+/// Main event loop: USB CDC polling, scanner auto-scan, display updates, touch handling.
+fn run_main_loop(mut hw: Hardware) -> ! {
     let mut last_scan_data: Option<[u8; MAX_PAYLOAD_SIZE - 1]> = None;
     let mut last_scan_len: usize = 0;
-    let mut auto_scan: bool = scanner_connected;
+    let mut auto_scan: bool = hw.scanner_connected;
     let mut in_settings: bool = false;
-    let mut current_settings: ScannerSettings = if scanner_connected {
-        scanner.get_scanner_settings().unwrap_or_default()
+    let mut current_settings: ScannerSettings = if hw.scanner_connected {
+        hw.scanner.get_scanner_settings().unwrap_or_default()
     } else {
         ScannerSettings::default()
     };
 
     loop {
-        if usb_dev.poll(&mut [cdc_port.serial_mut()]) {
-            if let Some(frame) = cdc_port.receive_frame() {
+        // USB CDC: poll and dispatch commands
+        if hw.usb_dev.poll(&mut [hw.cdc_port.serial_mut()]) {
+            if let Some(frame) = hw.cdc_port.receive_frame() {
                 if frame.command == Command::SetSettings || frame.command == Command::ScannerTrigger
                 {
                     auto_scan = false;
@@ -262,35 +304,37 @@ fn main() -> ! {
                 let response = handle_command(
                     frame.command,
                     frame.payload(),
-                    &mut fb,
-                    &mut scanner,
+                    &mut hw.fb,
+                    &mut hw.scanner,
                     &mut last_scan_data,
                     &mut last_scan_len,
                 );
-                cdc_port.send_response(&response);
+                hw.cdc_port.send_response(&response);
                 if was_auto && !in_settings {
                     auto_scan = true;
                 }
                 if was_in_settings && in_settings {
-                    if let Some(s) = scanner.get_scanner_settings() {
+                    if let Some(s) = hw.scanner.get_scanner_settings() {
                         current_settings = s;
                     }
-                    display::render_scanner_settings(&mut fb, current_settings);
+                    display::render_scanner_settings(&mut hw.fb, current_settings);
                 }
             }
         }
 
+        // Auto-scan: trigger when idle
         if auto_scan
             && !in_settings
-            && !scanner.data_ready()
-            && scanner.state() == ScannerState::Ready
+            && !hw.scanner.data_ready()
+            && hw.scanner.state() == ScannerState::Ready
         {
-            let _ = scanner.trigger_scan();
+            let _ = hw.scanner.trigger_scan();
         }
 
-        if !scanner.data_ready() {
+        // Scanner: poll for scan results
+        if !hw.scanner.data_ready() {
             for _ in 0..8 {
-                if let Some(data) = scanner.try_read_scan() {
+                if let Some(data) = hw.scanner.try_read_scan() {
                     let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
                     let mut buf = [0u8; MAX_PAYLOAD_SIZE - 1];
                     buf[..copy_len].copy_from_slice(&data[..copy_len]);
@@ -299,15 +343,15 @@ fn main() -> ! {
 
                     if !in_settings {
                         let payload = gm65_scanner::decode_payload(&data);
-                        render_decoded_scan(&mut fb, &payload);
+                        render_decoded_scan(&mut hw.fb, &payload);
                         if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
-                            qr_display::render_qr_mirror(&mut fb, &data);
+                            qr_display::render_qr_mirror(&mut hw.fb, &data);
                         }
-                        let cycles_100ms = sysclk_hz / 10;
+                        let cycles_100ms = hw.sysclk_hz / 10;
                         for _ in 0..3 {
-                            led.set_high();
+                            hw.led.set_high();
                             cortex_m::asm::delay(cycles_100ms);
-                            led.set_low();
+                            hw.led.set_low();
                             cortex_m::asm::delay(cycles_100ms);
                         }
                     }
@@ -316,15 +360,18 @@ fn main() -> ! {
             }
         }
 
-        if touch_found {
+        // Touch: handle taps for settings toggle and navigation
+        if hw.touch_found {
             let mut status_buf = [0u8; 1];
-            if touch_i2c
+            if hw
+                .touch_i2c
                 .write_read(FT6X06_ADDR, &[REG_TD_STATUS], &mut status_buf)
                 .is_ok()
                 && (status_buf[0] & 0x0F) > 0
             {
                 let mut coord_buf = [0u8; 4];
-                if touch_i2c
+                if hw
+                    .touch_i2c
                     .write_read(FT6X06_ADDR, &[REG_TOUCH1_XH], &mut coord_buf)
                     .is_ok()
                 {
@@ -338,37 +385,47 @@ fn main() -> ! {
                         if in_settings {
                             if (715..765).contains(&dy) && (40..240).contains(&dx) {
                                 in_settings = false;
-                                auto_scan = scanner_connected;
-                                display::render_home(&mut fb, scanner_connected, model_str);
+                                auto_scan = hw.scanner_connected;
+                                display::render_home(
+                                    &mut hw.fb,
+                                    hw.scanner_connected,
+                                    hw.model_str,
+                                );
                             } else if (120..570).contains(&dy) && (10..460).contains(&dx) {
                                 let row = ((dy - 120) / 90) as usize;
                                 let toggled = scanner_utils::row_to_settings_flag(row);
                                 if let Some(flag) = toggled {
                                     current_settings ^= flag;
-                                    if scanner_connected {
-                                        scanner.set_scanner_settings(current_settings);
+                                    if hw.scanner_connected {
+                                        hw.scanner.set_scanner_settings(current_settings);
                                     }
-                                    display::render_scanner_settings(&mut fb, current_settings);
+                                    display::render_scanner_settings(&mut hw.fb, current_settings);
                                 }
                             }
                         } else if (670..730).contains(&dy) && (130..350).contains(&dx) {
                             in_settings = true;
                             auto_scan = false;
-                            if scanner_connected {
+                            if hw.scanner_connected {
                                 current_settings =
-                                    scanner.get_scanner_settings().unwrap_or_default();
+                                    hw.scanner.get_scanner_settings().unwrap_or_default();
                             }
-                            display::render_scanner_settings(&mut fb, current_settings);
+                            display::render_scanner_settings(&mut hw.fb, current_settings);
                         }
-                        let cycles_100ms = sysclk_hz / 10;
-                        led.set_high();
+                        let cycles_100ms = hw.sysclk_hz / 10;
+                        hw.led.set_high();
                         cortex_m::asm::delay(cycles_100ms);
-                        led.set_low();
+                        hw.led.set_low();
                     }
                 }
             }
         }
     }
+}
+
+#[entry]
+fn main() -> ! {
+    let hw = init_hardware();
+    run_main_loop(hw);
 }
 
 #[allow(clippy::too_many_arguments)]
