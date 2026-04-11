@@ -9,13 +9,13 @@
 - Display: 480×800 portrait via DSI/LTDC (NT35510), RGB888/ARGB8888 pixel format
 - SDRAM: 16MB via FMC, framebuffer 1.5MB (u32 × 384000 pixels)
 - Touch: FT6X06 on I2C1 (PB8=SCL, PB9=SDA), identity transform
-- Clock: 180MHz SYSCLK, PLLSAI_Q=48MHz for USB, PLLSAI_R for LTDC pixel clock
+- Clock: 168MHz SYSCLK (production), PLL1_Q=48MHz for USB, PLLSAI_R for LTDC pixel clock
 
 ## Known-Good Pins
 
 | Commit | Notes |
 |--------|-------|
-| `d1e6878` (main HEAD) | Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. Sync firmware migrated to Rgb888/ARGB8888 (17 type errors fixed). BSP fork `f124546`, embassy BSP fork `c95444e`. |
+| `4436807` (main HEAD) | Async firmware: removed broken select(usb_dev.run(), scanner.init()) pattern, added usb_minimal diagnostic. Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. Sync firmware migrated to Rgb888/ARGB8888 (17 type errors fixed). BSP fork `f124546`, embassy BSP fork `c95444e`. |
 
 ## Touch Calibration
 
@@ -82,6 +82,8 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 ### Debug builds (with RTT, USB will NOT work)
 
+**IMPORTANT: CDC commands use 3-byte framed format `[cmd, len_high, len_low]`.** Raw single-byte opcodes will not get a response. For example, ScannerStatus is `\x10\x00\x00`, not `\x10`.
+
 ```bash
 # Sync HIL tests (uses probe-rs RTT)
 cargo build --release --target thumbv7em-none-eabihf \
@@ -103,6 +105,28 @@ cargo build --release --target thumbv7em-none-eabihf \
 ```
 
 ## HIL Test Results
+
+### 2026-04-11 — CDC protocol verification + async firmware fix
+
+- **Key finding**: CDC `FrameDecoder` expects 3-byte framed commands `[cmd, len_high, len_low]`, not raw single-byte opcodes. Sending raw `0x10` for ScannerStatus produces no response — must send `\x10\x00\x00`.
+- **Key finding**: `select(usb_dev.run(), scanner.init())` pattern is fundamentally broken — embassy docs state dropping `UsbDevice::run()` "may leave the bus in an invalid state." Removed in commit `9dc8305`.
+- **Key finding**: `join(scanner_task, cdc_task)` instead of `select()` worsens executor starvation (6 poll points vs 4), breaking scanner init at 168MHz. Reverted. See issue #41.
+- **180MHz PLL fix hardware-verified**: `divp: Some(PllPDiv::DIV8)` on PLLSAI gives 48MHz USB. `usb_minimal` at 180MHz confirmed working. Full firmware at 180MHz: USB enumerates + CDC responds (non-scanner commands), but scanner init fails due to executor starvation (issue #40).
+
+**Async firmware CDC test (168MHz, commit `9dc8305`):**
+
+| Command | Bytes Sent | Response | Status |
+|---------|-----------|----------|--------|
+| ScannerStatus | `\x10\x00\x00` | `00 00 03 01 01 01` | ✅ connected=1 |
+| GetSettings | `\x13\x00\x00` | `00 00 01 81` | ✅ 0x81 |
+| Trigger | `\x11\x00\x00` | `00 00 00` | ✅ Ok |
+| ScannerData | `\x12\x00\x00` | `12 00 00` | ✅ NoData |
+
+**Build verification (all targets, 149/149 lib tests pass):**
+- `async_firmware` (scanner-async) ✅
+- `stm32f469i-disco-scanner` (sync-mode) ✅
+- `touch_test` (sync-mode) ✅
+- `usb_minimal` (scanner-async) ✅
 
 ### 2026-04-05 — Full HIL verification + production firmware test
 
@@ -211,6 +235,25 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 - **Scanner task blocks on auto_scan**: During `read_scan()` (up to 10s timeout), `COMMAND_CHANNEL.try_receive()` is not polled. CDC commands sent during auto_scan are queued but not processed until the scan cycle completes. Fix: use `embassy_futures::select` to handle commands while scanning.
 - **GetSettings/Trigger fail during auto_scan**: Same root cause as above — scanner task can't process CDC commands while awaiting scan result.
 - ~~**PLLSAI1_Q breaks USB enumeration**~~: RESOLVED (2026-04-09). At 180MHz SYSCLK, PLLSAI_Q=DIV8 gives exact 48MHz and USB enumerates correctly via `mux::Clk48sel::PLLSAI1_Q`. The previous failure was at 168MHz where PLLSAI configuration was different.
+
+## 180MHz USB Clock Fix (VERIFIED, NOT YET IN PRODUCTION)
+
+The 180MHz PLL config for USB CDC is fully understood and hardware-verified. Not yet applied to production firmware due to scanner init starvation at 180MHz (issue #40).
+
+**Required PLL config:**
+```rust
+// PLL1: SYSCLK = 8MHz / DIV8 * MUL360 / DIV2 = 180MHz
+config.rcc.pll = Some(Pll { prediv: PllPreDiv::DIV8, mul: PllMul::MUL360, divp: Some(PllPDiv::DIV2), divq: Some(PllQDiv::DIV7), divr: Some(PllRDiv::DIV6) });
+// PLLSAI: P=48MHz USB, R=54.86MHz LTDC pixel clock
+config.rcc.pllsai = Some(Pll { prediv: PllPreDiv::DIV8, mul: PllMul::MUL384, divp: Some(PllPDiv::DIV8), divq: Some(PllQDiv::DIV8), divr: Some(PllRDiv::DIV7) });
+config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
+// DCKCFGR2 workaround (embassy writes to wrong register)
+stm32_metapac::RCC.dckcfgr2().modify(|w| { w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q); });
+```
+
+**Why PLLSAI_P, not Q**: The `PLLSAI1_Q` enum is misleading on STM32F469 — hardware actually routes PLLSAI_P to the 48MHz clock mux. `divp: DIV8` gives 384MHz/DIV8 = 48MHz. See embassy-stm32f469i-disco#14.
+
+**Reference binary**: `usb_minimal.rs` has this exact config and is hardware-verified.
 
 ## Async Display Black Screen (RESOLVED)
 
