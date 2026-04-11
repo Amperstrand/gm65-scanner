@@ -2,13 +2,23 @@
 #[allow(non_snake_case)]
 #[no_mangle]
 unsafe extern "C" fn LTDC() {
-    cortex_m::asm::nop();
+    stm32_metapac::LTDC.icr().write(|w| {
+        w.set_clif(stm32_metapac::ltdc::vals::Clif::CLEAR);
+        w.set_cfuif(stm32_metapac::ltdc::vals::Cfuif::CLEAR);
+        w.set_cterrif(stm32_metapac::ltdc::vals::Cterrif::CLEAR);
+        w.set_crrif(stm32_metapac::ltdc::vals::Crrif::CLEAR);
+    });
 }
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]
 #[no_mangle]
 unsafe extern "C" fn LTDC_ER() {
-    cortex_m::asm::nop();
+    stm32_metapac::LTDC.icr().write(|w| {
+        w.set_clif(stm32_metapac::ltdc::vals::Clif::CLEAR);
+        w.set_cfuif(stm32_metapac::ltdc::vals::Cfuif::CLEAR);
+        w.set_cterrif(stm32_metapac::ltdc::vals::Cterrif::CLEAR);
+        w.set_crrif(stm32_metapac::ltdc::vals::Crrif::CLEAR);
+    });
 }
 #[cfg(feature = "scanner-async")]
 #[allow(non_snake_case)]

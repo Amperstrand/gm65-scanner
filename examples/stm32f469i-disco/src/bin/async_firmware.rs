@@ -109,7 +109,7 @@ const HEARTBEAT_BLINK_MS: u64 = 100;
 #[cfg(feature = "scanner-async")]
 const HSE_FREQ_HZ: u32 = 8_000_000;
 #[cfg(feature = "scanner-async")]
-const SYSCLK_HZ: u32 = 168_000_000;
+const SYSCLK_HZ: u32 = 180_000_000;
 #[cfg(feature = "scanner-async")]
 const UART_BAUD: u32 = 115200;
 
@@ -180,6 +180,8 @@ static LED: Mutex<CriticalSectionRawMutex, Option<embassy_stm32::gpio::Output<'s
     Mutex::new(None);
 #[cfg(feature = "scanner-async")]
 static DISPLAY_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+#[cfg(feature = "scanner-async")]
+static SCANNER_INIT_DONE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 #[cfg(feature = "scanner-async")]
 #[derive(Clone)]
@@ -300,26 +302,29 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
+            prediv: PllPreDiv::DIV8,
+            mul: PllMul::MUL360,
             divp: Some(PllPDiv::DIV2),
             divq: Some(PllQDiv::DIV7),
-            divr: None,
+            divr: Some(PllRDiv::DIV6),
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
         config.rcc.apb1_pre = APBPrescaler::DIV4;
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
         config.rcc.pllsai = Some(Pll {
             prediv: PllPreDiv::DIV8,
             mul: PllMul::MUL384,
-            divp: None,
-            divq: None,
+            divp: Some(PllPDiv::DIV8),
+            divq: Some(PllQDiv::DIV8),
             divr: Some(PllRDiv::DIV7),
         });
     }
     let mut p = embassy_stm32::init(config);
+    stm32_metapac::RCC.dckcfgr2().modify(|w| {
+        w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q);
+    });
 
     log_info!("Initializing SDRAM...");
     let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ);
@@ -401,7 +406,7 @@ async fn main(_spawner: Spawner) {
 
     DISPLAY_READY.signal(());
 
-    log_info!("Async scanner firmware started (168MHz, USB CDC, touch)");
+    log_info!("Async scanner firmware started (180MHz, USB CDC, touch)");
 
     let scanner_task = async {
         let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
@@ -427,10 +432,12 @@ async fn main(_spawner: Spawner) {
                 } else {
                     let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
                 }
+                SCANNER_INIT_DONE.signal(());
             }
             Err(_e) => {
                 log_error!("Scanner: init failed {:?}", _e);
                 let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
+                SCANNER_INIT_DONE.signal(());
             }
         }
 
@@ -814,6 +821,7 @@ async fn main(_spawner: Spawner) {
 
     let display_task = async {
         DISPLAY_READY.wait().await;
+        SCANNER_INIT_DONE.wait().await;
         loop {
             let event = DISPLAY_CHANNEL.receive().await;
             match event {
@@ -866,6 +874,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let touch_task = async {
+        SCANNER_INIT_DONE.wait().await;
         if !touch_ok {
             return;
         }
@@ -900,6 +909,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let settings_touch_task = async {
+        SCANNER_INIT_DONE.wait().await;
         if !touch_ok {
             return;
         }
@@ -949,6 +959,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let heartbeat_task = async {
+        SCANNER_INIT_DONE.wait().await;
         loop {
             Timer::after(Duration::from_millis(HEARTBEAT_INTERVAL_MS)).await;
             {
