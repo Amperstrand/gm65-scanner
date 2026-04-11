@@ -99,6 +99,8 @@ const TOUCH_RETRY_DELAY_MS: u64 = 50;
 const TOUCH_DEBOUNCE_MS: u64 = 200;
 #[cfg(feature = "scanner-async")]
 const USB_DISCONNECT_DELAY_MS: u64 = 100;
+#[cfg(feature = "scanner-async")]
+const CDC_RESPONSE_TIMEOUT_MS: u64 = 3000;
 
 #[cfg(feature = "scanner-async")]
 const HSE_FREQ_HZ: u32 = 8_000_000;
@@ -646,6 +648,25 @@ async fn main(_spawner: Spawner) {
             };
         }
 
+        macro_rules! receive_cdc_response_or_timeout {
+            () => {
+                match embassy_futures::select::select(
+                    CDC_RESPONSE_CHANNEL.receive(),
+                    Timer::after(Duration::from_millis(CDC_RESPONSE_TIMEOUT_MS)),
+                )
+                .await
+                {
+                    embassy_futures::select::Either::First(resp) => {
+                        write_cdc_response!(resp);
+                    }
+                    embassy_futures::select::Either::Second(_) => {
+                        log_error!("CDC: response timeout");
+                        let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
+                    }
+                }
+            };
+        }
+
         loop {
             cdc.wait_connection().await;
             log_info!("USB: connected");
@@ -705,8 +726,7 @@ async fn main(_spawner: Spawner) {
                                 Command::ScannerStatus => {
                                     log_info!("CMD: SCANNER_STATUS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::ScannerStatusCdc);
-                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
-                                    write_cdc_response!(resp);
+                                    receive_cdc_response_or_timeout!();
                                 }
                                 Command::ScannerTrigger => {
                                     log_info!("CMD: SCANNER_TRIGGER");
@@ -715,20 +735,17 @@ async fn main(_spawner: Spawner) {
         shared.auto_scan = true;
                                     }
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::Trigger);
-                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
-                                    write_cdc_response!(resp);
+                                    receive_cdc_response_or_timeout!();
                                 }
                                 Command::ScannerData => {
                                     log_info!("CMD: SCANNER_DATA");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::ScannerDataCdc);
-                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
-                                    write_cdc_response!(resp);
+                                    receive_cdc_response_or_timeout!();
                                 }
                                 Command::GetSettings => {
                                     log_info!("CMD: GET_SETTINGS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::GetSettings);
-                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
-                                    write_cdc_response!(resp);
+                                    receive_cdc_response_or_timeout!();
                                 }
                                 Command::SetSettings => {
                                     log_info!("CMD: SET_SETTINGS");
@@ -741,8 +758,7 @@ async fn main(_spawner: Spawner) {
                                         ScannerSettings::from_bits(payload[0])
                                     {
                                         let _ = COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings));
-                                        let resp = CDC_RESPONSE_CHANNEL.receive().await;
-                                        write_cdc_response!(resp);
+                                        receive_cdc_response_or_timeout!();
                                     } else {
                                         let _ = cdc
                                             .write_packet(&[Status::InvalidPayload.to_byte(), 0, 0])
@@ -760,8 +776,7 @@ async fn main(_spawner: Spawner) {
                                 Command::EnterSettings => {
                                     log_info!("CMD: ENTER_SETTINGS");
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::EnterSettings);
-                                    let resp = CDC_RESPONSE_CHANNEL.receive().await;
-                                    write_cdc_response!(resp);
+                                    receive_cdc_response_or_timeout!();
                                 }
                             }
                             continue;
@@ -785,7 +800,13 @@ async fn main(_spawner: Spawner) {
                 DisplayEvent::Scan(result) => {
                     let data_str = core::str::from_utf8(&result.data);
                     if data_str.is_ok() && result.data.len() <= QR_MAX_DATA_LEN {
-                        crate::qr_display_async::render_qr_mirror(&mut display.fb(), &result.data);
+                        crate::qr_display_async::render_qr_mirror_with_yield(
+                            &mut display.fb(),
+                            &result.data,
+                            || {
+                                cortex_m::asm::delay(10);
+                            },
+                        );
                     } else {
                         crate::display_async::render_scan_result(&mut display.fb(), &result.data);
                     }
@@ -810,7 +831,13 @@ async fn main(_spawner: Spawner) {
                     crate::display_async::render_status(&mut display.fb(), &msg);
                 }
                 DisplayEvent::Qr(text) => {
-                    if !crate::qr_display_async::render_qr_code(&mut display.fb(), &text) {
+                    if !crate::qr_display_async::render_qr_code_with_yield(
+                        &mut display.fb(),
+                        &text,
+                        || {
+                            cortex_m::asm::delay(10);
+                        },
+                    ) {
                         crate::display_async::render_error(&mut display.fb(), "QR encode failed");
                     }
                 }

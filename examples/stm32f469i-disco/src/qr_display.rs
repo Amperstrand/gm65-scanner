@@ -24,8 +24,18 @@ const QR_LABEL_MAX_LEN: usize = 50;
 const QR_LABEL_BOTTOM_OFFSET: i32 = 10;
 const QR_MAX_DATA_LEN: usize = 200;
 const QR_ERROR_CENTER: i32 = 240;
+const YIELD_INTERVAL: u32 = 8;
 
+#[allow(dead_code)]
 pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> bool {
+    render_qr_code_with_yield(fb, text, || {})
+}
+
+pub fn render_qr_code_with_yield(
+    fb: &mut impl DrawTarget<Color = Rgb888>,
+    text: &str,
+    mut yield_fn: impl FnMut(),
+) -> bool {
     let mut temp_buf = [0u8; QR_BUF_SIZE];
     let mut out_buf = [0u8; QR_BUF_SIZE];
 
@@ -62,6 +72,7 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> b
     let offset_y = QR_TOP_OFFSET as u32 + (FB_HEIGHT as u32 - qr_pixel_h - QR_MARGIN_X as u32) / 2;
 
     let _ = fb.clear(Rgb888::BLACK);
+    let mut module_count = 0u32;
 
     for qr_y in 0..qr_size {
         for qr_x in 0..qr_size {
@@ -76,6 +87,11 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> b
                     &Rectangle::new(Point::new(px as i32, py as i32), Size::new(scale, scale)),
                     color,
                 );
+            }
+
+            module_count += 1;
+            if module_count % YIELD_INTERVAL == 0 {
+                yield_fn();
             }
         }
     }
@@ -98,10 +114,19 @@ pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> b
     true
 }
 
+#[allow(dead_code)]
 pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
+    render_qr_mirror_with_yield(fb, data, || {});
+}
+
+pub fn render_qr_mirror_with_yield(
+    fb: &mut impl DrawTarget<Color = Rgb888>,
+    data: &[u8],
+    mut yield_fn: impl FnMut(),
+) {
     match core::str::from_utf8(data) {
         Ok(text) if data.len() <= QR_MAX_DATA_LEN => {
-            if !render_qr_code(fb, text) {
+            if !render_qr_code_with_yield(fb, text, &mut yield_fn) {
                 let _ = fb.clear(Rgb888::BLACK);
                 let style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 0, 0));
                 let center = TextStyleBuilder::new().alignment(Alignment::Center).build();
