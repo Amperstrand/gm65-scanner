@@ -9,13 +9,13 @@
 - Display: 480×800 portrait via DSI/LTDC (NT35510), RGB888/ARGB8888 pixel format
 - SDRAM: 16MB via FMC, framebuffer 1.5MB (u32 × 384000 pixels)
 - Touch: FT6X06 on I2C1 (PB8=SCL, PB9=SDA), identity transform
-- Clock: 168MHz SYSCLK (production), PLL1_Q=48MHz for USB, PLLSAI_R for LTDC pixel clock
+- Clock: 180MHz SYSCLK (production), PLLSAI_P=DIV8→48MHz for USB (via DCKCFGR2 workaround), PLLSAI_R=DIV7→54.86MHz for LTDC pixel clock
 
 ## Known-Good Pins
 
 | Commit | Notes |
 |--------|-------|
-| `4436807` (main HEAD) | Async firmware: removed broken select(usb_dev.run(), scanner.init()) pattern, added usb_minimal diagnostic. Sync 6/6 + CDC 12/12 verified. Async 9/9 HIL verified, CDC enumerates + ScannerStatus 5/5 verified. Touch calibration verified (identity transform, portrait 480x800). touch_test binary HW verified. Sync firmware migrated to Rgb888/ARGB8888 (17 type errors fixed). BSP fork `f124546`, embassy BSP fork `c95444e`. |
+| `9ce9158` (main HEAD) | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz (ScannerStatus, GetSettings, Trigger, ScannerData). Heartbeat LED, QR render yield points, CDC response timeout added. 149/149 tests pass. |
 
 ## Touch Calibration
 
@@ -236,9 +236,9 @@ This BSP's unconditional `"defmt"` in HAL features was **non-standard**. Every m
 - **GetSettings/Trigger fail during auto_scan**: Same root cause as above — scanner task can't process CDC commands while awaiting scan result.
 - ~~**PLLSAI1_Q breaks USB enumeration**~~: RESOLVED (2026-04-09). At 180MHz SYSCLK, PLLSAI_Q=DIV8 gives exact 48MHz and USB enumerates correctly via `mux::Clk48sel::PLLSAI1_Q`. The previous failure was at 168MHz where PLLSAI configuration was different.
 
-## 180MHz USB Clock Fix (VERIFIED, NOT YET IN PRODUCTION)
+## 180MHz USB Clock Fix (IN PRODUCTION — commit 9ce9158)
 
-The 180MHz PLL config for USB CDC is fully understood and hardware-verified. Not yet applied to production firmware due to scanner init starvation at 180MHz (issue #40).
+The 180MHz PLL config for USB CDC is fully understood and hardware-verified. Applied to production firmware in commit `9ce9158`. Scanner init starvation was resolved by fixing LTDC ISR flag clearing and gating non-essential tasks behind SCANNER_INIT_DONE signal (issue #40).
 
 **Required PLL config:**
 ```rust
