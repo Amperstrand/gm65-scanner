@@ -137,6 +137,7 @@ impl Response {
         total_len
     }
 
+    #[allow(dead_code)]
     pub fn encoded_size(&self) -> usize {
         STATUS_HEADER_SIZE + self.length as usize
     }
@@ -282,6 +283,7 @@ impl<'a> CdcPort<'a> {
         true
     }
 
+    #[allow(dead_code)]
     pub fn send_error(&mut self, status: Status) -> bool {
         let response = Response::new(status);
         self.send_response(&response)

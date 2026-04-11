@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![allow(dead_code, clippy::empty_loop)]
+#![allow(clippy::empty_loop)]
 
 extern crate alloc;
 

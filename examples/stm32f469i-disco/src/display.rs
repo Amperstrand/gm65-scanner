@@ -322,6 +322,7 @@ pub fn render_scanner_settings(
         .ok();
 }
 
+#[allow(dead_code)]
 pub fn render_scan_result(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
     let payload = gm65_scanner::decode_payload(data);
     render_decoded_scan(fb, &payload);
