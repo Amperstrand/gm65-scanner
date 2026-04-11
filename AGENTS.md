@@ -15,7 +15,8 @@
 
 | Commit | Notes |
 |--------|-------|
-| `9ce9158` (main HEAD) | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz (ScannerStatus, GetSettings, Trigger, ScannerData). Heartbeat LED, QR render yield points, CDC response timeout added. 149/149 tests pass. |
+| `3ddb01d` (main HEAD) | Async firmware refactored: decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. All pins to GitHub URLs. BSP orientation support. nt35510 v0.2.0 publish-ready (memory_check, private regs). 149/149 tests pass. |
+| `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
 
 ## Touch Calibration
 
