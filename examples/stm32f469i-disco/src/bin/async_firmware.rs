@@ -101,6 +101,10 @@ const TOUCH_DEBOUNCE_MS: u64 = 200;
 const USB_DISCONNECT_DELAY_MS: u64 = 100;
 #[cfg(feature = "scanner-async")]
 const CDC_RESPONSE_TIMEOUT_MS: u64 = 3000;
+#[cfg(feature = "scanner-async")]
+const HEARTBEAT_INTERVAL_MS: u64 = 3000;
+#[cfg(feature = "scanner-async")]
+const HEARTBEAT_BLINK_MS: u64 = 100;
 
 #[cfg(feature = "scanner-async")]
 const HSE_FREQ_HZ: u32 = 8_000_000;
@@ -171,6 +175,9 @@ static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, HostCommand, CMD_CHANNE
 static CDC_RESPONSE_CHANNEL: Channel<CriticalSectionRawMutex, CdcResponse, CMD_CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
 static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState::new());
+#[cfg(feature = "scanner-async")]
+static LED: Mutex<CriticalSectionRawMutex, Option<embassy_stm32::gpio::Output<'static>>> =
+    Mutex::new(None);
 #[cfg(feature = "scanner-async")]
 static DISPLAY_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
@@ -328,11 +335,14 @@ async fn main(_spawner: Spawner) {
     let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.LTDC, p.DSIHOST, p.PJ2, p.PH7, embassy_stm32f469i_disco::BoardHint::ForceNt35510);
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
-    let mut led = embassy_stm32::gpio::Output::new(
-        p.PG6,
-        embassy_stm32::gpio::Level::Low,
-        embassy_stm32::gpio::Speed::Low,
-    );
+    {
+        let mut led = LED.lock().await;
+        *led = Some(embassy_stm32::gpio::Output::new(
+            p.PG6,
+            embassy_stm32::gpio::Level::Low,
+            embassy_stm32::gpio::Speed::Low,
+        ));
+    }
 
     embassy_stm32::interrupt::USART6.disable();
     let mut uart_config = usart::Config::default();
@@ -566,9 +576,19 @@ async fn main(_spawner: Spawner) {
                                 shared.last_scan = Some(data);
                             }
                             for _ in 0..LED_BLINK_COUNT {
-                                led.set_high();
+                                {
+                                    let mut led = LED.lock().await;
+                                    if let Some(led) = led.as_mut() {
+                                        led.set_high();
+                                    }
+                                }
                                 Timer::after(Duration::from_millis(LED_BLINK_MS)).await;
-                                led.set_low();
+                                {
+                                    let mut led = LED.lock().await;
+                                    if let Some(led) = led.as_mut() {
+                                        led.set_low();
+                                    }
+                                }
                                 Timer::after(Duration::from_millis(LED_BLINK_MS)).await;
                             }
                         }
@@ -928,11 +948,33 @@ async fn main(_spawner: Spawner) {
         }
     };
 
+    let heartbeat_task = async {
+        loop {
+            Timer::after(Duration::from_millis(HEARTBEAT_INTERVAL_MS)).await;
+            {
+                let mut led = LED.lock().await;
+                if let Some(led) = led.as_mut() {
+                    led.set_high();
+                }
+            }
+            Timer::after(Duration::from_millis(HEARTBEAT_BLINK_MS)).await;
+            {
+                let mut led = LED.lock().await;
+                if let Some(led) = led.as_mut() {
+                    led.set_low();
+                }
+            }
+        }
+    };
+
     embassy_futures::join::join4(
         usb_dev.run(),
         embassy_futures::select::select(scanner_task, cdc_task),
         display_task,
-        embassy_futures::select::select(touch_task, settings_touch_task),
+        embassy_futures::select::select(
+            embassy_futures::select::select(touch_task, settings_touch_task),
+            heartbeat_task,
+        ),
     )
     .await;
 }
