@@ -103,7 +103,7 @@ const USB_DISCONNECT_DELAY_MS: u64 = 100;
 #[cfg(feature = "scanner-async")]
 const HSE_FREQ_HZ: u32 = 8_000_000;
 #[cfg(feature = "scanner-async")]
-const SYSCLK_HZ: u32 = 180_000_000;
+const SYSCLK_HZ: u32 = 168_000_000;
 #[cfg(feature = "scanner-async")]
 const UART_BAUD: u32 = 115200;
 
@@ -291,34 +291,26 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV8,
-            mul: PllMul::MUL360,
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL168,
             divp: Some(PllPDiv::DIV2),
             divq: Some(PllQDiv::DIV7),
-            divr: Some(PllRDiv::DIV6),
+            divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
         config.rcc.apb1_pre = APBPrescaler::DIV4;
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
         config.rcc.pllsai = Some(Pll {
             prediv: PllPreDiv::DIV8,
             mul: PllMul::MUL384,
             divp: None,
-            divq: Some(PllQDiv::DIV8),
+            divq: None,
             divr: Some(PllRDiv::DIV7),
         });
     }
     let mut p = embassy_stm32::init(config);
-
-    // WORKAROUND: embassy-stm32 writes CK48MSEL to DCKCFGR (wrong register on STM32F469).
-    // USB 48MHz mux is in DCKCFGR2 bit 27, not DCKCFGR bit 27.
-    // Without this, USB uses default PLL1_Q (51.4MHz at 180MHz), which fails enumeration.
-    // See: https://github.com/Amperstrand/gm65-scanner/issues/23
-    stm32_metapac::RCC.dckcfgr2().modify(|w| {
-        w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q);
-    });
 
     log_info!("Initializing SDRAM...");
     let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ);
@@ -399,50 +391,37 @@ async fn main(_spawner: Spawner) {
 
     log_info!("Async scanner firmware started (168MHz, USB CDC, touch)");
 
-    // Phase 1: Start USB polling and scanner init concurrently.
-    // USB must be polling before the host enumerates, otherwise
-    // SET_CONFIGURATION is missed and wait_connection() hangs forever.
-    // Scanner init runs alongside USB with only 2 tasks competing,
-    // giving the UART reads enough executor attention to succeed.
-    use embassy_futures::select::{select, Either};
-    let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
-    use gm65_scanner::ScannerDriver;
-
-    let init_result = select(usb_dev.run(), scanner.init()).await;
-    match init_result {
-        Either::First(_) => unreachable!(),
-        Either::Second(result) => {
-            match result {
-                Ok(model) => {
-                    log_info!("Scanner: detected {:?}", model);
-                    let model_str = scanner_utils::model_to_str(model);
-                    {
-                        let mut shared = SHARED.lock().await;
-                        shared.scanner_connected = true;
-                        shared.scanner_initialized = true;
-                        shared.model = model;
-                        let bytes = model_str.as_bytes();
-                        let model_len = bytes.len().min(MODEL_STR_LEN);
-                        shared.model_len = model_len;
-                        shared.model_str[..model_len].copy_from_slice(bytes);
-                    }
-                    if let Some(settings) = scanner.get_scanner_settings().await {
-                        let mut shared = SHARED.lock().await;
-                        shared.settings = Some(settings);
-                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
-                    } else {
-                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
-                    }
+    let scanner_task = async {
+        let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
+        use gm65_scanner::ScannerDriver;
+        match scanner.init().await {
+            Ok(model) => {
+                log_info!("Scanner: detected {:?}", model);
+                let model_str = scanner_utils::model_to_str(model);
+                {
+                    let mut shared = SHARED.lock().await;
+                    shared.scanner_connected = true;
+                    shared.scanner_initialized = true;
+                    shared.model = model;
+                    let bytes = model_str.as_bytes();
+                    let model_len = bytes.len().min(MODEL_STR_LEN);
+                    shared.model_len = model_len;
+                    shared.model_str[..model_len].copy_from_slice(bytes);
                 }
-                Err(_e) => {
-                    log_error!("Scanner: init failed {:?}", _e);
-                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
+                if let Some(settings) = scanner.get_scanner_settings().await {
+                    let mut shared = SHARED.lock().await;
+                    shared.settings = Some(settings);
+                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
+                } else {
+                    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
                 }
             }
+            Err(_e) => {
+                log_error!("Scanner: init failed {:?}", _e);
+                let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed")));
+            }
         }
-    }
 
-    let scanner_task = async {
         let mut pending_cmd: Option<HostCommand> = None;
 
         loop {
@@ -693,7 +672,7 @@ async fn main(_spawner: Spawner) {
                             Timer::after(Duration::from_millis(AUTO_SCAN_PAUSE_MS)).await;
                             {
                                 let mut shared = SHARED.lock().await;
-                                shared.auto_scan = true;
+        shared.auto_scan = false;
                             }
                         }
                         Err(_) => break,
@@ -733,7 +712,7 @@ async fn main(_spawner: Spawner) {
                                     log_info!("CMD: SCANNER_TRIGGER");
                                     {
                                         let mut shared = SHARED.lock().await;
-                                        shared.auto_scan = false;
+        shared.auto_scan = true;
                                     }
                                     let _ = COMMAND_CHANNEL.try_send(HostCommand::Trigger);
                                     let resp = CDC_RESPONSE_CHANNEL.receive().await;
