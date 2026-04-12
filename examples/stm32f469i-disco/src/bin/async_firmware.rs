@@ -1092,6 +1092,8 @@ async fn run_heartbeat() {
 #[cfg(feature = "scanner-async")]
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    // SAFETY: HEAP_MEMORY is a static [u8; 64KB] buffer. linked_list_allocator::init()
+    // requires a valid, aligned pointer to writable memory for the heap region.
     unsafe {
         ALLOCATOR
             .lock()
