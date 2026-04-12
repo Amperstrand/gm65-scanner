@@ -56,7 +56,7 @@ flowchart LR
 
 | Commit | Notes |
 |--------|-------|
-| `ce4969a` (main HEAD) | Current production. Async firmware refactored, all pins to GitHub URLs, BSP orientation support, nt35510 v0.2.0, 149/149 tests pass. |
+| `16eb22f` (main HEAD) | Current production. Sync firmware USB CDC regression fixed (#44, #[inline(always)] on init_hardware). All firmware targets hardware-verified. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
 
@@ -175,6 +175,7 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 | Date | Tests | Pass | Notes |
 |------|-------|------|-------|
+| 2026-04-12 | Sync prod | 4/4 | CDC smoke test. #[inline(always)] fix for #44. USB enum OK, all CDC commands respond. |
 | 2026-04-05 | Sync 6, Async 9 | 15/15 | InitAction state machine, BSP `799df39`. Sync QR 25 bytes, Async QR 23 bytes. BarType VERIFY FAIL expected (#10). |
 | 2026-04-05 | Sync prod, Async prod | Both | USB CDC production verification. Sync `16c0:27dd`, Async `c0de:cafe`. Five root causes fixed (see Async CDC section). |
 | 2026-03-31 | Sync 6, Async 9 | 15/15 | InitAction state machine, BSP `56a0bc8` (HAL 0.5, embedded-hal 1.0). Same test pattern as 04-05. |
@@ -214,6 +215,21 @@ RESOLVED: Async firmware enumerated as `c0de:cafe` but no data flowed. Five inde
 4. CDC task channel race -- `try_receive()` on response channel polled before scanner task processed command. Fixed by using `receive().await`.
 5. `[ALIVE]` heartbeat every 3s corrupted protocol framing. Fixed by removing heartbeat entirely.
 6. Mutex guards held across `.await` caused deadlocks. Fixed by splitting lock scopes.
+
+### Sync Firmware USB CDC Regression (#44)
+
+RESOLVED: Returning the large `Hardware` struct (~500+ bytes) from `init_hardware()` via ARM ABI sret corrupts USB OTG FS peripheral registers. The AAPCS passes return values larger than 16 bytes through the stack pointer, and the resulting stack frame layout corrupts USB peripheral state. Fixed with `#[inline(always)]` on `init_hardware()` which eliminates the function call boundary — compiled output is identical to having all init code in `main()`.
+
+**Evidence**: Inlining the same code into `main()` works. Static allocation (`static mut MaybeUninit<Hardware>`) also fails. The issue is NOT related to 48MHz USB clock, PLLSAI config, or register offsets.
+
+**Sync firmware CDC smoke test (commit `16eb22f`):**
+
+| Command | Bytes Sent | Response | Status |
+|---------|-----------|----------|--------|
+| ScannerStatus | `\x10\x00\x00` | `00 00 03 00 00 01` | connected=0 |
+| GetSettings | `\x13\x00\x00` | `00 00 01 81` | 0x81 |
+| Trigger | `\x11\x00\x00` | `10 00 00` | ScannerNotConnected |
+| ScannerData | `\x12\x00\x00` | `12 00 00` | NoScanData |
 
 ### Async Display Black Screen
 
