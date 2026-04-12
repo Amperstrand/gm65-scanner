@@ -56,7 +56,7 @@ flowchart LR
 
 | Commit | Notes |
 |--------|-------|
-| `be286e3` (main HEAD) | Current production. Scanner init regression fixed (#45), unsafe transmutes removed (#46). USB CDC + scanner fully verified. |
+| `9e440eb` (main HEAD) | Current production. Scanner init regression fixed (#45), unsafe transmutes removed (#46), SAFETY comments on all unsafe blocks. USB CDC + scanner fully verified on both sync and async firmware. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
 
