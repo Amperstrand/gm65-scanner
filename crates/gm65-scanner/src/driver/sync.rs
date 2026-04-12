@@ -142,13 +142,17 @@ where
         if self.core.state() != ScannerState::Scanning {
             self.drain_uart();
         }
+        // GM65 requires ~1ms between commands (180K cycles at 180MHz)
+        for _ in 0..180_000 {
+            core::hint::spin_loop();
+        }
         if self.uart_write_all(cmd).is_err() {
             return None;
         }
 
         let mut resp = Vec::with_capacity(RESPONSE_LEN);
         let mut total_attempts = 0u32;
-        let max_attempts = 200_000u32;
+        let max_attempts = 2_000_000u32;
 
         while resp.len() < RESPONSE_LEN && total_attempts < max_attempts {
             match self.uart.read() {
@@ -184,7 +188,7 @@ where
                 Ok(_) => attempts = 0,
                 Err(nb::Error::WouldBlock) => {
                     attempts += 1;
-                    if attempts > 50_000 {
+                    if attempts > 500_000 {
                         break;
                     }
                 }

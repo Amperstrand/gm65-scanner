@@ -8,7 +8,7 @@ use cortex_m_rt::entry;
 use panic_halt as _;
 
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888, prelude::*};
-use static_cell::ConstStaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use stm32f469i_disc::{
     hal,
     hal::ltdc::Layer,
@@ -44,6 +44,7 @@ use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
 
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
+static USB_BUS: StaticCell<usb_device::bus::UsbBusAllocator<UsbBusType>> = StaticCell::new();
 
 fn render_boot_status(fb: &mut impl DrawTarget<Color = Rgb888>, line: &str, line_num: u32) {
     use embedded_graphics::mono_font::{ascii::FONT_6X10, MonoTextStyle};
@@ -135,6 +136,9 @@ fn init_hardware() -> Hardware {
         const HEAP_SIZE: usize = 64 * 1024;
         let heap_start = sdram.mem as *mut u8;
         let fb_bytes = lcd::DisplayOrientation::Portrait.fb_size() * core::mem::size_of::<u32>();
+        // SAFETY: sdram.mem is FMC-mapped SDRAM (0xC000_0000). fb_bytes is 1,536,000 (384K
+        // pixels * 4 bytes ARGB8888). Heap starts at fb_bytes offset within the 16MB SDRAM.
+        // linked_list_allocator::init() requires a valid, aligned, non-overlapping region.
         unsafe {
             let heap_ptr = heap_start.add(fb_bytes);
             ALLOCATOR.lock().init(heap_ptr, HEAP_SIZE);
@@ -143,6 +147,8 @@ fn init_hardware() -> Hardware {
 
     // Display init (portrait 480x800, ARGB8888)
     let orientation = lcd::DisplayOrientation::Portrait;
+    // SAFETY: sdram.mem points to FMC-mapped SDRAM. fb_size() returns 384,000 u32 elements
+    // (1,536,000 bytes). The full SDRAM region is valid and exclusively owned by this code.
     let fb_buffer: &'static mut [u32] =
         unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem, orientation.fb_size()) };
 
@@ -163,6 +169,9 @@ fn init_hardware() -> Hardware {
     let fb_ptr = display_ctrl
         .layer_buffer_mut(Layer::L1)
         .expect("layer L1 buffer");
+    // SAFETY: fb_ptr is the LTDC layer buffer in SDRAM, valid for the lifetime of the display
+    // controller. The transmute changes &mut [u32] to &'static mut [u32] which is safe because
+    // the SDRAM is never deallocated and outlives the program.
     let fb_buf: &'static mut [u32] = unsafe { core::mem::transmute(fb_ptr) };
     let mut fb = FramebufferView::new(
         fb_buf,
@@ -185,23 +194,18 @@ fn init_hardware() -> Hardware {
         &rcc.clocks,
     );
 
-    let usb_bus = UsbBus::new(usb_periph, EP_MEMORY.take());
+    let usb_bus = USB_BUS.init(UsbBus::new(usb_periph, EP_MEMORY.take()));
 
-    let serial: usbd_serial::SerialPort<'static, UsbBusType> =
-        unsafe { core::mem::transmute(usbd_serial::SerialPort::new(&usb_bus)) };
+    let serial = usbd_serial::SerialPort::new(usb_bus);
 
-    let usb_dev: UsbDevice<'static, UsbBusType> = unsafe {
-        core::mem::transmute(
-            UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-                .device_class(usbd_serial::USB_CLASS_CDC)
-                .strings(&[StringDescriptors::default()
-                    .manufacturer("gm65-scanner")
-                    .product("QR Barcode Scanner")
-                    .serial_number("F4691")])
-                .unwrap()
-                .build(),
-        )
-    };
+    let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .strings(&[StringDescriptors::default()
+            .manufacturer("gm65-scanner")
+            .product("QR Barcode Scanner")
+            .serial_number("F4691")])
+        .unwrap()
+        .build();
 
     let cdc_port = CdcPort::new(serial);
 
@@ -215,9 +219,14 @@ fn init_hardware() -> Hardware {
         .USART6
         .serial((scanner_tx, scanner_rx), baud.bps(), &mut rcc)
         .unwrap();
+
+    // GM65 module needs settling time after power-on. The async firmware doesn't need this
+    // because embassy tasks run concurrently — USB enumeration provides implicit delay.
+    cortex_m::asm::delay(sysclk_hz / 2);
+
     let mut scanner = Gm65Scanner::with_default_config(uart);
 
-    let mut model_str: &str = "Unknown";
+    let mut model_str: &'static str = "Unknown";
     let scanner_connected = match scanner.init() {
         Ok(model) => {
             model_str = scanner_utils::model_to_str(model);
@@ -263,9 +272,6 @@ fn init_hardware() -> Hardware {
         .ok();
         render_boot_status(&mut fb, &msg, boot_line);
     }
-
-    // Leak model_str to get 'static lifetime for Hardware struct
-    let model_str: &'static str = unsafe { core::mem::transmute(model_str) };
 
     Hardware {
         fb,
