@@ -56,7 +56,7 @@ flowchart LR
 
 | Commit | Notes |
 |--------|-------|
-| `16eb22f` (main HEAD) | Current production. Sync firmware USB CDC regression fixed (#44, #[inline(always)] on init_hardware). All firmware targets hardware-verified. |
+| `be286e3` (main HEAD) | Current production. Scanner init regression fixed (#45), unsafe transmutes removed (#46). USB CDC + scanner fully verified. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
 
@@ -176,6 +176,7 @@ cargo build --release --target thumbv7em-none-eabihf \
 | Date | Tests | Pass | Notes |
 |------|-------|------|-------|
 | 2026-04-12 | Sync prod | 4/4 | CDC smoke test. #[inline(always)] fix for #44. USB enum OK, all CDC commands respond. |
+| 2026-04-12 | Sync prod | 4/4 | Scanner init regression fix (#45). ScannerStatus connected=1, Trigger=Ok. StaticCell USB, SAFETY comments (#46). |
 | 2026-04-05 | Sync 6, Async 9 | 15/15 | InitAction state machine, BSP `799df39`. Sync QR 25 bytes, Async QR 23 bytes. BarType VERIFY FAIL expected (#10). |
 | 2026-04-05 | Sync prod, Async prod | Both | USB CDC production verification. Sync `16c0:27dd`, Async `c0de:cafe`. Five root causes fixed (see Async CDC section). |
 | 2026-03-31 | Sync 6, Async 9 | 15/15 | InitAction state machine, BSP `56a0bc8` (HAL 0.5, embedded-hal 1.0). Same test pattern as 04-05. |
