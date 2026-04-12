@@ -72,7 +72,6 @@ const TOUCH_MARGIN: u16 = 3;
 const TOUCH_X_MAX: u16 = 476;
 const TOUCH_Y_MAX: u16 = 796;
 
-/// All initialized hardware returned by `init_hardware()`.
 struct Hardware {
     fb: FramebufferView<'static>,
     usb_dev: UsbDevice<'static, UsbBusType>,
@@ -87,6 +86,10 @@ struct Hardware {
 }
 
 /// Initialize all peripherals: RCC, SDRAM, display, USB CDC, scanner UART, touch I2C.
+///
+/// MUST be `#[inline(always)]` — returning `Hardware` (a large struct) via ARM ABI sret
+/// corrupts USB peripheral registers. See #44.
+#[inline(always)]
 fn init_hardware() -> Hardware {
     let dp = pac::Peripherals::take().unwrap();
     let cp = CorePeripherals::take().unwrap();
