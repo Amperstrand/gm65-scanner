@@ -66,12 +66,14 @@ const FLASH_ACR: *const u32 = 0x4002_3C00 as *const u32;
 
 #[cfg(feature = "scanner-async")]
 fn set_cpu_hz(hz: u32) {
+    // SAFETY: single-threaded bare-metal — no concurrent access to CPU_HZ
     unsafe { CPU_HZ = hz };
 }
 
 #[cfg(feature = "scanner-async")]
 fn update_usart_brr(apb2_hz: u32, baud: u32) {
     let usartdiv = (apb2_hz + baud / 2) / baud;
+    // SAFETY: USART6 BRR is valid for 115200 baud at this SYSCLK
     unsafe {
         core::ptr::write_volatile(USART6_BRR as *mut u32, usartdiv);
     }
@@ -86,6 +88,7 @@ fn update_usart_brr(apb2_hz: u32, baud: u32) {
 
 #[cfg(feature = "scanner-async")]
 fn delay_us(us: u32) {
+    // SAFETY: single-threaded bare-metal
     let hz = unsafe { CPU_HZ };
     cortex_m::asm::delay((hz / 1_000_000) * us);
 }
@@ -109,11 +112,13 @@ fn write_all_blocking(
 
 #[cfg(feature = "scanner-async")]
 fn uart_rx_ready() -> bool {
+    // SAFETY: USART6_SR at 0x4001_1400 (RM0090 table 45)
     unsafe { read_volatile(USART6_SR) & USART_SR_RXNE != 0 }
 }
 
 #[cfg(feature = "scanner-async")]
 fn uart_read_byte() -> u8 {
+    // SAFETY: USART6_DR at 0x4001_1404 (RM0090 table 44)
     unsafe { read_volatile(USART6_DR as *const u8) }
 }
 
@@ -194,7 +199,7 @@ fn blink_forever(led: &mut Output<'_>, on_ms: u32, off_ms: u32) -> ! {
 
 #[cfg(feature = "scanner-async")]
 fn switch_to_pll_hse() -> u32 {
-    defmt::info!("=== PHASE 2: Switching to HSE PLL ===");
+    // SAFETY: defmt diagnostic — directly manipulates RCC/PLL/FLASH registers
     unsafe {
         let rcc_cr = read_volatile(RCC_CR);
         let hserdy = (rcc_cr >> 17) & 1;

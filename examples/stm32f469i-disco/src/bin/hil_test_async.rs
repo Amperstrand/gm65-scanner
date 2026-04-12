@@ -64,6 +64,7 @@ async fn blink(led: &mut Output<'_>, count: u32, on_ms: u64, off_ms: u64) {
 #[cfg(feature = "scanner-async")]
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    // SAFETY: HEAP_MEMORY is a static [u8; 64KB] buffer. init() requires valid aligned pointer.
     unsafe {
         ALLOCATOR
             .lock()

@@ -45,6 +45,7 @@ fn all_off(leds: &mut [&mut Led; 4]) {
 
 #[entry]
 fn main() -> ! {
+    // SAFETY: HEAP_MEMORY is a static [u8; 64KB] buffer. init() requires valid aligned pointer.
     unsafe {
         ALLOCATOR
             .lock()
