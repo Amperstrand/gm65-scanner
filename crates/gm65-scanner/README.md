@@ -39,47 +39,22 @@ Both drivers share `ScannerCore` — the same state machine, protocol logic, and
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    gm65-scanner crate                 │
-│                                                      │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ protocol │  │ scanner_core │  │     buffer    │  │
-│  │  .rs     │→ │    .rs       │← │     .rs       │  │
-│  │ (encode/ │  │ (state       │  │ (EOL-terminated│  │
-│  │  decode) │  │  machine,    │  │  UART data    │  │
-│  └──────────┘  │  settings)   │  │  buffering)   │  │
-│                └──────┬───────┘  └───────────────┘  │
-│                       │                             │
-│              ┌────────┴────────┐                    │
-│              │  driver/traits  │                    │
-│              │     .rs        │                    │
-│              │ (ScannerDriverSync│                  │
-│              │  + ScannerDriver)│                   │
-│              └──┬─────────┬───┘                    │
-│                 │         │                        │
-│       ┌─────────┘         └─────────┐              │
-│       ▼                             ▼              │
-│  ┌──────────┐               ┌────────────┐         │
-│  │ sync.rs  │               │ async_.rs  │         │
-│  │ Gm65Scan │               │ Gm65Scan   │         │
-│  │ ner<UART>│               │ nerAsync   │         │
-│  │          │               │ <UART>     │         │
-│  │ embedded │               │ embedded   │         │
-│  │ _hal_02  │               │ _io_async  │         │
-│  │ blocking │               │ Read+Write │         │
-│  │ Read+    │               │            │         │
-│  │ Write    │               │            │         │
-│  └──────────┘               └────────────┘         │
-│                                                      │
-│  ┌──────────┐  ┌──────────────┐                     │
-│  │ decoder  │  │  driver/     │                     │
-│  │  .rs     │  │  types.rs    │                     │
-│  │ (payload │  │ (errors,     │                     │
-│  │  classify│  │  config,     │                     │
-│  │  UR multi)│  │  status)     │                     │
-│  └──────────┘  └──────────────┘                     │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    protocol["protocol.rs<br/>(encode / decode)"]
+    core["scanner_core.rs<br/>(state machine,<br/>settings)"]
+    buf["buffer.rs<br/>(EOL-terminated<br/>UART data buffering)"]
+    traits["driver/traits.rs<br/>(ScannerDriverSync<br/>+ ScannerDriver)"]
+    sync["sync.rs<br/>Gm65Scanner&lt;UART&gt;<br/>embedded-hal 0.2<br/>blocking Read/Write"]
+    async_["async_.rs<br/>Gm65ScannerAsync&lt;UART&gt;<br/>embedded-io-async<br/>Read/Write"]
+    decoder["decoder.rs<br/>(payload classify,<br/>UR multi-part)"]
+    types["driver/types.rs<br/>(errors, config,<br/>status)"]
+
+    protocol -->|command frames| core
+    buf -->|UART data| core
+    core --> traits
+    traits --> sync
+    traits --> async_
 ```
 
 ### Design Patterns
@@ -93,13 +68,98 @@ Both drivers share `ScannerCore` — the same state machine, protocol logic, and
 Both traits expose identical semantics — only the execution model differs.
 
 **Settings Register 0x0000 Bit Layout**:
-```
-Bit 7: ALWAYS_ON      Bit 3: (unused)
-Bit 6: SOUND (buzzer)  Bit 2: LIGHT
-Bit 5: (unused)        Bit 1: Continuous scan (DO NOT USE)
-Bit 4: AIM (laser)     Bit 0: Command-triggered mode (USE THIS)
+
+```mermaid
+flowchart LR
+    subgraph high["High nibble"]
+        b7["Bit 7: ALWAYS_ON"]
+        b6["Bit 6: SOUND (buzzer)"]
+        b5["Bit 5: (reserved)"]
+        b4["Bit 4: AIM (laser)"]
+    end
+    subgraph low["Low nibble"]
+        b3["Bit 3: (reserved)"]
+        b2["Bit 2: LIGHT"]
+        b1["Bit 1: CONTINUOUS (DO NOT USE)"]
+        b0["Bit 0: COMMAND (USE THIS)"]
+    end
 ```
 Common values: `0x81` = ALWAYS_ON | COMMAND (this driver's default), `0xD1` = ALWAYS_ON | SOUND | AIM | COMMAND (specter-diy default)
+
+## Scanner State Machine
+
+Both sync and async drivers use the same `ScannerState` enum internally. The state machine governs all operations from initialization through scanning.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Uninitialized
+    Uninitialized --> Detecting : init()
+    Detecting --> Configuring : probe OK
+    Detecting --> Error : probe failed / timeout
+    Configuring --> Ready : all registers set
+    Configuring --> Error : register write failed
+    Ready --> Scanning : trigger_scan()
+    Scanning --> ScanComplete : barcode decoded
+    Scanning --> Ready : timeout / no barcode
+    ScanComplete --> Ready : read_scan() consumes data
+    Error --> Uninitialized : re-init
+    Ready --> Error : I/O error
+    Scanning --> Error : I/O error
+```
+
+### Init Sequence
+
+The `init()` method drives a multi-step `InitAction` state machine inside `ScannerCore`. Each step returns an action for the driver to execute, then the result is fed back to advance to the next step.
+
+```mermaid
+flowchart TD
+    start["Start"] --> drain["DrainAndRead<br/>(SerialOutput)"]
+    drain -->|no response| fail1["Fail(NotDetected)"]
+    drain -->|response| readso["ReadRegister<br/>(SerialOutput)"]
+    readso -->|wrong value| fixso["WriteRegister<br/>(SerialOutput, fixed)"]
+    readso -->|correct value| setcmd["WriteRegister<br/>(Settings, 0x81)"]
+    fixso --> setcmd
+    setcmd -->|failed| fail2["Fail(ConfigFailed)"]
+    setcmd -->|OK| applycfg["WriteRegister / VerifyRegister<br/>(per config sequence)"]
+    applycfg -->|failed| fail3["Fail(ConfigFailed)"]
+    applycfg -->|OK| checkver["ReadRegister<br/>(Version)"]
+    checkver -->|fw < 0x69| rawfix["WriteRegister<br/>(RawMode, 0x08)"]
+    checkver -->|fw >= 0x69| done["Complete(Gm65)"]
+    rawfix --> done
+```
+
+## UART Protocol
+
+The GM65 protocol uses a simple request/response format over UART. Commands have a header and sentinel suffix; responses use a different fixed format.
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant Firmware as gm65-scanner<br/>(driver)
+    participant Scanner as GM65 Module
+
+    Note over Host,Scanner: GET register (e.g., read settings)
+    Host->>Firmware: get_setting(register)
+    Firmware->>Scanner: 7E 00 07 len addr_hi addr_lo AB CD
+    Scanner-->>Firmware: 02 00 00 01 value 33 31
+    Firmware-->>Host: Ok(value)
+
+    Note over Host,Scanner: SET register (e.g., trigger scan)
+    Host->>Firmware: set_setting(register, value)
+    Firmware->>Scanner: 7E 00 08 len addr_hi addr_lo value AB CD
+    Scanner-->>Firmware: 02 00 00 01 value 33 31
+    Firmware-->>Host: Ok(())
+
+    Note over Host,Scanner: Read scan data (polling UART)
+    Host->>Firmware: read_scan()
+    Firmware->>Scanner: barcode data stream (raw bytes)
+    Scanner-->>Firmware: decoded text + CRLF
+    Firmware-->>Host: Some(data)
+
+    Note over Host,Scanner: Scan timeout (no barcode)
+    Host->>Firmware: read_scan()
+    Firmware-->>Host: None (timeout elapsed)
+```
 
 ## Usage
 

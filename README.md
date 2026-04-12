@@ -1,3 +1,7 @@
+[![crates.io](https://img.shields.io/crates/v/gm65-scanner.svg)](https://crates.io/crates/gm65-scanner)
+[![docs.rs](https://docs.rs/gm65-scanner/badge.svg)](https://docs.rs/gm65-scanner)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 # gm65-scanner
 
 `no_std` Rust driver for GM65/M3Y QR barcode scanner modules with firmware examples.
@@ -6,6 +10,52 @@
 
 - **Library** (`crates/gm65-scanner/`) — Sans-IO core with sync and async drivers, 149 unit tests (175 with async feature)
 - **Firmware** (`examples/stm32f469i-disco/`) — Scanner application for STM32F469I-Discovery board
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| Sync driver | `Gm65Scanner<UART>` with `embedded-hal-02` traits |
+| Async driver | `Gm65ScannerAsync<UART>` with `embedded-io-async` traits |
+| HIL tests | Hardware-in-the-loop tests for both drivers |
+| QR display | Generate and display QR codes on LCD |
+| USB CDC | Host control via virtual serial port |
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Library ["crates/gm65-scanner/"]
+        protocol["protocol.rs<br/>command encoding / response decoding"]
+        scanner_core["scanner_core.rs<br/>state machine, settings, init sequence"]
+        buffer["buffer.rs<br/>EOL-terminated UART data buffering"]
+        decoder["decoder.rs<br/>payload classification, UR fragments"]
+        traits["driver/traits.rs<br/>ScannerDriverSync + ScannerDriver"]
+        types["driver/types.rs<br/>errors, config, state, status"]
+        sync["driver/sync.rs<br/>Gm65Scanner (blocking, e-hal 0.2)"]
+        async_["driver/async_.rs<br/>Gm65ScannerAsync (embassy, e-io-async)"]
+
+        protocol --> scanner_core
+        buffer --> scanner_core
+        scanner_core --> traits
+        traits --> sync
+        traits --> async_
+    end
+
+    subgraph Firmware ["examples/stm32f469i-disco/"]
+        main["main.rs (sync firmware)<br/>LCD + USB CDC + QR rendering"]
+        async_fw["async_firmware.rs<br/>Embassy: LCD + USB CDC + LED"]
+        hil_sync["hil_test_sync.rs<br/>6 tests, RTT output"]
+        hil_async["hil_test_async.rs<br/>9 tests, LED + aim laser"]
+        modules["cdc.rs, display.rs<br/>qr_display.rs, scanner_utils.rs"]
+        touch["touch_test<br/>6 target rectangles, HW verified"]
+    end
+
+    sync -.->|"uses"| main
+    sync -.->|"uses"| hil_sync
+    async_ -.->|"uses"| async_fw
+    async_ -.->|"uses"| hil_async
+```
 
 ## Sync vs Async Drivers
 
@@ -40,15 +90,26 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 
 `read_scan()` uses a tight spin-loop (500k iterations) that completes in ~1-2ms at 180MHz. This is too fast for human QR code interaction. The sync HIL binary works around this with a retry loop using `cortex_m::asm::delay` between attempts. For natural human-interaction timeouts, prefer the async driver.
 
-## Features
+## Scanner State Machine
 
-| Feature | Description |
-|---------|-------------|
-| Sync driver | `Gm65Scanner<UART>` with `embedded-hal-02` traits |
-| Async driver | `Gm65ScannerAsync<UART>` with `embedded-io-async` traits |
-| HIL tests | Hardware-in-the-loop tests for both drivers |
-| QR display | Generate and display QR codes on LCD |
-| USB CDC | Host control via virtual serial port |
+```mermaid
+stateDiagram-v2
+    [*] --> Uninitialized
+
+    Uninitialized --> Detecting : init()
+    Detecting --> Configuring : scanner detected
+    Detecting --> Error : not detected / timeout
+    Configuring --> Ready : config written
+    Configuring --> Error : config failed
+    Error --> Detecting : init() retry
+
+    Ready --> Scanning : trigger_scan()
+    Scanning --> ScanComplete : barcode received
+    Scanning --> Ready : timeout / cancel
+    Ready --> Uninitialized : reset
+    ScanComplete --> Ready : read_scan()
+    ScanComplete --> Ready : try_read_scan()
+```
 
 ## Project Status
 
@@ -59,6 +120,52 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 | Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC. Five root causes fixed (PLLSAI, USART6, AsyncUart yield, CDC channel race, heartbeat framing). CDC enumerates and responds to commands. See #19. |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
 | HIL tests (async) | 9/9 HW verified | 5 core + 3 extended + 1 QR scan |
+
+## CDC Protocol
+
+The firmware exposes a USB CDC serial interface. Commands use a 3-byte framed format: `[command, len_high, len_low]`.
+
+| Command | Code | Description |
+|---------|------|-------------|
+| ScannerStatus | 0x10 | Get scanner connection status |
+| ScannerTrigger | 0x11 | Trigger a scan |
+| ScannerData | 0x12 | Read last scan data |
+| GetSettings | 0x13 | Read scanner settings |
+| SetSettings | 0x14 | Write scanner settings |
+| DisplayQr | 0x15 | Display QR code on LCD |
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant USB as USB CDC
+    participant FW as Firmware
+    participant UART as GM65 Scanner
+
+    Note over Host,USB: 3-byte framed: [cmd, len_hi, len_lo]
+
+    Host->>USB: ScannerStatus [0x10, 0x00, 0x00]
+    USB->>FW: FrameDecoder
+    FW->>UART: ping (internal probe)
+    UART-->>FW: ACK
+    FW-->>USB: [0x00, 0x00, 0x03, 0x01, 0x01, 0x01]
+    USB-->>Host: connected=1
+
+    Host->>USB: ScannerTrigger [0x11, 0x00, 0x00]
+    USB->>FW: FrameDecoder
+    FW->>UART: trigger command
+    UART-->>FW: ACK
+    FW-->>USB: [0x00, 0x00, 0x00]
+    USB-->>Host: Ok
+
+    Note over UART: Scanner aiming at barcode...
+
+    Host->>USB: ScannerData [0x12, 0x00, 0x00]
+    USB->>FW: FrameDecoder
+    FW->>UART: read scan data
+    UART-->>FW: barcode bytes + CR LF
+    FW-->>USB: [status, len, payload...]
+    USB-->>Host: scan result
+```
 
 ## Pinned Dependencies
 
@@ -71,6 +178,17 @@ Both drivers share the same `ScannerCore` state machine and protocol logic. The 
 | `embedded-hal` | 1.0 | Modern HAL traits (async driver) |
 | `embedded-hal-02` | 0.2 | Legacy HAL traits (sync driver) |
 | `embedded-io-async` | 0.7 | Async I/O traits |
+
+## Hardware Requirements
+
+| Item | Value |
+|------|-------|
+| Board | STM32F469I-Discovery (STM32F469NIHx) |
+| Scanner | GM65/M3Y, firmware 0x87 |
+| UART | USART6, PG14 (TX) / PG9 (RX), 115200 baud |
+| USB | USB OTG FS, PA12 (DP) / PA11 (DM) |
+| Display | 480x800 portrait via DSI/LTDC (NT35510) |
+| Touch | FT6X06 on I2C1 (PB8=SCL, PB9=SDA) |
 
 ## Hardware Test Results (2026-04-05)
 
@@ -178,60 +296,6 @@ cargo build --release --target thumbv7em-none-eabihf \
 | `hil_test_async` | Async HIL: 5 core + 3 extended + QR scan with aim laser + LED blink, RTT output |
 | `touch_test` | Touch calibration: 6 target rectangles, raw coordinate display, hit detection. HW verified |
 
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                       gm65-scanner workspace                        │
-│                                                                       │
-│  ┌─────────────────────────────┐    ┌─────────────────────────────┐  │
-│  │    crates/gm65-scanner/     │    │ examples/stm32f469i-disco/  │  │
-│  │                             │    │                             │  │
-│  │  ┌──────────┐               │    │  ┌───────────────────────┐  │  │
-│  │  │ protocol │──cmd frames──▶│    │  │ main.rs (sync fw)     │  │  │
-│  │  │  .rs     │               │    │  │ LCD + USB CDC + QR    │  │  │
-│  │  └──────────┘               │    │  └───────────────────────┘  │  │
-│  │                             │    │  ┌───────────────────────┐  │  │
-│  │  ┌──────────┐  ┌────────┐  │    │  │ async_firmware.rs     │  │  │
-│  │  │scanner_  │  │ buffer │  │    │  │ Embassy: LCD+USB+LED  │  │  │
-│  │  │ core.rs  │◀─│  .rs   │  │    │  └───────────────────────┘  │  │
-│  │  │ (state   │  └────────┘  │    │  ┌───────────────────────┐  │  │
-│  │  │ machine, │              │    │  │ hil_test_sync.rs      │  │  │
-│  │  │ settings)│              │    │  │ 6 tests, RTT output   │  │  │
-│  │  └────┬─────┘              │    │  └───────────────────────┘  │  │
-│  │       │                    │    │  ┌───────────────────────┐  │  │
-│  │  ┌────┴──────┐             │    │  │ hil_test_async.rs     │  │  │
-│  │  │  traits   │             │    │  │ 9 tests, LED+aim     │  │  │
-│  │  │  .rs     │             │    │  └───────────────────────┘  │  │
-│  │  └──┬────┬──┘             │    │  ┌───────────────────────┐  │  │
-│  │     │    │                │    │  │ cdc.rs  display.rs    │  │  │
-│  │  ┌──┘    └──┐             │    │  │ qr_display.rs         │  │  │
-│  │  │sync.rs   │ async_.rs│  │    │  │ qr_display_async.rs   │  │  │
-│  │  │blocking  │ embassy  │  │    │  └───────────────────────┘  │  │
-│  │  │e-hal-0.2 │e-io-async│  │    └─────────────────────────────┘  │
-│  │  └──────────┴──────────┘  │                                    │
-│  │                             │                                    │
-│  │  ┌──────────┐  ┌────────┐  │                                    │
-│  │  │ decoder  │  │ types  │  │                                    │
-│  │  │  .rs     │  │  .rs   │  │                                    │
-│  │  └──────────┘  └────────┘  │                                    │
-│  └─────────────────────────────┘                                    │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-## CDC Protocol
-
-The sync firmware exposes a USB CDC serial interface with these commands:
-
-| Command | Code | Description |
-|---------|------|-------------|
-| ScannerStatus | 0x10 | Get scanner connection status |
-| ScannerTrigger | 0x11 | Trigger a scan |
-| ScannerData | 0x12 | Read last scan data |
-| GetSettings | 0x13 | Read scanner settings |
-| SetSettings | 0x14 | Write scanner settings |
-| DisplayQr | 0x15 | Display QR code on LCD |
-
 ## Known Issues
 
 ### drain_uart() data loss (#12) — FIXED
@@ -268,6 +332,24 @@ Async production firmware had five root causes preventing CDC data flow:
 5. **`[ALIVE]` heartbeat** every 3s corrupted protocol framing; fixed by removing heartbeat entirely
 
 All five fixed. Firmware now enumerates as `c0de:cafe` and responds to CDC commands. See issue #19 for full details.
+
+## Contributing
+
+PRs welcome. Run the full check suite before submitting:
+
+```bash
+cargo test -p gm65-scanner --lib
+cargo test -p gm65-scanner --lib --features async
+cargo clippy -p gm65-scanner -- -D warnings
+cargo clippy -p gm65-scanner --features async -- -D warnings
+cargo fmt --all -- --check
+```
+
+## Related Repositories
+
+- [nt35510](https://crates.io/crates/nt35510) — NT35510 DSI display driver crate
+- [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) — Sync HAL BSP fork
+- [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) — Async embassy BSP fork
 
 ## License
 
