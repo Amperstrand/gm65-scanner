@@ -75,11 +75,6 @@ path = "src/bin/baud_probe.rs"
 required-features = ["scanner-async", "defmt"]
 
 [[bin]]
-name = "touch_test"
-path = "src/bin/touch_test.rs"
-required-features = ["sync-mode"]
-
-[[bin]]
 name = "hil_test_sync"
 path = "src/bin/hil_test_sync.rs"
 required-features = ["hil-tests", "defmt"]
