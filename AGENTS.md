@@ -56,6 +56,7 @@ flowchart LR
 
 | Commit | Notes |
 |--------|-------|
+| `9992edd` (stm32f469i-disc main) | ARGB8888 display fix: DSI/LTDC timing synced with PORTRAIT_DSI (V_SYNC=120/V_BP=150/V_FP=150). LP sizes 16/0 + 120ms delay. User confirmed: horizontal shift fixed, all edges visible. Commits `5e153cb`, `7481809`, `9992edd`. |
 | `8b8b828` (main HEAD) | Current production. All unsafe blocks have SAFETY comments (#43). Test helpers gated #[cfg(test)] (#42). Scanner init fixed (#45). USB transmutes removed (#46). Both firmware targets hardware-verified. 324 library tests pass. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
@@ -263,6 +264,21 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 - **Scanner task blocks on auto_scan**: During `read_scan()` (up to 10s timeout), `COMMAND_CHANNEL.try_receive()` is not polled. CDC commands sent during auto_scan are queued but not processed until the scan cycle completes. Fix: use `embassy_futures::select` to handle commands while scanning.
 - **GetSettings/Trigger fail during auto_scan**: Same root cause as above -- scanner task can't process CDC commands while awaiting scan result.
+
+### ARGB8888 Display Alignment (issues #50, #52, #47)
+
+RESOLVED: Three independent bugs caused the ~128px horizontal shift and top-row crop in ARGB8888 mode. All fixed across three repos.
+
+**Root causes:**
+1. **LP packet sizes + missing 120ms delay** (`5e153cb` in stm32f469i-disc): ARGB8888 init used LP sizes 64/64; embassy uses 16/0. Missing 120ms delay after `dsi_host.start()` before panel init. This was the ~128px horizontal shift.
+2. **DSI/LTDC vertical timing mismatch** (`9992edd` in stm32f469i-disc): When `PORTRAIT_DSI` timing was added for DSI, the LTDC still received `STANDARD_PORTRAIT`. DSI ran at 1220 lines/frame, LTDC at 832 lines/frame. The LTDC background color (`0xAAAAAAAA`) bled through as visible blue/gray content.
+3. **Wrong vertical blanking values** (`022fd40` in nt35510): `STANDARD_PORTRAIT` uses V_SYNC=1/V_BP=15/V_FP=16 (OTM8009A values, not NT35510). Correct values: V_SYNC=120/V_BP=150/V_FP=150 per ST NT35510 component header. Caused top-row crop.
+
+**What was NOT the problem:** PLLSAI pixel clock was already 27,429 kHz (override reverted in `a36ab36`). COLMUX caching was not a factor.
+
+**PLLSAI P/Q preservation** (`0c5bc3d` in stm32f4xx-hal): Separate bug — `ltdc.rs` used `.write()` on `pllsaicfgr()` which zeroed P/Q dividers (breaks USB 48MHz). Changed to `.modify()`.
+
+**Critical rule:** DSI and LTDC must receive identical timing configuration. Any mismatch causes visible artifacts.
 
 ## 180MHz USB Clock Fix (commit 9ce9158)
 
