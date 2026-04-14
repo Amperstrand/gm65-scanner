@@ -56,7 +56,8 @@ flowchart LR
 
 | Commit | Notes |
 |--------|-------|
-| `9992edd` (stm32f469i-disc main) | ARGB8888 display fix: DSI/LTDC timing synced with PORTRAIT_DSI (V_SYNC=120/V_BP=150/V_FP=150). LP sizes 16/0 + 120ms delay. User confirmed: horizontal shift fixed, all edges visible. Commits `5e153cb`, `7481809`, `9992edd`. |
+| `ceb8b0e` (stm32f469i-disc main) | Known-good production state. All display fixes: PORTRAIT_DSI timing (V_SYNC=120/V_BP=150/V_FP=150), LP sizes 16/0, 120ms delay, DSI/LTDC sync. RGB565 + ARGB8888 both verified. Touch verified. USB CDC verified. Deps switched to git refs for CI (nt35510 rev 263d8e4, stm32f4xx-hal rev 0c5bc3d). Commits `5e153cb`, `9992edd`, `64f75c6`, `ceb8b0e`. |
+| `9992edd` (stm32f469i-disc) | ARGB8888 display fix: DSI/LTDC timing synced with PORTRAIT_DSI (V_SYNC=120/V_BP=150/V_FP=150). LP sizes 16/0 + 120ms delay. User confirmed: horizontal shift fixed, all edges visible. Commits `5e153cb`, `7481809`, `9992edd`. |
 | `8b8b828` (main HEAD) | Current production. All unsafe blocks have SAFETY comments (#43). Test helpers gated #[cfg(test)] (#42). Scanner init fixed (#45). USB transmutes removed (#46). Both firmware targets hardware-verified. 324 library tests pass. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
