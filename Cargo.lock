@@ -928,6 +928,15 @@ dependencies = [
 [[package]]
 name = "nt35510"
 version = "0.2.0"
+source = "git+https://github.com/Amperstrand/nt35510?rev=263d8e4#263d8e41643908e6b1176a9cd81b12bb43c346ae"
+dependencies = [
+ "embedded-display-controller",
+ "embedded-hal 1.0.0",
+]
+
+[[package]]
+name = "nt35510"
+version = "0.2.0"
 source = "git+https://github.com/Amperstrand/nt35510?rev=6252d17#6252d17c16db14887a9e3bda51a2da1f94fb486c"
 dependencies = [
  "embedded-display-controller",
@@ -1290,14 +1299,14 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=c7a8b67#c7a8b6741b29ec2b9e2f2895485f357d8ad67eff"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=ceb8b0e#ceb8b0ee1d1fb6abfc1036ee3ef18a595b455523"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "embedded-graphics",
  "embedded-graphics-core",
  "embedded-hal 1.0.0",
- "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=6252d17)",
+ "nt35510 0.2.0 (git+https://github.com/Amperstrand/nt35510?rev=263d8e4)",
  "otm8009a 0.2.0",
  "stm32-fmc",
  "stm32f4xx-hal",
@@ -1346,7 +1355,7 @@ dependencies = [
 [[package]]
 name = "stm32f4xx-hal"
 version = "0.23.0"
-source = "git+https://github.com/Amperstrand/stm32f4xx-hal?rev=05d999d600d457f99aeb23ff93275d2c8f998908#05d999d600d457f99aeb23ff93275d2c8f998908"
+source = "git+https://github.com/Amperstrand/stm32f4xx-hal?rev=0c5bc3d#0c5bc3d72a28533d04f9d404746da9951c893c6b"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m",
