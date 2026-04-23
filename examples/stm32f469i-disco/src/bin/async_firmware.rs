@@ -81,9 +81,6 @@ const USB_SMALL_BUF_SIZE: usize = 64;
 #[cfg(feature = "scanner-async")]
 const MAX_PAYLOAD_COPY: usize = 255;
 #[cfg(feature = "scanner-async")]
-const QR_MAX_DATA_LEN: usize = 200;
-
-#[cfg(feature = "scanner-async")]
 const TOUCH_POLL_MS: u64 = 20;
 #[cfg(feature = "scanner-async")]
 const SETTINGS_COMMIT_DELAY_MS: u64 = 50;
@@ -267,6 +264,7 @@ pub struct SharedState {
     pub last_scan: Option<Vec<u8>>,
     pub settings: Option<ScannerSettings>,
     pub auto_scan: bool,
+    pub in_settings: bool,
 }
 
 #[cfg(feature = "scanner-async")]
@@ -281,6 +279,7 @@ impl SharedState {
             last_scan: None,
             settings: None,
             auto_scan: false,
+            in_settings: false,
         }
     }
 }
@@ -376,6 +375,11 @@ async fn init_peripherals() -> Peripherals {
     uart_config.baudrate = UART_BAUD;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
     let async_uart = async_shared::AsyncUart { inner: uart };
+
+    // GM65 module needs settle time after UART pin configuration.
+    // Matches sync firmware delay (sysclk_hz / 2 = 500ms at 180MHz).
+    embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+    log_info!("Scanner UART ready (115200 baud, USART6 PG14=TX PG9=RX)");
 
     let ep_out_buffer = USB_EP_OUT_BUF.init([0u8; USB_BUF_SIZE]);
     let mut usb_config = usb::Config::default();
@@ -579,14 +583,15 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                 HostCommand::EnterSettings => {
                     scanner.cancel_scan();
                     let _ = scanner.stop_scan().await;
+                    {
+                        let mut shared = SHARED.lock().await;
+                        shared.in_settings = true;
+                        shared.auto_scan = false;
+                    }
                     if let Some(s) = scanner.get_scanner_settings().await {
-                        if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(s)).is_err() {
-                            // Channel full — display will catch up
-                        }
+                        if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(s)).is_err() {}
                     }
-                    if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::Ok).is_err() {
-                        // Channel full — CDC task will timeout
-                    }
+                    if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::Ok).is_err() {}
                 }
                 HostCommand::ScannerStatusCdc => {
                     scanner.cancel_scan();
@@ -927,7 +932,7 @@ async fn run_display(mut display: embassy_stm32f469i_disco::DisplayCtrl<'static>
         match event {
             DisplayEvent::Scan(result) => {
                 let data_str = core::str::from_utf8(&result.data);
-                if data_str.is_ok() && result.data.len() <= QR_MAX_DATA_LEN {
+                if data_str.is_ok() && result.data.len() <= qr_display_async::QR_MAX_DATA_LEN {
                     crate::qr_display_async::render_qr_mirror_with_yield(
                         &mut display.fb(),
                         &result.data,
@@ -940,7 +945,9 @@ async fn run_display(mut display: embassy_stm32f469i_disco::DisplayCtrl<'static>
                 }
             }
             DisplayEvent::Home => {
-                let shared = SHARED.lock().await;
+                let mut shared = SHARED.lock().await;
+                shared.in_settings = false;
+                shared.auto_scan = shared.scanner_connected;
                 let model = core::str::from_utf8(&shared.model_str[..shared.model_len])
                     .unwrap_or("Unknown");
                 crate::display_async::render_home(
@@ -979,7 +986,7 @@ async fn run_touch(
     mut touch_i2c: i2c::I2c<'static, embassy_stm32::mode::Blocking, i2c::Master>,
     touch_ok: bool,
 ) {
-    SCANNER_INIT_DONE.wait().await;
+    // Touch is independent of scanner — no SCANNER_INIT_DONE gating needed.
     if !touch_ok {
         return;
     }
@@ -1017,7 +1024,8 @@ async fn run_touch(
 
 #[cfg(feature = "scanner-async")]
 async fn run_settings_touch() {
-    SCANNER_INIT_DONE.wait().await;
+    // Touch UI is independent of scanner — no SCANNER_INIT_DONE gating needed.
+    // DISPLAY_CHANNEL.try_send() fails gracefully if display task isn't ready yet.
     // Hit zones must match display.rs render_scanner_settings() layout
     const ROW_SPACING: u16 = 90;
     const ROW_Y_START: u16 = 120;
@@ -1026,39 +1034,52 @@ async fn run_settings_touch() {
     const BACK_Y_END: u16 = 765;
     const BACK_X_START: u16 = 40;
     const BACK_X_END: u16 = 240;
+    const HOME_BTN_Y: u16 = 670;
+    const HOME_BTN_Y_END: u16 = 730;
+    const HOME_BTN_X_START: u16 = 130;
+    const HOME_BTN_X_END: u16 = 350;
 
     loop {
         match TOUCH_CHANNEL.try_receive() {
             Ok(TouchEvent::Tap { x, y }) => {
-                if (BACK_Y..BACK_Y_END).contains(&y)
-                    && (BACK_X_START..BACK_X_END).contains(&x)
-                {
-                    if DISPLAY_CHANNEL.try_send(DisplayEvent::Home).is_err() {
-                        // Channel full — display will catch up
-                    }
-                    continue;
-                }
+                let in_settings = SHARED.lock().await.in_settings;
 
-                if (ROW_Y_START..ROW_Y_END).contains(&y)
-                    && (SETTINGS_ROW_X_START..SETTINGS_ROW_X_END).contains(&i32::from(x))
-                {
-                    let row = ((y - ROW_Y_START) / ROW_SPACING) as usize;
-                    let mut shared = SHARED.lock().await;
-                    let mut settings =
-                        shared.settings.unwrap_or(ScannerSettings::default());
-
-                    let Some(flag) = scanner_utils::row_to_settings_flag(row) else {
+                if in_settings {
+                    if (BACK_Y..BACK_Y_END).contains(&y)
+                        && (BACK_X_START..BACK_X_END).contains(&x)
+                    {
+                        let mut shared = SHARED.lock().await;
+                        shared.in_settings = false;
+                        shared.auto_scan = shared.scanner_connected;
+                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Home);
                         continue;
-                    };
-                    settings ^= flag;
+                    }
 
-                    shared.settings = Some(settings);
-                    if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings)).is_err() {
-                        // Channel full — display will catch up
+                    if (ROW_Y_START..ROW_Y_END).contains(&y)
+                        && (SETTINGS_ROW_X_START..SETTINGS_ROW_X_END).contains(&i32::from(x))
+                    {
+                        let row = ((y - ROW_Y_START) / ROW_SPACING) as usize;
+                        let mut shared = SHARED.lock().await;
+                        let mut settings =
+                            shared.settings.unwrap_or(ScannerSettings::default());
+
+                        let Some(flag) = scanner_utils::row_to_settings_flag(row) else {
+                            continue;
+                        };
+                        settings ^= flag;
+
+                        shared.settings = Some(settings);
+                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
+                        if COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings)).is_err() {}
                     }
-                    if COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings)).is_err() {
-                        // Channel full — scanner task will process next cycle
-                    }
+                } else if (HOME_BTN_Y..HOME_BTN_Y_END).contains(&y)
+                    && (HOME_BTN_X_START..HOME_BTN_X_END).contains(&x)
+                {
+                    let mut shared = SHARED.lock().await;
+                    shared.in_settings = true;
+                    shared.auto_scan = false;
+                    let settings = shared.settings.unwrap_or(ScannerSettings::default());
+                    if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings)).is_err() {}
                 }
             }
             Err(_) => {

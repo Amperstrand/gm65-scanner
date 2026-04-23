@@ -39,14 +39,24 @@ impl Command {
     }
 }
 
+/// CDC response status byte.
+///
+/// Status codes fall into three categories:
+/// - **Success** (`Ok`): Command completed, data in payload.
+/// - **Expected** (`NoScanData`): Valid response indicating transient state.
+///   Host should retry or wait — this is NOT an error.
+/// - **Error** (all others): Command failed, no data in payload.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Ok = 0x00,
     Error = 0xFF,
     InvalidPayload = 0x02,
+    #[allow(dead_code)]
     BufferOverflow = 0x03,
     ScannerNotConnected = 0x10,
+    /// No scan data available. Transient condition — host should retry.
+    /// Not an error; the scanner simply hasn't received a barcode yet.
     NoScanData = 0x12,
 }
 

@@ -13,7 +13,7 @@
 
 extern crate alloc;
 
-use cortex_m::asm::delay;
+use cortex_m::asm::{delay, wfi};
 use cortex_m_rt::entry;
 use defmt_rtt as _;
 use panic_probe as _;
@@ -97,7 +97,9 @@ fn main() -> ! {
     } else {
         defmt::error!("[1/5] init_detects_scanner: FAIL");
         led_red.on();
-        loop {}
+        loop {
+            wfi();
+        }
     }
 
     if results.ping_after_init {
@@ -106,7 +108,9 @@ fn main() -> ! {
     } else {
         defmt::error!("[2/5] ping_after_init: FAIL");
         led_red.on();
-        loop {}
+        loop {
+            wfi();
+        }
     }
 
     if results.trigger_and_stop {
@@ -115,7 +119,9 @@ fn main() -> ! {
     } else {
         defmt::error!("[3/5] trigger_and_stop: FAIL");
         led_red.on();
-        loop {}
+        loop {
+            wfi();
+        }
     }
 
     if results.read_scan_timeout {
@@ -124,7 +130,9 @@ fn main() -> ! {
     } else {
         defmt::error!("[4/5] read_scan_timeout: FAIL");
         led_red.on();
-        loop {}
+        loop {
+            wfi();
+        }
     }
 
     if results.state_transitions {
@@ -133,7 +141,9 @@ fn main() -> ! {
     } else {
         defmt::error!("[5/5] state_transitions: FAIL");
         led_red.on();
-        loop {}
+        loop {
+            wfi();
+        }
     }
 
     defmt::info!("All 5 core HIL tests passed!");
@@ -184,5 +194,7 @@ fn main() -> ! {
         blink(&mut led_red, 1, 50 * 180_000, 50 * 180_000);
     }
 
-    loop {}
+    loop {
+        wfi();
+    }
 }

@@ -109,7 +109,7 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[1/5] init_detects_scanner: FAIL");
         led_red.set_high();
-        loop {}
+        loop { cortex_m::asm::wfi(); }
     }
 
     if results.ping_after_init {
@@ -118,7 +118,7 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[2/5] ping_after_init: FAIL");
         led_red.set_high();
-        loop {}
+        loop { cortex_m::asm::wfi(); }
     }
 
     if results.trigger_and_stop {
@@ -127,7 +127,7 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[3/5] trigger_and_stop: FAIL");
         led_red.set_high();
-        loop {}
+        loop { cortex_m::asm::wfi(); }
     }
 
     if results.read_scan_timeout {
@@ -136,7 +136,7 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[4/5] read_scan_timeout: FAIL");
         led_red.set_high();
-        loop {}
+        loop { cortex_m::asm::wfi(); }
     }
 
     if results.state_transitions {
@@ -145,7 +145,7 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[5/5] state_transitions: FAIL");
         led_red.set_high();
-        loop {}
+        loop { cortex_m::asm::wfi(); }
     }
 
     defmt::info!("All 5 core HIL tests passed!");
@@ -168,7 +168,7 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("Extended HIL tests FAILED");
         led_red.set_high();
-        loop {}
+        loop { cortex_m::asm::wfi(); }
     }
 
     defmt::info!("All 8 HIL tests passed!");
@@ -224,7 +224,7 @@ async fn main(_spawner: Spawner) {
     }
 
     defmt::info!("Done. Looping forever.");
-    loop {}
+    loop { cortex_m::asm::wfi(); }
 }
 
 #[cfg(not(feature = "scanner-async"))]

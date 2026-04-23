@@ -177,6 +177,7 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 | Date | Tests | Pass | Notes |
 |------|-------|------|-------|
+| 2026-04-14 | Async prod | 4/4 | CDC smoke test. Touch gating removed, NoScanData documented, clippy clean all 4 targets. |
 | 2026-04-12 | Sync prod | 4/4 | CDC smoke test. #[inline(always)] fix for #44. USB enum OK, all CDC commands respond. |
 | 2026-04-12 | Sync prod | 4/4 | Scanner init regression fix (#45). ScannerStatus connected=1, Trigger=Ok. StaticCell USB, SAFETY comments (#46). |
 | 2026-04-05 | Sync 6, Async 9 | 15/15 | InitAction state machine, BSP `799df39`. Sync QR 25 bytes, Async QR 23 bytes. BarType VERIFY FAIL expected (#10). |
@@ -341,10 +342,26 @@ stateDiagram-v2
     Error --> Idle: reset()
 ```
 
+### Async Scanner Not Detected
+
+RESOLVED: The async firmware had no UART settle delay after creating the USART6 peripheral. The sync firmware has `cortex_m::asm::delay(sysclk_hz / 2)` (500ms at 180MHz) between UART init and scanner.init(). The async firmware's display init (320ms) happened before the UART was created, providing zero settle time. The GM65 module needs settle time after UART pin configuration to avoid interpreting GPIO transitions as start bits. Fixed by adding `embassy_time::Timer::after(500ms)` after `Uart::new_blocking()` in `init_peripherals()`.
+
+### Async Touch Not Working
+
+RESOLVED: Commit `9ce9158` added `SCANNER_INIT_DONE.wait().await` to `run_touch()` and `run_settings_touch()` to prevent executor starvation during scanner init. This caused touch to never start when scanner init hung or failed. Touch is an independent peripheral (I2C1, FT6X06) with no dependency on scanner state. Fixed by removing the gating from both touch tasks. Display and heartbeat tasks retain the gate since they depend on scanner state for rendering.
+
+### CDC NoScanData Status (#49)
+
+RESOLVED: `Status::NoScanData (0x12)` is a valid, expected CDC response — not an error. It's a separate status code from `Error (0xFF)`. When no barcode has been scanned, the firmware returns `[0x12, 0x00, 0x00]`. This is a transient condition: the host should retry or wait. Added documentation to the `Status` enum classifying codes as success/expected/error.
+
+### nt35510 Register Values (#22)
+
+RESOLVED: Line-by-line comparison of `init_with_config()` against ST's official `nt35510.c` (stm32469i_discovery BSP) confirms all register values match exactly, including B5, B6, B7, BA. TEEON command is present. RGB888 init exists as `init_rgb888()`. The earlier discrepancy notes were historical or confused with the ARGB8888 pixel shift fix (which was LP packet sizes + DSI/LTDC timing, not register values). Added ST BSP provenance comments to init code.
+
 ## Future Work
 
 - **RGB565 + RGB888 dual pixel format support** ([#21](https://github.com/Amperstrand/gm65-scanner/issues/21)): BSP currently hardcodes RGB888/ARGB8888. Future refactoring to support both formats (via generics, config enum, or separate examples). embedded-graphics natively favors RGB565. DMA throughput difference (2x) unlikely to matter at 60Hz with 480x800 panel.
-- **nt35510 crate improvements** ([#22](https://github.com/Amperstrand/gm65-scanner/issues/22)): Crate's `init_rgb565()` has incorrect register values (B5/B6/B7/BA differ from ST BSP). Missing TEEON command. No RGB888 init sequence. No builder/raw API for custom init.
+- **nt35510 crate improvements** ([#22](https://github.com/Amperstrand/gm65-scanner/issues/22)): Register values verified correct — all match ST's official `nt35510.c` (B5/B6/B7/BA confirmed). TEEON present. RGB888 init exists. Remaining: builder/raw API for custom init sequences (v0.3.0+).
 
 ## Upstream Interaction Policy
 

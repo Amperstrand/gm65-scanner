@@ -22,10 +22,11 @@ const QR_TOP_OFFSET: i32 = 20;
 const MIN_SCALE: i32 = 1;
 const QR_LABEL_MAX_LEN: usize = 50;
 const QR_LABEL_BOTTOM_OFFSET: i32 = 10;
-const QR_MAX_DATA_LEN: usize = 200;
+pub const QR_MAX_DATA_LEN: usize = 200;
 const QR_ERROR_CENTER: i32 = 240;
 const YIELD_INTERVAL: u32 = 8;
 
+#[cfg(not(feature = "scanner-async"))]
 pub fn render_qr_code(fb: &mut impl DrawTarget<Color = Rgb888>, text: &str) -> bool {
     render_qr_code_with_yield(fb, text, || {})
 }
@@ -113,6 +114,7 @@ pub fn render_qr_code_with_yield(
     true
 }
 
+#[cfg(not(feature = "scanner-async"))]
 pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
     render_qr_mirror_with_yield(fb, data, || {});
 }
