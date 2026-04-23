@@ -79,6 +79,8 @@ pub enum ScannerError {
     NotInitialized,
     /// UART read/write error.
     UartError,
+    /// Scan was cancelled by user request.
+    Cancelled,
 }
 
 impl fmt::Display for ScannerError {
@@ -91,6 +93,7 @@ impl fmt::Display for ScannerError {
             ScannerError::ConfigFailed => write!(f, "Configuration failed"),
             ScannerError::NotInitialized => write!(f, "Not initialized"),
             ScannerError::UartError => write!(f, "UART error"),
+            ScannerError::Cancelled => write!(f, "Scan cancelled"),
         }
     }
 }
@@ -180,6 +183,7 @@ mod tests {
             "Not initialized"
         );
         assert_eq!(format!("{}", ScannerError::UartError), "UART error");
+        assert_eq!(format!("{}", ScannerError::Cancelled), "Scan cancelled");
     }
 
     #[test]

@@ -147,6 +147,10 @@ pub fn parse_ur_fragment(data: &[u8]) -> Option<ParsedUrFragment> {
 
     let index = index_total[0].parse::<u32>().ok()?;
     let total = index_total[1].parse::<u32>().ok()?;
+
+    if index == 0 || total == 0 || index > total {
+        return None;
+    }
     let hash = parts[2].to_string();
     let data_str = parts[3..].join("/");
     let data = data_str.as_bytes().to_vec();

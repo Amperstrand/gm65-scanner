@@ -747,6 +747,10 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                 }
                 CdcResponse::ScanData { data, type_byte } => {
                     let len = data.len();
+                    let copy_len = len.min(MAX_PAYLOAD_COPY);
+                    if copy_len < len {
+                        log_error!("ScanData truncated: {} -> {} bytes", len, copy_len);
+                    }
                     let mut buf = [0u8; USB_BUF_SIZE];
                     buf[0] = type_byte;
                     let copy_len = len.min(MAX_PAYLOAD_COPY);

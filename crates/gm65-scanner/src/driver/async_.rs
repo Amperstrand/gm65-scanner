@@ -75,10 +75,8 @@ impl<UART> Gm65ScannerAsync<UART> {
         )
     }
 
-    /// Cancel an in-progress scan and set state to Timeout.
-    /// Use this when `read_scan()` is cancelled via `embassy_time::with_timeout`.
     pub fn cancel_scan(&mut self) {
-        self.core.fail(ScannerError::Timeout);
+        self.core.fail(ScannerError::Cancelled);
     }
 
     /// Get scanner settings as bitflags.
@@ -300,6 +298,7 @@ impl<UART> Gm65ScannerAsync<UART> {
         loop {
             match self.uart.read(&mut buf).await {
                 Ok(0) => {
+                    self.core.fail(ScannerError::UartError);
                     return None;
                 }
                 Ok(_) => match self.core.handle_scan_byte(buf[0]) {
@@ -511,7 +510,7 @@ pub mod hil_tests {
         let _ = scanner.stop_scan().await;
 
         if timed_out {
-            matches!(scanner.state(), ScannerState::Error(ScannerError::Timeout))
+            matches!(scanner.state(), ScannerState::Error(ScannerError::Cancelled))
         } else {
             defmt::warn!(
                 "HIL: read_scan_timeout: ambient barcode detected (scanner working, not a failure)"
@@ -635,7 +634,7 @@ where
 
     let valid = matches!(
         final_state,
-        ScannerState::Ready | ScannerState::Error(ScannerError::Timeout)
+        ScannerState::Ready | ScannerState::Error(ScannerError::Cancelled)
     );
     if !valid {
         defmt::warn!(
@@ -1048,7 +1047,7 @@ mod tests {
         scanner.cancel_scan();
         assert!(matches!(
             scanner.state(),
-            ScannerState::Error(ScannerError::Timeout)
+            ScannerState::Error(ScannerError::Cancelled)
         ));
     }
 

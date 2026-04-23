@@ -208,13 +208,14 @@ pub fn build_save_settings() -> [u8; 9] {
 
 /// Build a factory-reset command frame (9 bytes).
 pub fn build_factory_reset() -> [u8; 9] {
+    let addr = Register::FactoryReset.address_bytes();
     [
         0x7E,
         0x00,
         0x08,
         0x01,
-        0x00,
-        0xD9,
+        addr[0],
+        addr[1],
         0x55,
         CRC_NO_CHECKSUM[0],
         CRC_NO_CHECKSUM[1],

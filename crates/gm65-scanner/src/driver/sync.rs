@@ -322,7 +322,7 @@ where
             }
         }
 
-        self.core.fail(ScannerError::Timeout);
+        self.core.fail(ScannerError::Cancelled);
         None
     }
 }
@@ -524,7 +524,10 @@ pub mod hil_tests {
         let _ = scanner.stop_scan();
 
         if timed_out {
-            matches!(scanner.state(), ScannerState::Error(ScannerError::Timeout))
+            matches!(
+                scanner.state(),
+                ScannerState::Error(ScannerError::Cancelled)
+            )
         } else {
             defmt::warn!("HIL (SYNC): read_scan_timeout: ambient barcode detected (scanner working, not a failure)");
             true
