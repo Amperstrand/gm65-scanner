@@ -117,7 +117,7 @@ stateDiagram-v2
 |-----------|--------|-------|
 | Library | Stable | 149 sync tests (175 with async), clippy clean |
 | Sync firmware | **HW verified** (2026-04-23) | 180MHz, scanner connected, all 4 CDC commands respond (24-141ms). LCD + QR rendering working. |
-| Async firmware | **HW verified** (2026-04-23) | 180MHz, scanner connected, all 4 CDC commands respond (91-152ms, Trigger 2052ms due to #53). LCD + touch + LED working. |
+| Async firmware | **HW verified** (2026-04-23) | 180MHz, scanner connected, all 4 CDC commands respond (91-152ms, Trigger ~200ms with #53 fix). LCD + touch + LED working. |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
 | HIL tests (async) | 9/9 HW verified | 5 core + 3 extended + 1 QR scan |
 
@@ -248,7 +248,7 @@ Both firmwares hardware-verified at 180MHz SYSCLK with GM65 scanner connected vi
 | Trigger | `\x11\x00\x00` | `000000` (Ok) | 2052ms |
 | ScannerData | `\x12\x00\x00` | `120000` (NoScanData) | 22ms |
 
-> **Note**: Async Trigger latency (2052ms) is caused by auto_scan blocking during `read_scan()` — see #53. Other commands respond within normal latency.
+> **Note**: Async Trigger latency was 2052ms due to auto_scan blocking (#53, now fixed with `with_timeout(200ms)`). Current latency is ~200ms.
 
 ## Testing
 
@@ -322,7 +322,7 @@ cargo build --release --target thumbv7em-none-eabihf \
 | Binary | Description |
 |--------|-------------|
 | `stm32f469i-disco-scanner` (sync) | Full firmware: LCD, USB CDC, QR scanner, QR rendering, auto-scan, touch settings |
-| `async_firmware` | Embassy: LCD, USB CDC, QR scanner, LED, concurrent tasks |
+| `async_firmware` | Embassy: LCD, USB CDC, QR scanner, EXTI touch (PJ5), LED, concurrent tasks |
 | `hil_test_sync` | Sync HIL: 5 core tests + QR scan test, RTT output |
 | `hil_test_async` | Async HIL: 5 core + 3 extended + QR scan with aim laser + LED blink, RTT output |
 | `touch_test` | Touch calibration: 6 target rectangles, raw coordinate display, hit detection. HW verified |
@@ -333,7 +333,7 @@ The authoritative commit pins for a verified-working setup. All commits hardware
 
 | Repository | Commit | Role | Notes |
 |------------|--------|------|-------|
-| [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `5c3f809` (main) | Scanner driver + firmware examples | Post-audit verified. Both firmwares HW-verified 2026-04-23. |
+| [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `f48be8b` (main) | Scanner driver + firmware examples | Final session. #53 auto_scan timeout, #54 UART errors, #29 EXTI touch, #55 driver robustness. Both firmwares HW-verified 2026-04-23. |
 | [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | `ceb8b0e` | Sync BSP (HAL, SDRAM, LCD, USB) | PORTRAIT_DSI timing fix, LP 16/0, 120ms delay, DSI/LTDC sync |
 | [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | `5496d4b` | Async BSP (embassy wrappers, display, touch) | Display + touch working |
 | [stm32f4xx-hal](https://github.com/Amperstrand/stm32f4xx-hal) | `0c5bc3d` | HAL fork | PLLSAI `.modify()` fix (preserves P/Q dividers) |
@@ -498,18 +498,6 @@ NT35510 panel driven via DSI host through LTDC on STM32F469I-Discovery. Portrait
 
 ## Known Issues
 
-### CDC blocking during auto_scan (#53) — OPEN
-
-Async firmware `select(read_scan, COMMAND_CHANNEL.receive())` blocks CDC command processing during active auto_scan cycles. Trigger latency measured at 2052ms. Fix: chunked scan timeouts or `select3` with periodic wakeup.
-
-### AsyncUart silent error retry (#54) — OPEN
-
-`AsyncUart::read()` treats UART framing/overrun errors (`nb::Error::Other`) identically to `WouldBlock` — silent retry with no diagnostic signal. Low practical impact at 115200 baud.
-
-### Driver robustness improvements (#55) — OPEN
-
-Consolidated driver crate findings: hardcoded FactoryReset register address, `ScannerError::Timeout` overloaded for cancel+timeout, UR decoder accepts invalid fragment indices, `Ok(0)` UART read silently discarded, `MAX_PAYLOAD_COPY=255` truncation undocumented.
-
 ### BarType register non-persistent (#10) — OPEN
 
 GM65 firmware 0x87 silently rejects BarType (0x002C) writes while still ACKing. Not blocking — QR scanning works regardless via auto-detection.
@@ -530,6 +518,10 @@ In COMMAND mode, the scanner may detect random barcodes in the environment durin
 
 | Issue | Summary | Resolution |
 |-------|---------|------------|
+| #55 | Driver robustness | Fixed: `build_factory_reset()` uses `Register` enum, added `ScannerError::Cancelled`, UR fragment validation, `Ok(0)` UART error, truncation warning. |
+| #54 | AsyncUart silent error retry | Fixed: `uart_error_count` field tracks `nb::Error::Other` occurrences. |
+| #53 | CDC blocking during auto_scan | Fixed: `with_timeout(200ms)` on `read_scan()` in select loop. Trigger latency reduced from 2052ms to ~200ms. |
+| #29 | Touch: interrupt-driven mode | Fixed: EXTI9_5 on PJ5, FT6X06 G_MODE=0x01, `wait_for_falling_edge()` replaces polling. |
 | #49 | Scanner UART scan data never received | Resolved — async CDC data flow verified at 180MHz. `NoScanData (0x12)` is valid transient status. |
 | #19 | Async CDC no data flow | Five root causes fixed: PLLSAI config, double USART6 disable, AsyncUart yield, CDC channel race, heartbeat framing. |
 | #12 | `drain_uart()` data loss | `send_command()` now skips drain when in `Scanning` state. |

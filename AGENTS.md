@@ -58,9 +58,9 @@ flowchart LR
 |--------|-------|
 | `ceb8b0e` (stm32f469i-disc main) | Known-good production state. All display fixes: PORTRAIT_DSI timing (V_SYNC=120/V_BP=150/V_FP=150), LP sizes 16/0, 120ms delay, DSI/LTDC sync. RGB565 + ARGB8888 both verified. Touch verified. USB CDC verified. Deps switched to git refs for CI (nt35510 rev 263d8e4, stm32f4xx-hal rev 0c5bc3d). Commits `5e153cb`, `9992edd`, `64f75c6`, `ceb8b0e`. |
 | `9992edd` (stm32f469i-disc) | ARGB8888 display fix: DSI/LTDC timing synced with PORTRAIT_DSI (V_SYNC=120/V_BP=150/V_FP=150). LP sizes 16/0 + 120ms delay. User confirmed: horizontal shift fixed, all edges visible. Commits `5e153cb`, `7481809`, `9992edd`. |
-| `8b8b828` (main HEAD) | Current production. All unsafe blocks have SAFETY comments (#43). Test helpers gated #[cfg(test)] (#42). Scanner init fixed (#45). USB transmutes removed (#46). Both firmware targets hardware-verified. 324 library tests pass. |
-| `67fcbf3` | Post-audit verification. cdc.rs send_response now returns false on write timeout/partial. Async try_send discards clarified with `let _`. 3 real bugs filed (#53 CDC blocking during auto_scan, #54 AsyncUart silent error retry, #55 driver robustness). Both firmwares HW-verified. |
-| `HEAD` | Three fixes: #53 with_timeout(200ms) on auto_scan read_scan select. #54 UART error counting. #29 EXTI interrupt-driven touch on PJ5 (FT6X06 G_MODE=0x01). Screen, touch, QR scan all HW-verified working. |
+| `8b8b828` | All unsafe blocks have SAFETY comments (#43). Test helpers gated #[cfg(test)] (#42). Scanner init fixed (#45). USB transmutes removed (#46). Both firmware targets hardware-verified. |
+| `f48be8b` (main HEAD) | Final session. #53 auto_scan with_timeout(200ms), #54 UART error counting, #29 EXTI touch on PJ5 (G_MODE=0x01), #55 driver robustness (5 fixes). 149 lib tests, clippy clean, both firmwares HW-verified. |
+| `67fcbf3` | Post-audit verification. cdc.rs send_response now returns false on write timeout/partial. Async try_send discards clarified with `let _`. 3 real bugs filed (#53, #54, #55). Both firmwares HW-verified. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
 
@@ -71,6 +71,7 @@ flowchart LR
 - **Coordinate transform**: Identity -- `dx=tx, dy=ty` (raw FT6X06 coords map directly to display pixels)
 - **Framebuffer**: Portrait 480x800 (display orientation is Portrait, NOT Landscape)
 - **Key finding**: FT6X06 X register (0x03-0x04) ranges 0-480, Y register (0x05-0x06) ranges 0-800
+- **Interrupt**: INT pin routed to PJ5, EXTI9_5 interrupt. G_MODE register 0xA4 = 0x01 (trigger mode). Async firmware uses `ExtiInput::wait_for_falling_edge()` / `wait_for_rising_edge()`.
 - **Touch test binary**: `touch_test` -- 6 target rectangles, raw coordinate display, hit detection. HW verified.
 - **BSP issue**: embassy-stm32f469i-disco#21 documents the missing orientation-dependent transform
 
@@ -266,10 +267,21 @@ cargo build --release --target thumbv7em-none-eabihf \
   --bin display_hybrid --no-default-features --features defmt
 ```
 
-### Async CDC: Remaining Issues
+### Async CDC: Auto_scan Blocking (#53) — RESOLVED
 
-- **Scanner task blocks on auto_scan**: During `read_scan()` (up to 10s timeout), `COMMAND_CHANNEL.try_receive()` is not polled. CDC commands sent during auto_scan are queued but not processed until the scan cycle completes. Fix: use `embassy_futures::select` to handle commands while scanning.
-- **GetSettings/Trigger fail during auto_scan**: Same root cause as above -- scanner task can't process CDC commands while awaiting scan result.
+RESOLVED: `read_scan()` in the scanner task was wrapped with `with_timeout(200ms)`, forcing the `select(read_scan, COMMAND_CHANNEL.receive())` loop to re-evaluate commands every 200ms. Trigger latency reduced from 2052ms to ~200ms. See commit `91cbe66`.
+
+### AsyncUart Silent Error Retry (#54) — RESOLVED
+
+RESOLVED: Added `uart_error_count: u32` field to `AsyncUart`. `nb::Error::Other` now increments the counter before retry. See commit `91cbe66`.
+
+### EXTI Interrupt-Driven Touch (#29) — RESOLVED
+
+RESOLVED: FT6X06 INT pin (PJ5) routed to EXTI9_5. G_MODE register 0xA4 set to 0x01 (trigger mode). `run_touch()` rewritten with `wait_for_falling_edge()` / `wait_for_rising_edge()`. Polling constant `TOUCH_POLL_MS` removed. See commit `91cbe66`.
+
+### Driver Robustness (#55) — RESOLVED
+
+RESOLVED: Five improvements: (1) `build_factory_reset()` uses `Register::FactoryReset.address_bytes()`, (2) `ScannerError::Cancelled` variant, (3) UR fragment parser validates `index <= total`, (4) `Ok(0)` UART read sets `UartError`, (5) ScanData truncation warning. See commit `f48be8b`.
 
 ### ARGB8888 Display Alignment (issues #50, #52, #47)
 
@@ -318,7 +330,7 @@ flowchart TD
         SCANNER["run_scanner()"]
         CDC["run_cdc()"]
         DISPLAY["run_display()"]
-        TOUCH["run_touch()"]
+        TOUCH["run_touch()<br/>(EXTI PJ5)"]
         SETTINGS["run_settings_touch()"]
         HEARTBEAT["run_heartbeat()"]
     end
@@ -366,6 +378,68 @@ RESOLVED: Line-by-line comparison of `init_with_config()` against ST's official 
 
 - **RGB565 + RGB888 dual pixel format support** ([#21](https://github.com/Amperstrand/gm65-scanner/issues/21)): BSP currently hardcodes RGB888/ARGB8888. Future refactoring to support both formats (via generics, config enum, or separate examples). embedded-graphics natively favors RGB565. DMA throughput difference (2x) unlikely to matter at 60Hz with 480x800 panel.
 - **nt35510 crate improvements** ([#22](https://github.com/Amperstrand/gm65-scanner/issues/22)): Register values verified correct — all match ST's official `nt35510.c` (B5/B6/B7/BA confirmed). TEEON present. RGB888 init exists. Remaining: builder/raw API for custom init sequences (v0.3.0+).
+
+## Consumer Project Guide (e.g., micronuts)
+
+If you're building a project that uses gm65-scanner as a library (like [micronuts](https://github.com/Amperstrand/micronuts)), here's what you need:
+
+### Using the Driver Crate
+
+```toml
+[dependencies]
+gm65-scanner = { git = "https://github.com/Amperstrand/gm65-scanner", rev = "f48be8b" }
+```
+
+For async/embassy:
+```toml
+gm65-scanner = { git = "https://github.com/Amperstrand/gm65-scanner", rev = "f48be8b", features = ["async"] }
+```
+
+### Key API Surface
+
+- `Gm65ScannerAsync<UART>` — async driver (embassy). Implements `ScannerDriver` trait.
+- `Gm65Scanner<UART>` — sync driver (embedded-hal 0.2). Implements `ScannerDriverSync` trait.
+- `ScannerCore` — sans-IO state machine. Both drivers delegate to this.
+- `protocol` module — command builders, response parser, `Register` enum.
+- `decoder` module — payload classification (Cashu, UR, URL, text, binary), `UrDecoder` for multi-part QR.
+
+### Firmware as Reference
+
+The firmware examples in `examples/stm32f469i-disco/` are production-quality reference implementations:
+
+| File | What to study |
+|------|---------------|
+| `src/bin/async_firmware.rs` | Full embassy task architecture: scanner + USB CDC + display + touch + LED. Shows channel-based inter-task communication, auto_scan with timeout, EXTI touch handling. |
+| `src/cdc.rs` | USB CDC protocol: FrameDecoder for 3-byte commands, response serialization, channel interface to scanner task. |
+| `src/main.rs` | Sync firmware: polling loop, USB CDC, LCD, QR rendering. |
+| `src/async_shared.rs` | `AsyncUart` wrapper: yield-on-WouldBlock pattern, error counting. |
+
+### Patterns to Reuse
+
+1. **Channel-based scanner task**: Scanner runs in its own embassy task. Commands arrive via `Channel<NoopRawMutex, CdcCommand>`. Responses via `Channel<NoopRawMutex, Vec<u8>>`. This decouples scanner timing from USB.
+2. **Auto_scan with timeout**: `select(with_timeout(200ms, scanner.read_scan()), COMMAND_CHANNEL.receive())` — ensures CDC commands get processed every 200ms even during active scanning.
+3. **EXTI touch**: FT6X06 INT on PJ5 → `ExtiInput::new()` → `wait_for_falling_edge()`. No polling needed. G_MODE register 0xA4 = 0x01.
+4. **UART settle delay**: 500ms delay after `Uart::new_blocking()` before `scanner.init()`. GM65 needs settle time after pin config.
+5. **USB CDC framing**: All commands are 3-byte `[cmd, len_hi, len_lo]`. NOT raw single-byte opcodes.
+
+### BSP Dependencies
+
+If targeting STM32F469I-Discovery, the BSP forks are required:
+
+```toml
+# For async (embassy)
+embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32f469i-disco", rev = "5496d4b" }
+
+# For sync (HAL)
+stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "ceb8b0e" }
+```
+
+### Critical Constraints
+
+- **Do NOT use `defmt_rtt` with USB CDC** — prevents enumeration. Use `panic_halt` for production.
+- **Embassy pinned at rev `84444a19`** — do NOT upgrade.
+- **Use `st-flash`, not `probe-rs`** for USB testing — probe-rs holds SWD.
+- **180MHz SYSCLK required** for display + USB. See 180MHz USB Clock Fix section above.
 
 ## Upstream Interaction Policy
 
