@@ -177,6 +177,7 @@ cargo build --release --target thumbv7em-none-eabihf \
 
 | Date | Tests | Pass | Notes |
 |------|-------|------|-------|
+| 2026-04-23 | Async prod | 4/4 | CDC smoke at 180MHz, scanner connected. ScannerStatus 91ms, GetSettings 152ms, Trigger 2052ms (auto_scan blocking #19), ScannerData 22ms. Three fixes verified: UART settle delay, touch gating removal, settings touch handler. |
 | 2026-04-14 | Async prod | 4/4 | CDC smoke test. Touch gating removed, NoScanData documented, clippy clean all 4 targets. |
 | 2026-04-12 | Sync prod | 4/4 | CDC smoke test. #[inline(always)] fix for #44. USB enum OK, all CDC commands respond. |
 | 2026-04-12 | Sync prod | 4/4 | Scanner init regression fix (#45). ScannerStatus connected=1, Trigger=Ok. StaticCell USB, SAFETY comments (#46). |
