@@ -116,8 +116,8 @@ stateDiagram-v2
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Library | Stable | 149 sync tests (175 with async), clippy clean |
-| Sync firmware | Working | Scanner + USB CDC + LCD display + QR rendering |
-| Async firmware | Working | Embassy executor, concurrent tasks, LCD, USB CDC. Five root causes fixed (PLLSAI, USART6, AsyncUart yield, CDC channel race, heartbeat framing). CDC enumerates and responds to commands. See #19. |
+| Sync firmware | **HW verified** (2026-04-23) | 180MHz, scanner connected, all 4 CDC commands respond (24-141ms). LCD + QR rendering working. |
+| Async firmware | **HW verified** (2026-04-23) | 180MHz, scanner connected, all 4 CDC commands respond (91-152ms, Trigger 2052ms due to #53). LCD + touch + LED working. |
 | HIL tests (sync) | 6/6 HW verified | 5 core + 1 QR scan |
 | HIL tests (async) | 9/9 HW verified | 5 core + 3 extended + 1 QR scan |
 
@@ -169,11 +169,15 @@ sequenceDiagram
 
 ## Pinned Dependencies
 
-| Dependency | Rev | Purpose |
-|------------|-----|---------|
-| `stm32f469i-disc` | `ea3b1b2` | Amperstrand BSP fork (sync HAL, SDRAM, LCD, USB) |
-| `embassy-stm32f469i-disco` | `373a9ae` | Amperstrand BSP fork (async embassy wrappers, display) |
-| `embassy-*` | `84444a19` | Embassy framework (executor, time, stm32, usb, futures) |
+| Dependency | Version/Rev | Purpose |
+|------------|-------------|---------|
+| `stm32f469i-disc` | `ceb8b0e` | Amperstrand BSP fork — sync HAL, SDRAM, LCD, USB. All display fixes: PORTRAIT_DSI timing, LP 16/0, 120ms delay, DSI/LTDC sync. |
+| `embassy-stm32f469i-disco` | `5496d4b` | Amperstrand BSP fork — async embassy wrappers, display, touch |
+| `embassy-*` | `84444a19` | Embassy framework (executor, time, stm32, usb, futures) — pinned, do NOT upgrade |
+| `nt35510` | `6252d17` (workspace) / `14e8cac` (async) | NT35510 DSI display driver (Amperstrand fork) |
+| `otm8009a` | `76dcda9` | OTM8009A display driver (Amperstrand fork, async feature) |
+| `stm32f4xx-hal` | `0c5bc3d` | Amperstrand HAL fork — PLLSAI `.modify()` fix, LTDC support |
+| `stm32-fmc` | `0.4.0` | SDRAM controller via FMC (async feature) |
 | `qrcodegen-no-heap` | 1.8 | QR code generation (zero heap) |
 | `embedded-hal` | 1.0 | Modern HAL traits (async driver) |
 | `embedded-hal-02` | 0.2 | Legacy HAL traits (sync driver) |
@@ -187,8 +191,11 @@ sequenceDiagram
 | Scanner | GM65/M3Y, firmware 0x87 |
 | UART | USART6, PG14 (TX) / PG9 (RX), 115200 baud |
 | USB | USB OTG FS, PA12 (DP) / PA11 (DM) |
-| Display | 480x800 portrait via DSI/LTDC (NT35510) |
-| Touch | FT6X06 on I2C1 (PB8=SCL, PB9=SDA) |
+| Display | 480x800 portrait via DSI/LTDC (NT35510), ARGB8888 pixel format |
+| SDRAM | 16MB via FMC, framebuffer 1.5MB (u32 × 384,000 pixels) |
+| Touch | FT6X06 on I2C1 (PB8=SCL, PB9=SDA), identity coordinate transform |
+| Clock | 180MHz SYSCLK, 48MHz USB via PLLSAI_P, 54.86MHz LTDC via PLLSAI_R |
+| Flash tool | st-flash (NOT probe-rs for USB testing — probe-rs holds SWD) |
 
 ## Hardware Test Results (2026-04-05)
 
@@ -218,6 +225,30 @@ All tests on STM32F469I-Discovery with GM65 firmware 0x87, USART6 (PG14=TX, PG9=
 | read_scan_timeout | PASS | Ambient barcode tolerated |
 | state_transitions | PASS | Re-init resets to Ready |
 | **QR scan** | **PASS** | **25 bytes scanned with aim laser** |
+
+### Production CDC Verification (2026-04-23, 180MHz, scanner connected)
+
+Both firmwares hardware-verified at 180MHz SYSCLK with GM65 scanner connected via USART6.
+
+**Sync firmware** (`16c0:27dd` on `/dev/ttyACM1`):
+
+| Command | Bytes Sent | Response | Latency |
+|---------|-----------|----------|---------|
+| ScannerStatus | `\x10\x00\x00` | `000003010101` (connected=1) | 24ms |
+| GetSettings | `\x13\x00\x00` | `00000181` (settings=0x81) | 141ms |
+| Trigger | `\x11\x00\x00` | `000000` (Ok) | 36ms |
+| ScannerData | `\x12\x00\x00` | `120000` (NoScanData) | 1ms |
+
+**Async firmware** (`c0de:cafe` on `/dev/ttyACM1`):
+
+| Command | Bytes Sent | Response | Latency |
+|---------|-----------|----------|---------|
+| ScannerStatus | `\x10\x00\x00` | `000003010101` (connected=1) | 91ms |
+| GetSettings | `\x13\x00\x00` | `00000181` (settings=0x81) | 152ms |
+| Trigger | `\x11\x00\x00` | `000000` (Ok) | 2052ms |
+| ScannerData | `\x12\x00\x00` | `120000` (NoScanData) | 22ms |
+
+> **Note**: Async Trigger latency (2052ms) is caused by auto_scan blocking during `read_scan()` — see #53. Other commands respond within normal latency.
 
 ## Testing
 
@@ -296,25 +327,198 @@ cargo build --release --target thumbv7em-none-eabihf \
 | `hil_test_async` | Async HIL: 5 core + 3 extended + QR scan with aim laser + LED blink, RTT output |
 | `touch_test` | Touch calibration: 6 target rectangles, raw coordinate display, hit detection. HW verified |
 
+## Known-Good Ecosystem Configuration
+
+The authoritative commit pins for a verified-working setup. All commits hardware-verified on STM32F469I-Discovery at 180MHz with GM65 scanner.
+
+| Repository | Commit | Role | Notes |
+|------------|--------|------|-------|
+| [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `5c3f809` (main) | Scanner driver + firmware examples | Post-audit verified. Both firmwares HW-verified 2026-04-23. |
+| [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | `ceb8b0e` | Sync BSP (HAL, SDRAM, LCD, USB) | PORTRAIT_DSI timing fix, LP 16/0, 120ms delay, DSI/LTDC sync |
+| [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | `5496d4b` | Async BSP (embassy wrappers, display, touch) | Display + touch working |
+| [stm32f4xx-hal](https://github.com/Amperstrand/stm32f4xx-hal) | `0c5bc3d` | HAL fork | PLLSAI `.modify()` fix (preserves P/Q dividers) |
+| [nt35510](https://github.com/Amperstrand/nt35510) | `6252d17` / `14e8cac` | NT35510 DSI display driver | Workspace vs async feature use different pins |
+| [otm8009a](https://github.com/Amperstrand/otm8009a) | `76dcda9` | OTM8009A display driver | Async feature only |
+| [embassy](https://github.com/embassy-rs/embassy) | `84444a19` | Embassy async framework | **Pinned — do NOT upgrade** |
+
+### Replication Checklist
+
+1. **Clone the ecosystem:**
+   ```bash
+   git clone https://github.com/Amperstrand/gm65-scanner.git
+   cd gm65-scanner
+   # Dependencies are pinned in Cargo.toml — cargo fetches correct revs automatically
+   ```
+
+2. **Install toolchain:**
+   ```bash
+   rustup target add thumbv7em-none-eabihf
+   # Install flash tool:
+   cargo install stlink
+   # Or: apt install stlink
+   ```
+
+3. **Build production firmware:**
+   ```bash
+   # Sync firmware (blocking USB, LCD, scanner, auto-scan, touch settings)
+   cargo build --release --target thumbv7em-none-eabihf \
+     --manifest-path examples/stm32f469i-disco/Cargo.toml \
+     --bin stm32f469i-disco-scanner \
+     --no-default-features --features sync-mode
+
+   # Async firmware (embassy USB, LCD, scanner, touch, LED)
+   cargo build --release --target thumbv7em-none-eabihf \
+     --manifest-path examples/stm32f469i-disco/Cargo.toml \
+     --bin async_firmware \
+     --no-default-features --features scanner-async
+   ```
+
+4. **Flash (use st-flash, NOT probe-rs):**
+   ```bash
+   arm-none-eabi-objcopy -O binary \
+     target/thumbv7em-none-eabihf/release/async_firmware /tmp/fw.bin
+   st-flash --connect-under-reset write /tmp/fw.bin 0x08000000
+   st-flash --connect-under-reset reset
+   ```
+
+5. **Verify USB enumeration (wait 4s after reset):**
+   ```bash
+   lsusb | grep -iE "c0de:cafe|16c0:27dd"
+   # async: c0de:cafe  |  sync: 16c0:27dd
+   ```
+
+6. **Test CDC commands (Python, 12s timeout for async):**
+   ```python
+   import serial
+   ser = serial.Serial('/dev/ttyACM1', 115200, timeout=12)
+   ser.write(b"\x10\x00\x00")  # ScannerStatus
+   print(ser.read(64).hex())    # Expected: 000003010101
+   ```
+
+### Critical Pitfalls
+
+| Pitfall | Solution |
+|---------|----------|
+| `defmt_rtt` prevents USB enumeration | Never use `defmt_rtt` or `panic_probe` in firmware with USB CDC. Use `panic_halt` for production. |
+| probe-rs holds SWD, blocks USB | Use `st-flash --connect-under-reset` for production testing. probe-rs only for RTT-based HIL tests. |
+| 168MHz doesn't work for display | 180MHz SYSCLK required — PLLSAI pixel clock derivation needs it. |
+| PLLSAI `.write()` zeros P/Q dividers | HAL fork uses `.modify()` on PLLSAI register (commit `0c5bc3d`). |
+| DSI/LTDC timing mismatch | Both DSI and LTDC must receive identical vertical timing configuration. |
+| CDC commands need 3-byte frames | Send `\x10\x00\x00`, not raw `\x10`. `FrameDecoder` expects `[cmd, len_hi, len_lo]`. |
+| Scanner needs UART settle time | 500ms delay after UART pin config before `scanner.init()`. |
+| `select(usb_dev.run(), scanner.init())` | Broken — dropping `UsbDevice::run()` may leave bus in invalid state. Use `join()` instead. |
+
+## Clock Configuration (180MHz)
+
+Authoritative PLL configuration for 180MHz SYSCLK with USB CDC + display. Hardware-verified in production.
+
+```
+HSE 8MHz crystal
+├── PLL1: /DIV8 × MUL360 / DIV2 = 180MHz SYSCLK
+│   └── APB1/APB2 = 45MHz
+└── PLLSAI: /DIV8 × MUL384 = 192MHz VCO
+    ├── PLLSAI_P / DIV8 = 48MHz → USB OTG FS (Clk48sel)
+    └── PLLSAI_R / DIV7 = 54.86MHz → LTDC pixel clock → DSI → NT35510
+```
+
+**Rust config (embassy async firmware):**
+```rust
+// PLL1: SYSCLK = 8MHz / 8 * 360 / 2 = 180MHz
+config.rcc.pll = Some(Pll {
+    prediv: PllPreDiv::DIV8,
+    mul: PllMul::MUL360,
+    divp: Some(PllPDiv::DIV2),
+    divq: Some(PllQDiv::DIV7),
+    divr: Some(PllRDiv::DIV6),
+});
+
+// PLLSAI: P=48MHz USB, R=54.86MHz LTDC pixel clock
+config.rcc.pllsai = Some(Pll {
+    prediv: PllPreDiv::DIV8,
+    mul: PllMul::MUL384,
+    divp: Some(PllPDiv::DIV8),
+    divq: Some(PllQDiv::DIV8),
+    divr: Some(PllRDiv::DIV7),
+});
+config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
+
+// Workaround: embassy writes to wrong register for clk48sel on STM32F469
+stm32_metapac::RCC.dckcfgr2().modify(|w| {
+    w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q);
+});
+```
+
+**Key insight:** On STM32F469, `PLLSAI1_Q` mux enum is misleading — hardware actually routes PLLSAI_P to the 48MHz clock. `divp: DIV8` gives 384MHz/8 = 48MHz. See embassy-stm32f469i-disco#14.
+
+## Display Configuration
+
+NT35510 panel driven via DSI host through LTDC on STM32F469I-Discovery. Portrait 480x800.
+
+### Panel Timing (PORTRAIT_DSI)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Resolution | 480 × 800 | Portrait, NOT landscape |
+| V_SYNC | 120 lines | ST NT35510 component header values |
+| V_BP | 150 lines | NOT the OTM8009A defaults (1/15/16) |
+| V_FP | 150 lines | |
+| H_SYNC | 2 lanes | DSI lane byte clock scaled |
+| Pixel clock | 54.86 MHz | PLLSAI_R / DIV7 |
+| Pixel format | ARGB8888 | 4 bytes/pixel, 1.5MB framebuffer |
+
+### DSI Configuration
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| LP Size (max) | 16 | Large commands in low-power mode |
+| LP Size (escape) | 0 | No escape-mode commands |
+| Post-init delay | 120ms | Panel settle after `dsi_host.start()` before init sequence |
+| NULL_PACKET | enabled | Required for NT35510 timing |
+
+### Framebuffer
+
+- **Location**: SDRAM via FMC (16MB, base address `0xC0000000`)
+- **Size**: 384,000 pixels × 4 bytes (ARGB8888) = 1,536,000 bytes
+- **Heap offset**: Must start after framebuffer to avoid display writes corrupting allocator metadata
+
+### Touch
+
+- **Controller**: FT6X06 on I2C1 (PB8=SCL, PB9=SDA)
+- **Vendor ID**: `0x11`
+- **Coordinate transform**: Identity — raw FT6X06 X/Y map directly to display pixels
+- **X range**: 0–480, **Y range**: 0–800 (matches portrait framebuffer)
+
+### Critical Display Rules
+
+1. **DSI and LTDC must receive identical timing** — any mismatch causes visible artifacts or black screen.
+2. **Use `.modify()` not `.write()`** on PLLSAI registers — `.write()` zeroes P/Q dividers and breaks USB 48MHz clock.
+3. **120ms delay after `dsi_host.start()`** before panel init — NT35510 needs settle time.
+4. **LP sizes 16/0** — not 64/64. Larger LP sizes cause ~128px horizontal shift in ARGB8888 mode.
+5. **Vertical blanking values** — use ST's NT35510 values (V_SYNC=120/V_BP=150/V_FP=150), NOT OTM8009A defaults.
+
 ## Known Issues
 
-### drain_uart() data loss (#12) — FIXED
+### CDC blocking during auto_scan (#53) — OPEN
 
-`send_command()` now skips `drain_uart()` when the scanner is in `Scanning` state, preventing in-flight scan data from being silently discarded.
+Async firmware `select(read_scan, COMMAND_CHANNEL.receive())` blocks CDC command processing during active auto_scan cycles. Trigger latency measured at 2052ms. Fix: chunked scan timeouts or `select3` with periodic wakeup.
 
-### BarType register non-persistent (#10)
+### AsyncUart silent error retry (#54) — OPEN
 
-GM65 firmware 0.87 silently rejects BarType (0x002C) writes while still ACKing. Not blocking — QR scanning works regardless via auto-detection.
+`AsyncUart::read()` treats UART framing/overrun errors (`nb::Error::Other`) identically to `WouldBlock` — silent retry with no diagnostic signal. Low practical impact at 115200 baud.
 
-### Settings 0x81 vs 0xD1 (#11)
+### Driver robustness improvements (#55) — OPEN
+
+Consolidated driver crate findings: hardcoded FactoryReset register address, `ScannerError::Timeout` overloaded for cancel+timeout, UR decoder accepts invalid fragment indices, `Ok(0)` UART read silently discarded, `MAX_PAYLOAD_COPY=255` truncation undocumented.
+
+### BarType register non-persistent (#10) — OPEN
+
+GM65 firmware 0x87 silently rejects BarType (0x002C) writes while still ACKing. Not blocking — QR scanning works regardless via auto-detection.
+
+### Settings 0x81 vs 0xD1 (#11) — OPEN
 
 0x81 (ALWAYS_ON | COMMAND) is the correct default. SOUND adds unwanted audible feedback, AIM is controlled programmatically.
 
-### LCD GRAM retention (#5)
-
-NT35510 internal GRAM retains previous frame for ~10s after power-cycle. Expected DRAM behavior, not a bug.
-
-### Double-buffering breaks USB (#4)
+### Double-buffering breaks USB (#4) — OPEN
 
 LTDC `set_layer_buffer_address` + `reload_on_vblank` race condition breaks USB DMA. Single-buffer workaround in place.
 
@@ -322,16 +526,14 @@ LTDC `set_layer_buffer_address` + `reload_on_vblank` race condition breaks USB D
 
 In COMMAND mode, the scanner may detect random barcodes in the environment during timeout tests. This is expected GM65 behavior — the HIL tests now tolerate ambient detection as a pass condition.
 
-### Async CDC data flow (#19) — RESOLVED
+### Resolved Issues
 
-Async production firmware had five root causes preventing CDC data flow:
-1. **PLLSAI `divq: None`** caused MCU hard fault after USB enumeration
-2. **Double `USART6.disable()`** caused undefined behavior
-3. **`AsyncUart::read()` busy-poll** (500K spins) starved USB in cooperative executor
-4. **CDC task channel race** — `try_receive()` on response channel polled before scanner task processed command; fixed by awaiting response after each command send
-5. **`[ALIVE]` heartbeat** every 3s corrupted protocol framing; fixed by removing heartbeat entirely
-
-All five fixed. Firmware now enumerates as `c0de:cafe` and responds to CDC commands. See issue #19 for full details.
+| Issue | Summary | Resolution |
+|-------|---------|------------|
+| #49 | Scanner UART scan data never received | Resolved — async CDC data flow verified at 180MHz. `NoScanData (0x12)` is valid transient status. |
+| #19 | Async CDC no data flow | Five root causes fixed: PLLSAI config, double USART6 disable, AsyncUart yield, CDC channel race, heartbeat framing. |
+| #12 | `drain_uart()` data loss | `send_command()` now skips drain when in `Scanning` state. |
+| #5 | LCD GRAM retention | Expected NT35510 DRAM behavior, not a bug. |
 
 ## Contributing
 
@@ -347,9 +549,13 @@ cargo fmt --all -- --check
 
 ## Related Repositories
 
-- [nt35510](https://crates.io/crates/nt35510) — NT35510 DSI display driver crate
-- [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) — Sync HAL BSP fork
-- [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) — Async embassy BSP fork
+| Repository | Purpose |
+|------------|---------|
+| [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | Sync HAL BSP fork (HAL, SDRAM, LCD, USB, framebuffer) |
+| [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | Async embassy BSP fork (display, touch, DSI) |
+| [nt35510](https://github.com/Amperstrand/nt35510) | NT35510 DSI display driver |
+| [otm8009a](https://github.com/Amperstrand/otm8009a) | OTM8009A display driver |
+| [stm32f4xx-hal](https://github.com/Amperstrand/stm32f4xx-hal) | HAL fork with PLLSAI `.modify()` fix |
 
 ## License
 
