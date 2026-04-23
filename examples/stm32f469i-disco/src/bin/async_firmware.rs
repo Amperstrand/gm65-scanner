@@ -589,9 +589,11 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                         shared.auto_scan = false;
                     }
                     if let Some(s) = scanner.get_scanner_settings().await {
-                        if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(s)).is_err() {}
+                        // Best-effort: channel full means display will catch up
+                        let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(s));
                     }
-                    if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::Ok).is_err() {}
+                    // Best-effort: channel full means CDC task will timeout
+                    let _ = CDC_RESPONSE_CHANNEL.try_send(CdcResponse::Ok);
                 }
                 HostCommand::ScannerStatusCdc => {
                     scanner.cancel_scan();

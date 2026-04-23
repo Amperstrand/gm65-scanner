@@ -263,6 +263,7 @@ impl<'a> CdcPort<'a> {
 
         let mut offset = 0;
         let mut attempts = 0u32;
+        let mut timed_out = false;
         while offset < len {
             match self.serial.write(&self.tx_buf[offset..len]) {
                 Ok(written) if written > 0 => {
@@ -271,6 +272,7 @@ impl<'a> CdcPort<'a> {
                 _ => {
                     attempts += 1;
                     if attempts >= MAX_USB_WRITE_RETRIES {
+                        timed_out = true;
                         break;
                     }
                     let _ = self.serial.flush();
@@ -279,7 +281,7 @@ impl<'a> CdcPort<'a> {
         }
 
         let _ = self.serial.flush();
-        true
+        !timed_out && offset == len
     }
 
     pub fn serial_mut(&mut self) -> &mut usbd_serial::SerialPort<'a, UsbBusType> {
