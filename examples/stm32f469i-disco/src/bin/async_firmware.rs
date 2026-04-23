@@ -36,6 +36,10 @@ use embassy_stm32::time::Hertz;
 #[cfg(feature = "scanner-async")]
 use embassy_stm32::{i2c, interrupt::InterruptExt, peripherals, rcc::*, usart, usb, Config};
 #[cfg(feature = "scanner-async")]
+use embassy_stm32::exti::ExtiInput;
+#[cfg(feature = "scanner-async")]
+use embassy_stm32::gpio::Pull;
+#[cfg(feature = "scanner-async")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "scanner-async")]
 use embassy_sync::channel::Channel;
@@ -81,13 +85,13 @@ const USB_SMALL_BUF_SIZE: usize = 64;
 #[cfg(feature = "scanner-async")]
 const MAX_PAYLOAD_COPY: usize = 255;
 #[cfg(feature = "scanner-async")]
-const TOUCH_POLL_MS: u64 = 20;
-#[cfg(feature = "scanner-async")]
 const SETTINGS_COMMIT_DELAY_MS: u64 = 50;
 #[cfg(feature = "scanner-async")]
 const LED_BLINK_MS: u64 = 100;
 #[cfg(feature = "scanner-async")]
 const AUTO_SCAN_PAUSE_MS: u64 = 200;
+#[cfg(feature = "scanner-async")]
+const AUTO_SCAN_READ_TIMEOUT_MS: u64 = 200;
 #[cfg(feature = "scanner-async")]
 const TRIGGER_RETRY_MS: u64 = 500;
 #[cfg(feature = "scanner-async")]
@@ -148,6 +152,7 @@ macro_rules! log_error {
 #[cfg(feature = "scanner-async")]
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    EXTI9_5 => embassy_stm32::exti::InterruptHandler<embassy_stm32::interrupt::typelevel::EXTI9_5>;
 });
 
 #[cfg(feature = "scanner-async")]
@@ -308,6 +313,7 @@ struct Peripherals {
     touch_ctrl: TouchCtrl,
     touch_i2c: i2c::I2c<'static, embassy_stm32::mode::Blocking, i2c::Master>,
     touch_ok: bool,
+    touch_int: ExtiInput<'static, embassy_stm32::mode::Async>,
     async_uart: async_shared::AsyncUart<'static>,
 }
 
@@ -374,7 +380,7 @@ async fn init_peripherals() -> Peripherals {
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = UART_BAUD;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
-    let async_uart = async_shared::AsyncUart { inner: uart };
+    let async_uart = async_shared::AsyncUart { inner: uart, uart_error_count: 0 };
 
     // GM65 module needs settle time after UART pin configuration.
     // Matches sync firmware delay (sysclk_hz / 2 = 500ms at 180MHz).
@@ -422,6 +428,12 @@ async fn init_peripherals() -> Peripherals {
     let touch_ok = touch_ctrl.read_vendor_id(&mut touch_i2c).is_ok();
     log_info!("Touch: vendor_id read {}", touch_ok);
 
+    let touch_int = ExtiInput::new(p.PJ5, p.EXTI5, Pull::Up, Irqs);
+    if touch_ok {
+        let _ = touch_i2c.blocking_write(0x38, &[0xA4, 0x01]);
+        log_info!("Touch: G_MODE set to interrupt trigger");
+    }
+
     {
         let mut shared = SHARED.lock().await;
         shared.auto_scan = true;
@@ -437,6 +449,7 @@ async fn init_peripherals() -> Peripherals {
         touch_ctrl,
         touch_i2c,
         touch_ok,
+        touch_int,
         async_uart,
     }
 }
@@ -650,10 +663,13 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
             continue;
         }
 
-        match embassy_futures::select::select(scanner.read_scan(), COMMAND_CHANNEL.receive()).await {
-            embassy_futures::select::Either::First(result) => {
-                match result {
-                    Some(data) => {
+        match embassy_futures::select::select(
+            embassy_time::with_timeout(Duration::from_millis(AUTO_SCAN_READ_TIMEOUT_MS), scanner.read_scan()),
+            COMMAND_CHANNEL.receive(),
+        ).await {
+            embassy_futures::select::Either::First(timeout_result) => {
+                match timeout_result {
+                    Ok(Some(data)) => {
                         let _len = data.len();
                         log_info!("Scanner: scanned {} bytes", _len);
                         let result = ScanResult { data: data.clone() };
@@ -684,9 +700,13 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                             Timer::after(Duration::from_millis(LED_BLINK_MS)).await;
                         }
                     }
-                    None => {
+                    Ok(None) => {
                         scanner.cancel_scan();
                         let _ = scanner.stop_scan().await;
+                    }
+                    Err(_) => {
+                        // Timeout — no scan data within AUTO_SCAN_READ_TIMEOUT_MS.
+                        // Loop continues and re-triggers scan next iteration.
                     }
                 }
             }
@@ -984,41 +1004,31 @@ async fn run_display(mut display: embassy_stm32f469i_disco::DisplayCtrl<'static>
 
 #[cfg(feature = "scanner-async")]
 async fn run_touch(
+    mut touch_int: ExtiInput<'static, embassy_stm32::mode::Async>,
     touch_ctrl: TouchCtrl,
     mut touch_i2c: i2c::I2c<'static, embassy_stm32::mode::Blocking, i2c::Master>,
     touch_ok: bool,
 ) {
-    // Touch is independent of scanner — no SCANNER_INIT_DONE gating needed.
     if !touch_ok {
         return;
     }
     const TOUCH_MARGIN: u16 = 3;
-    let mut finger_down = false;
-    let mut pending_tap: Option<(u16, u16)> = None;
 
     loop {
-        Timer::after(embassy_time::Duration::from_millis(TOUCH_POLL_MS)).await;
-        if let Ok(n) = touch_ctrl.td_status(&mut touch_i2c) {
-            if n > 0 {
-                if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
-                    let tx = point.x;
-                    let ty = point.y;
-                    // FT6X06 reports phantom touches at edges (BSP touch.rs)
-                    if (i32::from(TOUCH_MARGIN)..=(DISPLAY_MAX_X - i32::from(TOUCH_MARGIN))).contains(&i32::from(tx))
-                        && (TOUCH_MARGIN..=(799 - TOUCH_MARGIN)).contains(&ty)
-                    {
-                        pending_tap = Some((tx, ty));
-                    }
-                    finger_down = true;
-                }
-            } else if finger_down {
-                if let Some((x, y)) = pending_tap.take() {
-                    if TOUCH_CHANNEL.try_send(TouchEvent::Tap { x, y }).is_err() {
-                        // Channel full — settings touch task will poll again
-                    }
-                }
-                finger_down = false;
+        touch_int.wait_for_falling_edge().await;
+
+        Timer::after(Duration::from_millis(5)).await;
+
+        if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
+            let tx = point.x;
+            let ty = point.y;
+            if (i32::from(TOUCH_MARGIN)..=(DISPLAY_MAX_X - i32::from(TOUCH_MARGIN))).contains(&i32::from(tx))
+                && (TOUCH_MARGIN..=(799 - TOUCH_MARGIN)).contains(&ty)
+            {
+                touch_int.wait_for_rising_edge().await;
                 Timer::after(Duration::from_millis(TOUCH_DEBOUNCE_MS)).await;
+                if TOUCH_CHANNEL.try_send(TouchEvent::Tap { x: tx, y: ty }).is_err() {
+                }
             }
         }
     }
@@ -1130,6 +1140,7 @@ async fn main(_spawner: Spawner) {
         touch_ctrl,
         touch_i2c,
         touch_ok,
+        touch_int,
         async_uart,
     } = init_peripherals().await;
 
@@ -1138,7 +1149,7 @@ async fn main(_spawner: Spawner) {
         embassy_futures::select::select(run_scanner(async_uart), run_cdc(cdc)),
         run_display(display),
         embassy_futures::select::select(
-            embassy_futures::select::select(run_touch(touch_ctrl, touch_i2c, touch_ok), run_settings_touch()),
+            embassy_futures::select::select(run_touch(touch_int, touch_ctrl, touch_i2c, touch_ok), run_settings_touch()),
             run_heartbeat(),
         ),
     )

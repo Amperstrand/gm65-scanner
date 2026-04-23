@@ -51,6 +51,7 @@ use embedded_hal_02::blocking::serial::Write as _;
 #[cfg(feature = "scanner-async")]
 pub struct AsyncUart<'d> {
     pub inner: embassy_stm32::usart::Uart<'d, embassy_stm32::mode::Blocking>,
+    pub uart_error_count: u32,
 }
 
 #[cfg(feature = "scanner-async")]
@@ -77,6 +78,7 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
                         embassy_time::Timer::after_micros(10).await;
                     }
                     Err(nb::Error::Other(_e)) => {
+                        self.uart_error_count = self.uart_error_count.saturating_add(1);
                         embassy_time::Timer::after_micros(10).await;
                     }
                 }

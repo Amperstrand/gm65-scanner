@@ -60,6 +60,7 @@ flowchart LR
 | `9992edd` (stm32f469i-disc) | ARGB8888 display fix: DSI/LTDC timing synced with PORTRAIT_DSI (V_SYNC=120/V_BP=150/V_FP=150). LP sizes 16/0 + 120ms delay. User confirmed: horizontal shift fixed, all edges visible. Commits `5e153cb`, `7481809`, `9992edd`. |
 | `8b8b828` (main HEAD) | Current production. All unsafe blocks have SAFETY comments (#43). Test helpers gated #[cfg(test)] (#42). Scanner init fixed (#45). USB transmutes removed (#46). Both firmware targets hardware-verified. 324 library tests pass. |
 | `67fcbf3` | Post-audit verification. cdc.rs send_response now returns false on write timeout/partial. Async try_send discards clarified with `let _`. 3 real bugs filed (#53 CDC blocking during auto_scan, #54 AsyncUart silent error retry, #55 driver robustness). Both firmwares HW-verified. |
+| `HEAD` | Three fixes: #53 with_timeout(200ms) on auto_scan read_scan select. #54 UART error counting. #29 EXTI interrupt-driven touch on PJ5 (FT6X06 G_MODE=0x01). Screen, touch, QR scan all HW-verified working. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
 | `9ce9158` | 180MHz async firmware: LTDC ISR flag clearing fix, task gating for scanner init, PLLSAI_P=DIV8 for USB. All CDC commands verified at 180MHz. |
 
