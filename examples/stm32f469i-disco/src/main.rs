@@ -193,13 +193,13 @@ fn init_hardware() -> Hardware {
     {
         let rcc_regs = unsafe { &*pac::RCC::ptr() };
 
-        rcc_regs.ahb2enr.modify(|_, w| w.otgfsen().clear_bit());
+        rcc_regs.ahb2enr().modify(|_, w| w.otgfsen().clear_bit());
         cortex_m::asm::delay(100);
-        rcc_regs.ahb2enr.modify(|_, w| w.otgfsen().set_bit());
+        rcc_regs.ahb2enr().modify(|_, w| w.otgfsen().set_bit());
 
-        rcc_regs.ahb2rstr.modify(|_, w| w.otgfsrst().set_bit());
+        rcc_regs.ahb2rstr().modify(|_, w| w.otgfsrst().set_bit());
         cortex_m::asm::delay(100);
-        rcc_regs.ahb2rstr.modify(|_, w| w.otgfsrst().clear_bit());
+        rcc_regs.ahb2rstr().modify(|_, w| w.otgfsrst().clear_bit());
         cortex_m::asm::delay(100);
 
         // USB_OTG_FS_GLOBAL base: 0x5000_0000

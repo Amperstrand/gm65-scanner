@@ -394,13 +394,13 @@ async fn init_peripherals() -> Peripherals {
     {
         let rcc = stm32_metapac::RCC;
 
-        rcc.ahb2enr().modify(|w| w.set_otgfsen(false));
+        rcc.ahb2enr().modify(|w| w.set_usb_otg_fsen(false));
         cortex_m::asm::delay(100);
-        rcc.ahb2enr().modify(|w| w.set_otgfsen(true));
+        rcc.ahb2enr().modify(|w| w.set_usb_otg_fsen(true));
 
-        rcc.ahb2rstr().modify(|w| w.set_otgfsrst(true));
+        rcc.ahb2rstr().modify(|w| w.set_usb_otg_fsrst(true));
         cortex_m::asm::delay(100);
-        rcc.ahb2rstr().modify(|w| w.set_otgfsrst(false));
+        rcc.ahb2rstr().modify(|w| w.set_usb_otg_fsrst(false));
         cortex_m::asm::delay(100);
 
         // USB_OTG_FS_GLOBAL base: 0x5000_0000
