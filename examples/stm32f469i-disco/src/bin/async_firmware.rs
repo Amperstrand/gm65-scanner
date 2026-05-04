@@ -387,6 +387,52 @@ async fn init_peripherals() -> Peripherals {
     embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
     log_info!("Scanner UART ready (115200 baud, USART6 PG14=TX PG9=RX)");
 
+    // After a soft reset (SYSRESETREQ from st-flash), the USB OTG FS peripheral
+    // can be left in an inconsistent state where the PHY doesn't re-enumerate.
+    // Cycling the RCC clock + core soft reset + PHY power cycle ensures a clean
+    // start regardless of how we got here. See ccid-firmware-rs issue #15.
+    {
+        let rcc = stm32_metapac::RCC;
+
+        rcc.ahb2enr().modify(|w| w.set_otgfsen(false));
+        cortex_m::asm::delay(100);
+        rcc.ahb2enr().modify(|w| w.set_otgfsen(true));
+
+        rcc.ahb2rstr().modify(|w| w.set_otgfsrst(true));
+        cortex_m::asm::delay(100);
+        rcc.ahb2rstr().modify(|w| w.set_otgfsrst(false));
+        cortex_m::asm::delay(100);
+
+        // USB_OTG_FS_GLOBAL base: 0x5000_0000
+        // GRSTCTL offset: 0x010, GCCFG offset: 0x038
+        let otg_global = 0x5000_0000usize as *mut u32;
+        unsafe {
+            // GRSTCTL.AHBIDL (bit 31) — wait for AHB idle before reset
+            let mut timeout = 100_000u32;
+            while otg_global.add(0x010 / 4).read_volatile() & (1 << 31) == 0 {
+                timeout -= 1;
+                if timeout == 0 {
+                    break;
+                }
+            }
+
+            // GRSTCTL.CSRST (bit 0) — core soft reset, self-clearing
+            otg_global.add(0x010 / 4).write_volatile(1);
+            timeout = 100_000u32;
+            while otg_global.add(0x010 / 4).read_volatile() & 1 != 0 {
+                timeout -= 1;
+                if timeout == 0 {
+                    break;
+                }
+            }
+
+            // GCCFG.PWRDWN (bit 16) — PHY power cycle
+            otg_global.add(0x038 / 4).write_volatile(0);
+            cortex_m::asm::delay(100);
+            otg_global.add(0x038 / 4).write_volatile(1 << 16);
+        }
+    }
+
     let ep_out_buffer = USB_EP_OUT_BUF.init([0u8; USB_BUF_SIZE]);
     let mut usb_config = usb::Config::default();
     usb_config.vbus_detection = false;

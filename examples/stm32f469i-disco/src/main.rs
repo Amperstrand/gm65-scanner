@@ -186,6 +186,52 @@ fn init_hardware() -> Hardware {
     render_boot_status(&mut fb, "[..] USB...", boot_line);
     boot_line += 1;
 
+    // After a soft reset (SYSRESETREQ from st-flash), the USB OTG FS peripheral
+    // can be left in an inconsistent state where the PHY doesn't re-enumerate.
+    // Cycling the RCC clock + core soft reset + PHY power cycle ensures a clean
+    // start regardless of how we got here. See ccid-firmware-rs issue #15.
+    {
+        let rcc_regs = unsafe { &*pac::RCC::ptr() };
+
+        rcc_regs.ahb2enr.modify(|_, w| w.otgfsen().clear_bit());
+        cortex_m::asm::delay(100);
+        rcc_regs.ahb2enr.modify(|_, w| w.otgfsen().set_bit());
+
+        rcc_regs.ahb2rstr.modify(|_, w| w.otgfsrst().set_bit());
+        cortex_m::asm::delay(100);
+        rcc_regs.ahb2rstr.modify(|_, w| w.otgfsrst().clear_bit());
+        cortex_m::asm::delay(100);
+
+        // USB_OTG_FS_GLOBAL base: 0x5000_0000
+        // GRSTCTL offset: 0x010, GCCFG offset: 0x038
+        let otg_global = 0x5000_0000usize as *mut u32;
+        unsafe {
+            // GRSTCTL.AHBIDL (bit 31) — wait for AHB idle before reset
+            let mut timeout = 100_000u32;
+            while otg_global.add(0x010 / 4).read_volatile() & (1 << 31) == 0 {
+                timeout -= 1;
+                if timeout == 0 {
+                    break;
+                }
+            }
+
+            // GRSTCTL.CSRST (bit 0) — core soft reset, self-clearing
+            otg_global.add(0x010 / 4).write_volatile(1);
+            timeout = 100_000u32;
+            while otg_global.add(0x010 / 4).read_volatile() & 1 != 0 {
+                timeout -= 1;
+                if timeout == 0 {
+                    break;
+                }
+            }
+
+            // GCCFG.PWRDWN (bit 16) — PHY power cycle
+            otg_global.add(0x038 / 4).write_volatile(0);
+            cortex_m::asm::delay(100);
+            otg_global.add(0x038 / 4).write_volatile(1 << 16);
+        }
+    }
+
     // USB CDC init
     let usb_periph = usb::init(
         (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
