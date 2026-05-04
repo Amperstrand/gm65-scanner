@@ -524,10 +524,8 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                 if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings)).is_err() {
                     // Channel full — display will catch up
                 }
-            } else {
-                if DISPLAY_CHANNEL.try_send(DisplayEvent::Home).is_err() {
-                    // Channel full — display will catch up
-                }
+            } else if DISPLAY_CHANNEL.try_send(DisplayEvent::Home).is_err() {
+                // Channel full — display will catch up
             }
             SCANNER_INIT_DONE.signal(());
         }
@@ -558,10 +556,8 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                         if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerFail).is_err() {
                             // Channel full — CDC task will timeout
                         }
-                    } else {
-                        if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerOk).is_err() {
-                            // Channel full — CDC task will timeout
-                        }
+                    } else if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerOk).is_err() {
+                        // Channel full — CDC task will timeout
                     }
                 }
                 HostCommand::Stop => {
@@ -611,13 +607,11 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                         }).is_err() {
                             // Channel full — CDC task will timeout
                         }
-                    } else {
-                        if CDC_RESPONSE_CHANNEL
-                            .try_send(CdcResponse::SetSettingsWriteFailed)
-                            .is_err()
-                        {
-                            // Channel full — CDC task will timeout
-                        }
+                    } else if CDC_RESPONSE_CHANNEL
+                        .try_send(CdcResponse::SetSettingsWriteFailed)
+                        .is_err()
+                    {
+                        // Channel full — CDC task will timeout
                     }
                 }
                 HostCommand::ShowSettings => {
