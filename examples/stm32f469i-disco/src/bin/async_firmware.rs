@@ -406,6 +406,10 @@ async fn init_peripherals() -> Peripherals {
         // USB_OTG_FS_GLOBAL base: 0x5000_0000
         // GRSTCTL offset: 0x010, GCCFG offset: 0x038
         let otg_global = 0x5000_0000usize as *mut u32;
+        // SAFETY: USB OTG FS register block at 0x5000_0000 is a fixed hardware
+        // address on STM32F469 (RM0090 §30). We access it before the embassy USB
+        // driver takes ownership, using volatile reads/writes for register-level
+        // reset sequencing. No aliasing — the driver hasn't been created yet.
         unsafe {
             // GRSTCTL.AHBIDL (bit 31) — wait for AHB idle before reset
             let mut timeout = 100_000u32;
