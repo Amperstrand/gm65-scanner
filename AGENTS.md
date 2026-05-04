@@ -59,7 +59,8 @@ flowchart LR
 | `ceb8b0e` (stm32f469i-disc main) | Known-good production state. All display fixes: PORTRAIT_DSI timing (V_SYNC=120/V_BP=150/V_FP=150), LP sizes 16/0, 120ms delay, DSI/LTDC sync. RGB565 + ARGB8888 both verified. Touch verified. USB CDC verified. Deps switched to git refs for CI (nt35510 rev 263d8e4, stm32f4xx-hal rev 0c5bc3d). Commits `5e153cb`, `9992edd`, `64f75c6`, `ceb8b0e`. |
 | `9992edd` (stm32f469i-disc) | ARGB8888 display fix: DSI/LTDC timing synced with PORTRAIT_DSI (V_SYNC=120/V_BP=150/V_FP=150). LP sizes 16/0 + 120ms delay. User confirmed: horizontal shift fixed, all edges visible. Commits `5e153cb`, `7481809`, `9992edd`. |
 | `8b8b828` | All unsafe blocks have SAFETY comments (#43). Test helpers gated #[cfg(test)] (#42). Scanner init fixed (#45). USB transmutes removed (#46). Both firmware targets hardware-verified. |
-| `874cff2` (main HEAD) | USB PHY reset (PR #57), PAC accessor fixes, clippy clean, SAFETY comments on all unsafe blocks. 175 lib tests, both firmwares build. Pending HW verification. |
+| `74686b6` (main HEAD) | PR #57 HW-verified: both firmwares USB CDC + QR scan at 180MHz. Sync 4/4 CDC (24-141ms). Async 4/4 CDC + QR (47 bytes). Display ARGB8888 verified on both. #51/#56 closed, #48 updated. 175 lib tests. |
+| `874cff2` | USB PHY reset (PR #57), PAC accessor fixes, clippy clean, SAFETY comments on all unsafe blocks. 175 lib tests, both firmwares build. |
 | `f48be8b` | Final session. #53 auto_scan with_timeout(200ms), #54 UART error counting, #29 EXTI touch on PJ5 (G_MODE=0x01), #55 driver robustness (5 fixes). 149 lib tests, clippy clean, both firmwares HW-verified. |
 | `67fcbf3` | Post-audit verification. cdc.rs send_response now returns false on write timeout/partial. Async try_send discards clarified with `let _`. 3 real bugs filed (#53, #54, #55). Both firmwares HW-verified. |
 | `3ddb01d` | Decomposed 700-line main into 8 functions, fixed 20+ silent channel drops, removed dead code. |
