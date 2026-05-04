@@ -333,7 +333,7 @@ The authoritative commit pins for a verified-working setup. All commits hardware
 
 | Repository | Commit | Role | Notes |
 |------------|--------|------|-------|
-| [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `f48be8b` (main) | Scanner driver + firmware examples | Final session. #53 auto_scan timeout, #54 UART errors, #29 EXTI touch, #55 driver robustness. Both firmwares HW-verified 2026-04-23. |
+| [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `874cff2` (main) | Scanner driver + firmware examples | USB PHY reset (PR #57), PAC accessor fixes, clippy clean, SAFETY comments. 175 lib tests. Pending HW verification. |
 | [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | `ceb8b0e` | Sync BSP (HAL, SDRAM, LCD, USB) | PORTRAIT_DSI timing fix, LP 16/0, 120ms delay, DSI/LTDC sync |
 | [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | `5496d4b` | Async BSP (embassy wrappers, display, touch) | Display + touch working |
 | [stm32f4xx-hal](https://github.com/Amperstrand/stm32f4xx-hal) | `0c5bc3d` | HAL fork | PLLSAI `.modify()` fix (preserves P/Q dividers) |
