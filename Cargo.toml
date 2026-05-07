@@ -37,17 +37,17 @@ bitflags = "2.6"
 # BSP - pinned to latest (includes PORTRAIT_DSI timing, LP 16/0, DSI/LTDC sync)
 stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "ceb8b0e", default-features = false }
 
-# Embassy - pinned to latest release
-embassy-time = { git = "https://github.com/embassy-rs/embassy", package = "embassy-time", rev = "84444a19" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", package = "embassy-executor", rev = "84444a19", features = ["platform-cortex-m", "executor-thread"] }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", package = "embassy-stm32", rev = "84444a19", features = ["stm32f469ni", "time-driver-any", "exti"] }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy", package = "embassy-usb", rev = "84444a19" }
-embassy-usb-synopsys-otg = { git = "https://github.com/embassy-rs/embassy", package = "embassy-usb-synopsys-otg", rev = "84444a19" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", package = "embassy-sync", rev = "84444a19" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy", package = "embassy-futures", rev = "84444a19" }
+# Embassy - crates.io
+embassy-time = { version = "0.5.1" }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embassy-stm32 = { version = "0.6.0", features = ["stm32f469ni", "time-driver-any", "exti"] }
+embassy-usb = { version = "0.6.0" }
+embassy-usb-synopsys-otg = { version = "0.3.3" }
+embassy-sync = { version = "0.8.0" }
+embassy-futures = { version = "0.1.2" }
 
 [patch.crates-io]
-nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "6252d17" }
+nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "263d8e4" }
 
 [profile.release]
 debug = true

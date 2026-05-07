@@ -311,8 +311,6 @@ config.rcc.pll = Some(Pll { prediv: PllPreDiv::DIV8, mul: PllMul::MUL360, divp: 
 // PLLSAI: P=48MHz USB, R=54.86MHz LTDC pixel clock
 config.rcc.pllsai = Some(Pll { prediv: PllPreDiv::DIV8, mul: PllMul::MUL384, divp: Some(PllPDiv::DIV8), divq: Some(PllQDiv::DIV8), divr: Some(PllRDiv::DIV7) });
 config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
-// DCKCFGR2 workaround (embassy writes to wrong register)
-stm32_metapac::RCC.dckcfgr2().modify(|w| { w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q); });
 ```
 
 **Why PLLSAI_P, not Q**: The `PLLSAI1_Q` enum is misleading on STM32F469 -- hardware actually routes PLLSAI_P to the 48MHz clock mux. `divp: DIV8` gives 384MHz/DIV8 = 48MHz. See embassy-stm32f469i-disco#14.
@@ -430,7 +428,7 @@ If targeting STM32F469I-Discovery, the BSP forks are required:
 
 ```toml
 # For async (embassy)
-embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32f469i-disco", rev = "5496d4b" }
+embassy-stm32f469i-disco = { git = "https://github.com/Amperstrand/embassy-stm32f469i-disco", rev = "57c20e3" }
 
 # For sync (HAL)
 stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "ceb8b0e" }
@@ -439,7 +437,7 @@ stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev 
 ### Critical Constraints
 
 - **Do NOT use `defmt_rtt` with USB CDC** — prevents enumeration. Use `panic_halt` for production.
-- **Embassy pinned at rev `84444a19`** — do NOT upgrade.
+- **Embassy deps from crates.io** — time 0.5.1, executor 0.10.0, stm32 0.6.0, usb 0.6.0.
 - **Use `st-flash`, not `probe-rs`** for USB testing — probe-rs holds SWD.
 - **180MHz SYSCLK required** for display + USB. See 180MHz USB Clock Fix section above.
 

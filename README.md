@@ -172,9 +172,9 @@ sequenceDiagram
 | Dependency | Version/Rev | Purpose |
 |------------|-------------|---------|
 | `stm32f469i-disc` | `ceb8b0e` | Amperstrand BSP fork — sync HAL, SDRAM, LCD, USB. All display fixes: PORTRAIT_DSI timing, LP 16/0, 120ms delay, DSI/LTDC sync. |
-| `embassy-stm32f469i-disco` | `5496d4b` | Amperstrand BSP fork — async embassy wrappers, display, touch |
-| `embassy-*` | `84444a19` | Embassy framework (executor, time, stm32, usb, futures) — pinned, do NOT upgrade |
-| `nt35510` | `6252d17` (workspace) / `14e8cac` (async) | NT35510 DSI display driver (Amperstrand fork) |
+| `embassy-stm32f469i-disco` | `57c20e3` | Amperstrand BSP fork — async embassy wrappers, display, touch |
+| `embassy-*` | crates.io | Embassy framework (time 0.5.1, executor 0.10.0, stm32 0.6.0, usb 0.6.0, sync 0.8.0, futures 0.1.2) |
+| `nt35510` | `263d8e4` | NT35510 DSI display driver (Amperstrand fork) |
 | `otm8009a` | `76dcda9` | OTM8009A display driver (Amperstrand fork, async feature) |
 | `stm32f4xx-hal` | `0c5bc3d` | Amperstrand HAL fork — PLLSAI `.modify()` fix, LTDC support |
 | `stm32-fmc` | `0.4.0` | SDRAM controller via FMC (async feature) |
@@ -335,11 +335,11 @@ The authoritative commit pins for a verified-working setup. All commits hardware
 |------------|--------|------|-------|
 | [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `874cff2` (main) | Scanner driver + firmware examples | USB PHY reset (PR #57), PAC accessor fixes, clippy clean, SAFETY comments. 175 lib tests. Pending HW verification. |
 | [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | `ceb8b0e` | Sync BSP (HAL, SDRAM, LCD, USB) | PORTRAIT_DSI timing fix, LP 16/0, 120ms delay, DSI/LTDC sync |
-| [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | `5496d4b` | Async BSP (embassy wrappers, display, touch) | Display + touch working |
+| [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | `57c20e3` | Async BSP (embassy wrappers, display, touch) | Display + touch working, crates.io embassy deps |
 | [stm32f4xx-hal](https://github.com/Amperstrand/stm32f4xx-hal) | `0c5bc3d` | HAL fork | PLLSAI `.modify()` fix (preserves P/Q dividers) |
-| [nt35510](https://github.com/Amperstrand/nt35510) | `6252d17` / `14e8cac` | NT35510 DSI display driver | Workspace vs async feature use different pins |
+| [nt35510](https://github.com/Amperstrand/nt35510) | `263d8e4` | NT35510 DSI display driver | Aligned with BSP |
 | [otm8009a](https://github.com/Amperstrand/otm8009a) | `76dcda9` | OTM8009A display driver | Async feature only |
-| [embassy](https://github.com/embassy-rs/embassy) | `84444a19` | Embassy async framework | **Pinned — do NOT upgrade** |
+| [embassy](https://github.com/embassy-rs/embassy) | crates.io | Embassy async framework | time 0.5.1, executor 0.10.0, stm32 0.6.0, usb 0.6.0 |
 
 ### Replication Checklist
 
@@ -441,12 +441,9 @@ config.rcc.pllsai = Some(Pll {
     divr: Some(PllRDiv::DIV7),
 });
 config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
-
-// Workaround: embassy writes to wrong register for clk48sel on STM32F469
-stm32_metapac::RCC.dckcfgr2().modify(|w| {
-    w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q);
-});
 ```
+
+**Note:** Embassy correctly writes CK48MSEL to DCKCFGR bit 27 via `config.rcc.mux.clk48sel`. DCKCFGR2 does not exist on STM32F469 — previous versions included a DCKCFGR2 write that was always a no-op. See embassy-stm32f469i-disco#27 for hardware evidence.
 
 **Key insight:** On STM32F469, `PLLSAI1_Q` mux enum is misleading — hardware actually routes PLLSAI_P to the 48MHz clock. `divp: DIV8` gives 384MHz/8 = 48MHz. See embassy-stm32f469i-disco#14.
 

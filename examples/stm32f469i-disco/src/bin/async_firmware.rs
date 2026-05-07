@@ -347,9 +347,6 @@ async fn init_peripherals() -> Peripherals {
         });
     }
     let mut p = embassy_stm32::init(config);
-    stm32_metapac::RCC.dckcfgr2().modify(|w| {
-        w.set_clk48sel(mux::Clk48sel::PLLSAI1_Q);
-    });
 
     log_info!("Initializing SDRAM...");
     let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ);
