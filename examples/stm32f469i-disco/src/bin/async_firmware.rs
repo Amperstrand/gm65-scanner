@@ -32,9 +32,7 @@ use panic_halt as _;
 #[cfg(feature = "scanner-async")]
 use embassy_executor::Spawner;
 #[cfg(feature = "scanner-async")]
-use embassy_stm32::time::Hertz;
-#[cfg(feature = "scanner-async")]
-use embassy_stm32::{i2c, interrupt::InterruptExt, peripherals, rcc::*, usart, usb, Config};
+use embassy_stm32::{i2c, interrupt::InterruptExt, peripherals, usart, usb};
 #[cfg(feature = "scanner-async")]
 use embassy_stm32::exti::ExtiInput;
 #[cfg(feature = "scanner-async")]
@@ -59,9 +57,9 @@ use gm65_scanner::{Gm65ScannerAsync, ScannerModel, ScannerSettings};
 use linked_list_allocator::LockedHeap;
 
 #[cfg(feature = "scanner-async")]
-use embassy_stm32f469i_disco::display::SdramCtrl;
+use embassy_stm32f469i_disco::{BoardHint, DisplayCtrl, SdramCtrl, SYSCLK_HZ_180};
 #[cfg(feature = "scanner-async")]
-use embassy_stm32f469i_disco::TouchCtrl;
+use embassy_stm32f469i_disco::touch::TouchCtrl;
 
 mod async_shared {
     #[cfg(feature = "scanner-async")]
@@ -107,10 +105,6 @@ const HEARTBEAT_INTERVAL_MS: u64 = 3000;
 #[cfg(feature = "scanner-async")]
 const HEARTBEAT_BLINK_MS: u64 = 100;
 
-#[cfg(feature = "scanner-async")]
-const HSE_FREQ_HZ: u32 = 8_000_000;
-#[cfg(feature = "scanner-async")]
-const SYSCLK_HZ: u32 = 180_000_000;
 #[cfg(feature = "scanner-async")]
 const UART_BAUD: u32 = 115200;
 
@@ -307,11 +301,10 @@ type UsbDriver = usb::Driver<'static, peripherals::USB_OTG_FS>;
 
 #[cfg(feature = "scanner-async")]
 struct Peripherals {
-    display: embassy_stm32f469i_disco::DisplayCtrl<'static>,
+    display: DisplayCtrl<'static>,
     cdc: CdcAcmClass<'static, UsbDriver>,
     usb_dev: embassy_usb::UsbDevice<'static, UsbDriver>,
     touch_ctrl: TouchCtrl,
-    touch_i2c: i2c::I2c<'static, embassy_stm32::mode::Blocking, i2c::Master>,
     touch_ok: bool,
     touch_int: ExtiInput<'static, embassy_stm32::mode::Async>,
     async_uart: async_shared::AsyncUart<'static>,
@@ -319,39 +312,13 @@ struct Peripherals {
 
 #[cfg(feature = "scanner-async")]
 async fn init_peripherals() -> Peripherals {
-    let mut config = Config::default();
-    {
-        config.rcc.hse = Some(Hse {
-            freq: Hertz(HSE_FREQ_HZ),
-            mode: HseMode::Oscillator,
-        });
-        config.rcc.pll_src = PllSource::HSE;
-        config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV8,
-            mul: PllMul::MUL360,
-            divp: Some(PllPDiv::DIV2),
-            divq: Some(PllQDiv::DIV7),
-            divr: Some(PllRDiv::DIV6),
-        });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLLSAI1_Q;
-        config.rcc.pllsai = Some(Pll {
-            prediv: PllPreDiv::DIV8,
-            mul: PllMul::MUL384,
-            divp: Some(PllPDiv::DIV8),
-            divq: Some(PllQDiv::DIV8),
-            divr: Some(PllRDiv::DIV7),
-        });
-    }
-    let mut p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(embassy_stm32f469i_disco::config_180());
 
     log_info!("Initializing SDRAM...");
-    let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ);
+    let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ_180);
     let sdram_base = sdram.base_address();
     let sdram_ok = sdram.test_quick();
+    let framebuffer_bytes = sdram.into_bytes();
     log_info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
     if SDRAM_CHANNEL.try_send(SdramStatus {
         base_address: sdram_base,
@@ -361,7 +328,14 @@ async fn init_peripherals() -> Peripherals {
     }
 
     log_info!("Initializing display...");
-    let mut display = embassy_stm32f469i_disco::DisplayCtrl::new(&sdram, p.LTDC, p.DSIHOST, p.PJ2, p.PH7, embassy_stm32f469i_disco::BoardHint::ForceNt35510);
+    let mut display = DisplayCtrl::new(
+        framebuffer_bytes,
+        p.LTDC,
+        p.DSIHOST,
+        p.PJ2,
+        p.PH7,
+        BoardHint::ForceNt35510,
+    );
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
 
     {
@@ -384,55 +358,7 @@ async fn init_peripherals() -> Peripherals {
     embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
     log_info!("Scanner UART ready (115200 baud, USART6 PG14=TX PG9=RX)");
 
-    // After a soft reset (SYSRESETREQ from st-flash), the USB OTG FS peripheral
-    // can be left in an inconsistent state where the PHY doesn't re-enumerate.
-    // Cycling the RCC clock + core soft reset + PHY power cycle ensures a clean
-    // start regardless of how we got here. See ccid-firmware-rs issue #15.
-    {
-        let rcc = stm32_metapac::RCC;
-
-        rcc.ahb2enr().modify(|w| w.set_usb_otg_fsen(false));
-        cortex_m::asm::delay(100);
-        rcc.ahb2enr().modify(|w| w.set_usb_otg_fsen(true));
-
-        rcc.ahb2rstr().modify(|w| w.set_usb_otg_fsrst(true));
-        cortex_m::asm::delay(100);
-        rcc.ahb2rstr().modify(|w| w.set_usb_otg_fsrst(false));
-        cortex_m::asm::delay(100);
-
-        // USB_OTG_FS_GLOBAL base: 0x5000_0000
-        // GRSTCTL offset: 0x010, GCCFG offset: 0x038
-        let otg_global = 0x5000_0000usize as *mut u32;
-        // SAFETY: USB OTG FS register block at 0x5000_0000 is a fixed hardware
-        // address on STM32F469 (RM0090 §30). We access it before the embassy USB
-        // driver takes ownership, using volatile reads/writes for register-level
-        // reset sequencing. No aliasing — the driver hasn't been created yet.
-        unsafe {
-            // GRSTCTL.AHBIDL (bit 31) — wait for AHB idle before reset
-            let mut timeout = 100_000u32;
-            while otg_global.add(0x010 / 4).read_volatile() & (1 << 31) == 0 {
-                timeout -= 1;
-                if timeout == 0 {
-                    break;
-                }
-            }
-
-            // GRSTCTL.CSRST (bit 0) — core soft reset, self-clearing
-            otg_global.add(0x010 / 4).write_volatile(1);
-            timeout = 100_000u32;
-            while otg_global.add(0x010 / 4).read_volatile() & 1 != 0 {
-                timeout -= 1;
-                if timeout == 0 {
-                    break;
-                }
-            }
-
-            // GCCFG.PWRDWN (bit 16) — PHY power cycle
-            otg_global.add(0x038 / 4).write_volatile(0);
-            cortex_m::asm::delay(100);
-            otg_global.add(0x038 / 4).write_volatile(1 << 16);
-        }
-    }
+    embassy_stm32f469i_disco::reset_usb_phy();
 
     let ep_out_buffer = USB_EP_OUT_BUF.init([0u8; USB_BUF_SIZE]);
     let mut usb_config = usb::Config::default();
@@ -470,15 +396,15 @@ async fn init_peripherals() -> Peripherals {
 
     log_info!("Initializing touch controller...");
     let i2c_config = i2c::Config::default();
-    let mut touch_i2c = i2c::I2c::new_blocking(p.I2C1, p.PB8, p.PB9, i2c_config);
-    let touch_ctrl = TouchCtrl::new();
-    let touch_ok = touch_ctrl.read_vendor_id(&mut touch_i2c).is_ok();
+    let touch_i2c = i2c::I2c::new_blocking(p.I2C1, p.PB8, p.PB9, i2c_config);
+    let mut touch_ctrl = TouchCtrl::new(touch_i2c);
+    let touch_ok = touch_ctrl.read_vendor_id().is_ok();
     log_info!("Touch: vendor_id read {}", touch_ok);
 
     let touch_int = ExtiInput::new(p.PJ5, p.EXTI5, Pull::Up, Irqs);
     if touch_ok {
-        let _ = touch_i2c.blocking_write(0x38, &[0xA4, 0x01]);
-        log_info!("Touch: G_MODE set to interrupt trigger");
+        let _ = touch_ctrl.read_chip_model();
+        log_info!("Touch: controller ready");
     }
 
     {
@@ -494,7 +420,6 @@ async fn init_peripherals() -> Peripherals {
         cdc,
         usb_dev,
         touch_ctrl,
-        touch_i2c,
         touch_ok,
         touch_int,
         async_uart,
@@ -991,7 +916,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
 }
 
 #[cfg(feature = "scanner-async")]
-async fn run_display(mut display: embassy_stm32f469i_disco::DisplayCtrl<'static>) {
+async fn run_display(mut display: DisplayCtrl<'static>) {
     DISPLAY_READY.wait().await;
     SCANNER_INIT_DONE.wait().await;
     loop {
@@ -1050,8 +975,7 @@ async fn run_display(mut display: embassy_stm32f469i_disco::DisplayCtrl<'static>
 #[cfg(feature = "scanner-async")]
 async fn run_touch(
     mut touch_int: ExtiInput<'static, embassy_stm32::mode::Async>,
-    touch_ctrl: TouchCtrl,
-    mut touch_i2c: i2c::I2c<'static, embassy_stm32::mode::Blocking, i2c::Master>,
+    mut touch_ctrl: TouchCtrl,
     touch_ok: bool,
 ) {
     if !touch_ok {
@@ -1064,7 +988,7 @@ async fn run_touch(
 
         Timer::after(Duration::from_millis(5)).await;
 
-        if let Ok(point) = touch_ctrl.get_touch(&mut touch_i2c) {
+        if let Ok(Some(point)) = touch_ctrl.get_touch() {
             let tx = point.x;
             let ty = point.y;
             if (i32::from(TOUCH_MARGIN)..=(DISPLAY_MAX_X - i32::from(TOUCH_MARGIN))).contains(&i32::from(tx))
@@ -1183,7 +1107,6 @@ async fn main(_spawner: Spawner) {
         cdc,
         mut usb_dev,
         touch_ctrl,
-        touch_i2c,
         touch_ok,
         touch_int,
         async_uart,
@@ -1194,7 +1117,7 @@ async fn main(_spawner: Spawner) {
         embassy_futures::select::select(run_scanner(async_uart), run_cdc(cdc)),
         run_display(display),
         embassy_futures::select::select(
-            embassy_futures::select::select(run_touch(touch_int, touch_ctrl, touch_i2c, touch_ok), run_settings_touch()),
+            embassy_futures::select::select(run_touch(touch_int, touch_ctrl, touch_ok), run_settings_touch()),
             run_heartbeat(),
         ),
     )

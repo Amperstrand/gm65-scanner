@@ -436,7 +436,7 @@ dependencies = [
 [[package]]
 name = "embassy-stm32f469i-disco"
 version = "0.1.0"
-source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=57c20e3#57c20e3d51fc2b73cb9938f03573c1a3077f00da"
+source = "git+https://github.com/Amperstrand/embassy-stm32f469i-disco?rev=e7e8b41#e7e8b4191ed1e985a47368a692bf8cdd3885aa2e"
 dependencies = [
  "cortex-m",
  "defmt 1.0.1",
@@ -446,7 +446,8 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
- "nt35510",
+ "embedded-test-linker-script",
+ "nt35510 0.2.1",
  "otm8009a 0.1.0",
  "stm32-fmc",
  "stm32-metapac",
@@ -666,6 +667,12 @@ checksum = "1763775e2323b7d5f0aa6090657f5e21cfa02ede71f5dc40eead06d64dcd15cc"
 dependencies = [
  "embedded-storage",
 ]
+
+[[package]]
+name = "embedded-test-linker-script"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "892fd6c812db2dc4fde8cac39717b772661bb26b24cd54cb5d6d89b37b5cd8c2"
 
 [[package]]
 name = "encode_unicode"
@@ -947,6 +954,15 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 name = "nt35510"
 version = "0.2.0"
 source = "git+https://github.com/Amperstrand/nt35510?rev=263d8e4#263d8e41643908e6b1176a9cd81b12bb43c346ae"
+dependencies = [
+ "embedded-display-controller",
+ "embedded-hal 1.0.0",
+]
+
+[[package]]
+name = "nt35510"
+version = "0.2.1"
+source = "git+https://github.com/Amperstrand/nt35510?rev=49a372c#49a372cd00389b1df5862a8cfbbcdfb2a022bb24"
 dependencies = [
  "embedded-display-controller",
  "embedded-hal 1.0.0",
@@ -1315,7 +1331,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-graphics-core",
  "embedded-hal 1.0.0",
- "nt35510",
+ "nt35510 0.2.0",
  "otm8009a 0.2.0",
  "stm32-fmc",
  "stm32f4xx-hal",
@@ -1347,7 +1363,7 @@ dependencies = [
  "heapless 0.8.0",
  "linked_list_allocator",
  "nb 1.1.0",
- "nt35510",
+ "nt35510 0.2.0",
  "otm8009a 0.2.0",
  "panic-halt",
  "panic-probe",
