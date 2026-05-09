@@ -402,10 +402,6 @@ async fn init_peripherals() -> Peripherals {
     log_info!("Touch: vendor_id read {}", touch_ok);
 
     let touch_int = ExtiInput::new(p.PJ5, p.EXTI5, Pull::Up, Irqs);
-    if touch_ok {
-        let _ = touch_ctrl.read_chip_model();
-        log_info!("Touch: controller ready");
-    }
 
     {
         let mut shared = SHARED.lock().await;
@@ -695,7 +691,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                     let _ = cdc
                         .write_packet(&[Status::Ok.to_byte(), 0, payload.len() as u8])
                         .await;
-                    let _ = cdc.write_packet(&payload).await;
+                    let _ = embassy_stm32f469i_disco::send_with_zlp(&mut cdc, &payload).await;
                 }
                 CdcResponse::TriggerOk => {
                     if DISPLAY_CHANNEL
@@ -724,7 +720,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                     let _ = cdc
                         .write_packet(&[Status::Ok.to_byte(), 0, (copy_len + 1) as u8])
                         .await;
-                    let _ = cdc.write_packet(&buf[..copy_len + 1]).await;
+                    let _ = embassy_stm32f469i_disco::send_with_zlp(&mut cdc, &buf[..copy_len + 1]).await;
                     if DISPLAY_CHANNEL
                         .try_send(DisplayEvent::Scan(ScanResult { data: data.clone() }))
                         .is_err()
@@ -795,7 +791,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                 let mut msg = String::from("[SCAN] ");
                 msg.push_str(&data_str);
                 msg.push_str("\r\n");
-                match cdc.write_packet(msg.as_bytes()).await {
+                match embassy_stm32f469i_disco::send_with_zlp(&mut cdc, msg.as_bytes()).await {
                     Ok(()) => {
                         {
                             let mut shared = SHARED.lock().await;
@@ -819,7 +815,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                     msg.push_str("FAIL");
                 }
                 msg.push_str("\r\n");
-                match cdc.write_packet(msg.as_bytes()).await {
+                match embassy_stm32f469i_disco::send_with_zlp(&mut cdc, msg.as_bytes()).await {
                     Ok(()) => {}
                     Err(_) => break,
                 }
