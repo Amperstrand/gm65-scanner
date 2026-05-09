@@ -315,7 +315,7 @@ async fn init_peripherals() -> Peripherals {
     let mut p = embassy_stm32::init(embassy_stm32f469i_disco::config_180());
 
     log_info!("Initializing SDRAM...");
-    let sdram = SdramCtrl::new(&mut p, SYSCLK_HZ_180);
+    let mut sdram = SdramCtrl::new(&mut p, SYSCLK_HZ_180);
     let sdram_base = sdram.base_address();
     let sdram_ok = sdram.test_quick();
     let framebuffer_bytes = sdram.into_bytes();
