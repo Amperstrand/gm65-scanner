@@ -57,7 +57,7 @@ use gm65_scanner::{Gm65ScannerAsync, ScannerModel, ScannerSettings};
 use linked_list_allocator::LockedHeap;
 
 #[cfg(feature = "scanner-async")]
-use embassy_stm32f469i_disco::{BoardHint, DisplayCtrl, SdramCtrl, SYSCLK_HZ_180};
+use embassy_stm32f469i_disco::{BoardHint, DisplayCtrl};
 #[cfg(feature = "scanner-async")]
 use embassy_stm32f469i_disco::touch::TouchCtrl;
 
@@ -312,10 +312,10 @@ struct Peripherals {
 
 #[cfg(feature = "scanner-async")]
 async fn init_peripherals() -> Peripherals {
-    let mut p = embassy_stm32::init(embassy_stm32f469i_disco::config_180());
+    let p = embassy_stm32::init(embassy_stm32f469i_disco::config_180());
 
     log_info!("Initializing SDRAM...");
-    let mut sdram = SdramCtrl::new(&mut p, SYSCLK_HZ_180);
+    let mut sdram = embassy_stm32f469i_disco::sdram_init!(p);
     let sdram_base = sdram.base_address();
     let sdram_ok = sdram.test_quick();
     let framebuffer_bytes = sdram.into_bytes();
