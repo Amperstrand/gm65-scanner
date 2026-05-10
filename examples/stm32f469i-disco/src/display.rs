@@ -63,6 +63,17 @@ const HEX_BUF_SIZE: usize = 8;
 const CHARS_PER_LINE: usize = 76;
 const DATA_LINE_HEIGHT: i32 = 22;
 
+#[cfg(feature = "scanner-async")]
+const BIST_TITLE_Y: i32 = 40;
+#[cfg(feature = "scanner-async")]
+const BIST_ROW_START_Y: i32 = 95;
+#[cfg(feature = "scanner-async")]
+const BIST_ROW_SPACING: i32 = 55;
+#[cfg(feature = "scanner-async")]
+const BIST_STATUS_X: i32 = 360;
+#[cfg(feature = "scanner-async")]
+const BIST_SUMMARY_Y: i32 = 720;
+
 const MODE_LABEL_Y_OFFSET: i32 = 35;
 const DATA_LABEL_Y_OFFSET: i32 = 25;
 const BOTTOM_MARGIN: i32 = 20;
@@ -75,6 +86,69 @@ pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
         truncate_str(message, MAX_MESSAGE_LEN),
         Point::new(DISPLAY_CENTER_X, Y_MESSAGE),
         style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
+}
+
+#[cfg(feature = "scanner-async")]
+pub fn render_bist_screen(
+    fb: &mut impl DrawTarget<Color = Rgb888>,
+    results: &crate::bist::Gm65BistResults,
+) {
+    let _ = fb.clear(Rgb888::BLACK);
+
+    let title_style = MonoTextStyle::new(&FONT_10X20, theme::ACCENT_CYAN);
+    let label_style = MonoTextStyle::new(&FONT_10X20, theme::TEXT_PRIMARY);
+    let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
+
+    Text::with_text_style(
+        "Boot Self-Test",
+        Point::new(DISPLAY_CENTER_X, BIST_TITLE_Y),
+        title_style,
+        center_text,
+    )
+    .draw(fb)
+    .ok();
+
+    for (idx, entry) in results.all_entries().iter().enumerate() {
+        let y = BIST_ROW_START_Y + (idx as i32 * BIST_ROW_SPACING);
+        let status_color = match entry.result {
+            crate::bist::TestResult::Pass => theme::SUCCESS,
+            crate::bist::TestResult::Fail => theme::ERROR,
+            crate::bist::TestResult::Skip => Rgb888::new(0xFF, 0xFF, 0x00),
+        };
+        let status_style = MonoTextStyle::new(&FONT_10X20, status_color);
+
+        Text::new(entry.name, Point::new(X_LABEL, y), label_style)
+            .draw(fb)
+            .ok();
+        Text::new(
+            crate::bist::result_label(entry.result),
+            Point::new(BIST_STATUS_X, y),
+            status_style,
+        )
+        .draw(fb)
+        .ok();
+    }
+
+    let mut summary = heapless::String::<24>::new();
+    let _ = summary.push_str(&format_u32_len(results.passed_count()));
+    let _ = summary.push('/');
+    let _ = summary.push_str(&format_u32_len(results.total_count()));
+    let _ = summary.push_str(" passed");
+
+    let summary_color = if results.all_passed() {
+        theme::SUCCESS
+    } else {
+        theme::ERROR
+    };
+    let summary_style = MonoTextStyle::new(&FONT_10X20, summary_color);
+    Text::with_text_style(
+        &summary,
+        Point::new(DISPLAY_CENTER_X, BIST_SUMMARY_Y),
+        summary_style,
         center_text,
     )
     .draw(fb)

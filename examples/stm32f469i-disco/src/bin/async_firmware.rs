@@ -67,14 +67,10 @@ mod async_shared {
 }
 
 #[cfg(feature = "scanner-async")]
-#[path = "../bist.rs"]
-mod bist;
-
-#[cfg(feature = "scanner-async")]
 use embassy_stm32::bind_interrupts;
 
 #[cfg(feature = "scanner-async")]
-const CHANNEL_CAPACITY: usize = 4;
+const CHANNEL_CAPACITY: usize = 16;
 #[cfg(feature = "scanner-async")]
 const CMD_CHANNEL_CAPACITY: usize = 8;
 #[cfg(feature = "scanner-async")]
@@ -174,8 +170,6 @@ static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, HostCommand, CMD_CHANNE
 #[cfg(feature = "scanner-async")]
 static CDC_RESPONSE_CHANNEL: Channel<CriticalSectionRawMutex, CdcResponse, CMD_CHANNEL_CAPACITY> = Channel::new();
 #[cfg(feature = "scanner-async")]
-static BIST_CHANNEL: Channel<CriticalSectionRawMutex, bist::Gm65BistResults, 1> = Channel::new();
-#[cfg(feature = "scanner-async")]
 static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState::new());
 #[cfg(feature = "scanner-async")]
 static LED: Mutex<CriticalSectionRawMutex, Option<embassy_stm32::gpio::Output<'static>>> =
@@ -215,7 +209,6 @@ pub struct SdramStatus {
 #[derive(Clone)]
 pub enum DisplayEvent {
     Scan(ScanResult),
-    BistResults(bist::Gm65BistResults),
     Home,
     Error(String),
     Settings(ScannerSettings),
@@ -247,7 +240,6 @@ pub enum HostCommand {
 #[cfg(feature = "scanner-async")]
 #[derive(Clone)]
 pub enum CdcResponse {
-    BistResults(bist::Gm65BistResults),
     ScannerStatus([u8; 3]),
     TriggerOk,
     TriggerFail,
@@ -345,7 +337,7 @@ async fn init_peripherals() -> Peripherals {
         BoardHint::ForceNt35510,
     );
     crate::display_async::render_status(&mut display.fb(), "Initializing...");
-    let display_init = bist::test_display_init(&mut display);
+    let display_result = bist::test_display_init(&mut display);
 
     {
         let mut led = LED.lock().await;
@@ -361,7 +353,6 @@ async fn init_peripherals() -> Peripherals {
     uart_config.baudrate = UART_BAUD;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
     let async_uart = async_shared::AsyncUart { inner: uart, uart_error_count: 0 };
-    let scanner_uart = bist::test_scanner_uart(true);
 
     // GM65 module needs settle time after UART pin configuration.
     // Matches sync firmware delay (sysclk_hz / 2 = 500ms at 180MHz).
@@ -369,7 +360,6 @@ async fn init_peripherals() -> Peripherals {
     log_info!("Scanner UART ready (115200 baud, USART6 PG14=TX PG9=RX)");
 
     embassy_stm32f469i_disco::reset_usb_phy();
-    let usb_phy_reset = bist::test_usb_phy_reset();
 
     let ep_out_buffer = USB_EP_OUT_BUF.init([0u8; USB_BUF_SIZE]);
     let mut usb_config = usb::Config::default();
@@ -409,35 +399,31 @@ async fn init_peripherals() -> Peripherals {
     let i2c_config = i2c::Config::default();
     let touch_i2c = i2c::I2c::new_blocking(p.I2C1, p.PB8, p.PB9, i2c_config);
     let mut touch_ctrl = TouchCtrl::new(touch_i2c);
-    let touch_vendor_id_result = touch_ctrl.read_vendor_id();
-    let touch_ok = touch_vendor_id_result.is_ok();
-    let touch_chip_model_result = touch_ctrl.read_chip_model();
-    let touch_idle_result = touch_ctrl.td_status();
+    let touch_vendor_id = touch_ctrl.read_vendor_id();
+    let touch_ok = touch_vendor_id.is_ok();
+    let touch_chip_model = touch_ctrl.read_chip_model();
+    let touch_idle = touch_ctrl.td_status();
     log_info!("Touch: vendor_id read {}", touch_ok);
 
     let touch_int = ExtiInput::new(p.PJ5, p.EXTI5, Pull::Up, Irqs);
 
-    let board_results = embassy_stm32f469i_disco::BootTestResults {
-        sdram: bist::test_sdram(sdram_ok),
-        display: display_init,
-        touch_i2c: bist::test_touch_i2c(touch_ok),
-        touch_vendor_id: bist::test_touch_vendor_id(touch_vendor_id_result),
-        touch_chip_model: bist::test_touch_chip_model(touch_chip_model_result),
-        touch_idle: bist::test_touch_idle(touch_idle_result),
-        leds: bist::TestResult::Pass,
-        user_button: bist::TestResult::Skip,
-    };
-
     let bist_results = bist::Gm65BistResults {
-        board: board_results,
-        scanner_uart,
+        board: embassy_stm32f469i_disco::BootTestResults {
+            sdram: bist::test_sdram(sdram_ok),
+            display: display_result,
+            touch_i2c: bist::test_touch_i2c(touch_ok),
+            touch_vendor_id: bist::test_touch_vendor_id(touch_vendor_id),
+            touch_chip_model: bist::test_touch_chip_model(touch_chip_model),
+            touch_idle: bist::test_touch_idle(touch_idle),
+            leds: bist::TestResult::Pass,
+            user_button: bist::TestResult::Skip,
+        },
+        scanner_uart: bist::test_scanner_uart(true),
         scanner_detect: bist::test_scanner_detect(false),
-        usb_phy_reset,
+        usb_phy_reset: bist::test_usb_phy_reset(),
     };
-
-    crate::display_async::render_bist_results(&mut display.fb(), &bist_results);
-    let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::BistResults(bist_results.clone()));
-    let _ = BIST_CHANNEL.try_send(bist_results);
+    let _ = bist_results.to_bytes();
+    crate::display_async::render_bist_screen(&mut display.fb(), &bist_results);
     Timer::after(Duration::from_millis(2000)).await;
 
     {
@@ -730,13 +716,6 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                         .await;
                     let _ = embassy_stm32f469i_disco::send_with_zlp(&mut cdc, &payload).await;
                 }
-                CdcResponse::BistResults(results) => {
-                    let bytes = results.to_bytes();
-                    let _ = cdc
-                        .write_packet(&[Status::Ok.to_byte(), 0x17, bytes.len() as u8])
-                        .await;
-                    let _ = embassy_stm32f469i_disco::send_with_zlp(&mut cdc, &bytes).await;
-                }
                 CdcResponse::TriggerOk => {
                     if DISPLAY_CHANNEL
                         .try_send(DisplayEvent::Status(String::from("Scanning...")))
@@ -824,10 +803,6 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
 
         let mut rx_buf = [0u8; USB_BUF_SIZE];
         let mut frame_decoder = FrameDecoder::new();
-
-        if let Ok(results) = BIST_CHANNEL.try_receive() {
-            write_cdc_response!(CdcResponse::BistResults(results));
-        }
 
         loop {
             if let Ok(result) = SCAN_CHANNEL.try_receive() {
@@ -979,9 +954,6 @@ async fn run_display(mut display: DisplayCtrl<'static>) {
                 } else {
                     crate::display_async::render_scan_result(&mut display.fb(), &result.data);
                 }
-            }
-            DisplayEvent::BistResults(results) => {
-                crate::display_async::render_bist_results(&mut display.fb(), &results);
             }
             DisplayEvent::Home => {
                 let mut shared = SHARED.lock().await;
@@ -1159,12 +1131,14 @@ async fn main(_spawner: Spawner) {
         async_uart,
     } = init_peripherals().await;
 
-    embassy_futures::join::join4(
+    embassy_futures::join::join5(
         usb_dev.run(),
-        embassy_futures::select::select(run_scanner(async_uart), run_cdc(cdc)),
+        run_scanner(async_uart),
+        run_cdc(cdc),
         run_display(display),
-        embassy_futures::select::select(
-            embassy_futures::select::select(run_touch(touch_int, touch_ctrl, touch_ok), run_settings_touch()),
+        embassy_futures::join::join3(
+            run_touch(touch_int, touch_ctrl, touch_ok),
+            run_settings_touch(),
             run_heartbeat(),
         ),
     )
@@ -1188,69 +1162,12 @@ fn main() -> ! {
 mod display_utils;
 #[path = "../scanner_utils.rs"]
 mod scanner_utils;
+#[path = "../bist.rs"]
+mod bist;
 mod display_async {
-    use alloc::string::String;
-    use super::bist;
-
     const DISPLAY_CENTER_X: i32 = 240;
     const DISPLAY_MAX_Y: u32 = 800;
     include!("../display.rs");
-
-    pub fn render_bist_results(
-        fb: &mut impl DrawTarget<Color = Rgb888>,
-        results: &bist::Gm65BistResults,
-    ) {
-        let _ = fb.clear(theme::BG_DARK);
-
-        let title_style = MonoTextStyle::new(&FONT_10X20, theme::ACCENT_CYAN);
-        let label_style = MonoTextStyle::new(&FONT_10X20, theme::TEXT_PRIMARY);
-        let center_text = TextStyleBuilder::new().alignment(Alignment::Center).build();
-
-        Text::with_text_style(
-            "BOOT SELF-TEST",
-            Point::new(DISPLAY_CENTER_X, 60),
-            title_style,
-            center_text,
-        )
-        .draw(fb)
-        .ok();
-
-        let mut y = 120;
-        for entry in results.all_entries() {
-            let result_color = match entry.result {
-                bist::TestResult::Pass => theme::SUCCESS,
-                bist::TestResult::Fail => theme::ERROR,
-                bist::TestResult::Skip => theme::ACCENT_CYAN,
-            };
-            let result_style = MonoTextStyle::new(&FONT_10X20, result_color);
-
-            Text::new(entry.name, Point::new(20, y), label_style).draw(fb).ok();
-            Text::new(bist::result_label(entry.result), Point::new(320, y), result_style)
-                .draw(fb)
-                .ok();
-            y += 40;
-        }
-
-        let mut summary = String::new();
-        let _ = core::fmt::write(
-            &mut summary,
-            format_args!("{}/{} PASSED", results.passed_count(), results.total_count()),
-        );
-        let summary_color = if results.all_passed() {
-            theme::SUCCESS
-        } else {
-            theme::TEXT_PRIMARY
-        };
-        let summary_style = MonoTextStyle::new(&FONT_10X20, summary_color);
-        Text::with_text_style(
-            &summary,
-            Point::new(DISPLAY_CENTER_X, 600),
-            summary_style,
-            center_text,
-        )
-        .draw(fb)
-        .ok();
-    }
 }
 mod qr_display_async {
     include!("../qr_display.rs");
