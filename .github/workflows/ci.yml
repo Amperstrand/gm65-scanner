@@ -35,8 +35,6 @@ jobs:
         run: cargo check -p gm65-scanner --features defmt
       - name: Check async + defmt
         run: cargo check -p gm65-scanner --features async,defmt
-      - name: Check std
-        run: cargo check -p gm65-scanner --features std
       - name: Check all features
         run: cargo check -p gm65-scanner --all-features
 
