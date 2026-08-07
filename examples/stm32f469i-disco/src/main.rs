@@ -15,13 +15,17 @@ use stm32f469i_disc::{
     hal::pac::{self, CorePeripherals},
     hal::prelude::*,
     hal::rcc,
-    hal::serial::Serial6,
     lcd,
     lcd::FramebufferView,
     sdram,
     sdram::alt,
     usb,
 };
+
+#[no_mangle]
+unsafe extern "C" fn USART6() {
+    scanner_uart::handle_usart6_interrupt();
+}
 
 use hal::otg_fs::{UsbBus, UsbBusType};
 use usb_device::prelude::*;
@@ -30,6 +34,7 @@ use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerSettings, ScannerState
 
 mod cdc;
 mod display_utils;
+mod scanner_uart;
 mod scanner_utils;
 mod display {
     const DISPLAY_CENTER_X: i32 = 240;
@@ -77,7 +82,7 @@ struct Hardware {
     fb: FramebufferView<'static>,
     usb_dev: UsbDevice<'static, UsbBusType>,
     cdc_port: CdcPort<'static>,
-    scanner: Gm65Scanner<Serial6>,
+    scanner: Gm65Scanner<scanner_uart::ScannerUart>,
     scanner_connected: bool,
     model_str: &'static str,
     led: hal::gpio::gpiog::PG6<hal::gpio::Output<hal::gpio::PushPull>>,
@@ -263,18 +268,17 @@ fn init_hardware() -> Hardware {
     render_boot_status(&mut fb, "[..] Scanner...", boot_line);
     boot_line += 1;
 
-    // Scanner UART init
+    // Scanner UART init — interrupt-driven ring buffer prevents data loss
     let baud = 115200;
     let uart = dp
         .USART6
         .serial((scanner_tx, scanner_rx), baud.bps(), &mut rcc)
         .unwrap();
 
-    // GM65 module needs settling time after power-on. The async firmware doesn't need this
-    // because embassy tasks run concurrently — USB enumeration provides implicit delay.
     cortex_m::asm::delay(sysclk_hz / 2);
 
-    let mut scanner = Gm65Scanner::with_default_config(uart);
+    let scanner_uart = scanner_uart::init_scanner_uart(uart);
+    let mut scanner = Gm65Scanner::with_default_config(scanner_uart);
 
     let mut model_str: &'static str = "Unknown";
     let scanner_connected = match scanner.init() {
@@ -511,7 +515,7 @@ fn handle_command(
     command: Command,
     payload: &[u8],
     fb: &mut FramebufferView<'_>,
-    scanner: &mut Gm65Scanner<Serial6>,
+    scanner: &mut Gm65Scanner<scanner_uart::ScannerUart>,
     last_scan_data: &mut Option<[u8; MAX_PAYLOAD_SIZE - 1]>,
     last_scan_len: &mut usize,
 ) -> Response {
@@ -526,7 +530,7 @@ fn handle_command(
     }
 }
 
-fn handle_scanner_status(scanner: &mut Gm65Scanner<Serial6>) -> Response {
+fn handle_scanner_status(scanner: &mut Gm65Scanner<scanner_uart::ScannerUart>) -> Response {
     let _ = scanner.stop_scan();
     let status = scanner.status();
     let model_byte = scanner_utils::model_to_status_byte(status.model);
@@ -540,7 +544,7 @@ fn handle_scanner_status(scanner: &mut Gm65Scanner<Serial6>) -> Response {
 }
 
 fn handle_scanner_trigger(
-    scanner: &mut Gm65Scanner<Serial6>,
+    scanner: &mut Gm65Scanner<scanner_uart::ScannerUart>,
     fb: &mut FramebufferView<'_>,
 ) -> Response {
     match scanner.trigger_scan() {
@@ -579,7 +583,7 @@ fn handle_scanner_data(
 }
 
 fn handle_get_settings(
-    scanner: &mut Gm65Scanner<Serial6>,
+    scanner: &mut Gm65Scanner<scanner_uart::ScannerUart>,
     fb: &mut FramebufferView<'_>,
 ) -> Response {
     let _ = scanner.stop_scan();
@@ -597,7 +601,7 @@ fn handle_get_settings(
 }
 
 fn handle_set_settings(
-    scanner: &mut Gm65Scanner<Serial6>,
+    scanner: &mut Gm65Scanner<scanner_uart::ScannerUart>,
     payload: &[u8],
     fb: &mut FramebufferView<'_>,
 ) -> Response {

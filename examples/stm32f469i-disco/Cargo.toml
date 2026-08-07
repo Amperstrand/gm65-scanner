@@ -9,7 +9,7 @@ default = ["sync-mode"]
 sync-mode = [
     "gm65-scanner/sync",
     "dep:stm32f469i-disc", "dep:usbd-serial", "dep:panic-halt",
-]
+    ]
 hil-tests = [
     "gm65-scanner/sync", "gm65-scanner/hil-tests",
     "dep:stm32f469i-disc", "dep:panic-probe",
