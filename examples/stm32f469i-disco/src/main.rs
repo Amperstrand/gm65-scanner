@@ -404,7 +404,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
 
         // Scanner: poll for scan results
         if !hw.scanner.data_ready() {
-            for _ in 0..8 {
+            for _ in 0..200 {
                 if let Some(data) = hw.scanner.try_read_scan() {
                     if data.len() == 1 && data[0] == 0x15 {
                         continue;
