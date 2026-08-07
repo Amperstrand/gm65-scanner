@@ -369,6 +369,16 @@ where
     }
 }
 
+impl<UART, WErr, RErr> Gm65Scanner<UART>
+where
+    UART: embedded_hal_02::serial::Write<u8, Error = WErr>
+        + embedded_hal_02::serial::Read<u8, Error = RErr>,
+{
+    pub fn reset_to_ready(&mut self) {
+        self.core.reset_to_ready();
+    }
+}
+
 // ============================================================================
 // HIL Tests (Hardware-In-the-Loop)
 // ============================================================================

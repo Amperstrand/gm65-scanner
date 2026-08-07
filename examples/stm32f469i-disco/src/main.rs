@@ -390,11 +390,12 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             scan_idle_count = 0;
         }
 
-        // Scanner: watchdog — force Ready if stuck in Scanning too long
+        // Scanner: watchdog — force recovery if stuck in Scanning too long
         if hw.scanner.state() == ScannerState::Scanning {
             scan_idle_count += 1;
             if scan_idle_count >= SCAN_TIMEOUT_ITERS {
                 let _ = hw.scanner.stop_scan();
+                hw.scanner.reset_to_ready();
                 scan_idle_count = 0;
             }
         } else {
@@ -405,6 +406,9 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         if !hw.scanner.data_ready() {
             for _ in 0..8 {
                 if let Some(data) = hw.scanner.try_read_scan() {
+                    if data.len() == 1 && data[0] == 0x15 {
+                        continue;
+                    }
                     let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
                     let mut buf = [0u8; MAX_PAYLOAD_SIZE - 1];
                     buf[..copy_len].copy_from_slice(&data[..copy_len]);

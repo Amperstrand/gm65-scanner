@@ -188,7 +188,7 @@ pub(crate) type RegisterConfig = (Register, u8);
 pub fn init_config_sequence() -> [RegisterConfig; 5] {
     use config::*;
     [
-        (Register::Timeout, 0x00),
+        (Register::Timeout, 0x14),
         (Register::ScanInterval, SCAN_INTERVAL_MS),
         (Register::SameBarcodeDelay, SAME_BARCODE_DELAY),
         (Register::BarType, 0x01),
@@ -775,6 +775,12 @@ impl ScannerCore {
     pub fn clear_last_scan(&mut self) {
         self.last_scan_len = None;
     }
+
+    pub fn reset_to_ready(&mut self) {
+        self.state = ScannerState::Ready;
+        self.buffer.clear();
+        self.last_scan_len = None;
+    }
 }
 
 impl Default for ScannerCore {
@@ -1083,7 +1089,7 @@ mod tests {
 
         // Verify the sequence contains expected registers
         assert_eq!(seq[0].0, Register::Timeout);
-        assert_eq!(seq[0].1, 0x00);
+        assert_eq!(seq[0].1, 0x14);
 
         assert_eq!(seq[1].0, Register::ScanInterval);
         assert_eq!(seq[1].1, config::SCAN_INTERVAL_MS);
