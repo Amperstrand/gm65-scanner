@@ -86,7 +86,7 @@ impl<UART> Gm65ScannerAsync<UART> {
     {
         self.get_setting(Register::Settings)
             .await
-            .and_then(ScannerSettings::from_bits)
+            .map(ScannerSettings::from_bits)
     }
 
     /// Set scanner settings from bitflags.
@@ -995,8 +995,8 @@ mod tests {
             let settings = scanner.get_scanner_settings().await;
             assert!(settings.is_some());
             let s = settings.unwrap();
-            assert!(s.contains(ScannerSettings::COMMAND));
-            assert!(s.contains(ScannerSettings::ALWAYS_ON));
+            assert_eq!(s.read_mode, crate::scanner_core::ReadMode::Command);
+            assert!(s.always_on);
         });
     }
 
@@ -1017,7 +1017,7 @@ mod tests {
             let resp = success_response(0x81);
             let mock = MockAsyncUart::with_responses(&resp);
             let mut scanner = Gm65ScannerAsync::with_default_config(mock);
-            let settings = ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND;
+            let settings = ScannerSettings::default();
             let result = scanner.set_scanner_settings(settings).await;
             assert!(result);
         });

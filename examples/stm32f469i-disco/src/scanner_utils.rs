@@ -1,4 +1,6 @@
-use gm65_scanner::{PayloadType, ScannerModel, ScannerSettings};
+use gm65_scanner::{
+    PayloadType, ScannerModel, ScannerSettings, AimSetting, LightSetting, ReadMode,
+};
 
 pub fn model_to_str(model: ScannerModel) -> &'static str {
     match model {
@@ -28,14 +30,37 @@ pub fn model_to_status_byte(model: ScannerModel) -> u8 {
     }
 }
 
-pub fn row_to_settings_flag(row: usize) -> Option<ScannerSettings> {
+/// Toggle the scanner setting for the given settings row (0-indexed).
+/// Row 0: buzzer, Row 1: aim, Row 2: light, Row 3: continuous mode.
+/// Returns true if the row was valid and toggled.
+pub fn toggle_settings_row(settings: &mut ScannerSettings, row: usize) -> bool {
     match row {
-        0 => Some(ScannerSettings::SOUND),
-        1 => Some(ScannerSettings::AIM),
-        2 => Some(ScannerSettings::LIGHT),
-        3 => Some(ScannerSettings::CONTINUOUS),
-        4 => Some(ScannerSettings::COMMAND),
-        _ => None,
+        0 => {
+            settings.buzzer = !settings.buzzer;
+            true
+        }
+        1 => {
+            settings.aim = match settings.aim {
+                AimSetting::Off | AimSetting::Always => AimSetting::Reading,
+                AimSetting::Reading => AimSetting::Off,
+            };
+            true
+        }
+        2 => {
+            settings.light = match settings.light {
+                LightSetting::Off | LightSetting::Always => LightSetting::Reading,
+                LightSetting::Reading => LightSetting::Off,
+            };
+            true
+        }
+        3 => {
+            settings.read_mode = match settings.read_mode {
+                ReadMode::Command => ReadMode::Continuous,
+                _ => ReadMode::Command,
+            };
+            true
+        }
+        _ => false,
     }
 }
 

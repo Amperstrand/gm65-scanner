@@ -72,7 +72,7 @@ where
     /// Get scanner settings as bitflags.
     pub fn get_scanner_settings(&mut self) -> Option<ScannerSettings> {
         self.get_setting(Register::Settings)
-            .and_then(ScannerSettings::from_bits)
+            .map(ScannerSettings::from_bits)
     }
 
     /// Set scanner settings from bitflags.
@@ -816,8 +816,8 @@ mod tests {
         let settings = scanner.get_scanner_settings();
         assert!(settings.is_some());
         let s = settings.unwrap();
-        assert!(s.contains(ScannerSettings::COMMAND));
-        assert!(s.contains(ScannerSettings::ALWAYS_ON));
+        assert_eq!(s.read_mode, crate::scanner_core::ReadMode::Command);
+        assert!(s.always_on);
     }
 
     #[test]
@@ -834,7 +834,7 @@ mod tests {
         let resp = success_response(0x81);
         let mock = MockUart::with_responses(&resp);
         let mut scanner = Gm65Scanner::with_default_config(mock);
-        let settings = ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND;
+        let settings = ScannerSettings::default();
         let result = scanner.set_scanner_settings(settings);
         assert!(result);
     }

@@ -33,7 +33,7 @@ use embassy_time::Timer;
 #[cfg(feature = "scanner-async")]
 use gm65_scanner::{
     driver::{async_hil_tests as hil_tests, run_extended_hil_tests},
-    Gm65ScannerAsync, ScannerSettings,
+    AimSetting, Gm65ScannerAsync, LightSetting, ReadMode, ScannerSettings,
 };
 #[cfg(feature = "scanner-async")]
 use linked_list_allocator::LockedHeap;
@@ -179,7 +179,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Orange LED blinks while waiting.");
     defmt::info!("You have 10 seconds.");
 
-    let aim_settings = ScannerSettings::ALWAYS_ON | ScannerSettings::COMMAND | ScannerSettings::AIM;
+    let aim_settings = ScannerSettings { always_on: true, buzzer: false, aim: AimSetting::Reading, light: LightSetting::Off, read_mode: ReadMode::Command };
     if scanner.set_scanner_settings(aim_settings).await {
         defmt::info!("Aim laser enabled - point at QR code now!");
     } else {

@@ -469,9 +469,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                                 );
                             } else if (120..570).contains(&dy) && (10..460).contains(&dx) {
                                 let row = ((dy - 120) / 90) as usize;
-                                let toggled = scanner_utils::row_to_settings_flag(row);
-                                if let Some(flag) = toggled {
-                                    current_settings ^= flag;
+                                if scanner_utils::toggle_settings_row(&mut current_settings, row) {
                                     if hw.scanner_connected {
                                         hw.scanner.set_scanner_settings(current_settings);
                                     }
@@ -604,24 +602,20 @@ fn handle_set_settings(
         return Response::new(Status::InvalidPayload);
     }
     let raw = payload[0];
-    match ScannerSettings::from_bits(raw) {
-        Some(settings) => {
-            if scanner.set_scanner_settings(settings) {
-                if let Some(readback) = scanner.get_scanner_settings() {
-                    display::render_scanner_settings(fb, readback);
-                    Response::with_payload(Status::Ok, &[readback.bits()])
-                        .unwrap_or_else(|| Response::new(Status::Error))
-                } else {
-                    display::render_scanner_settings(fb, settings);
-                    Response::with_payload(Status::Ok, &[raw])
-                        .unwrap_or_else(|| Response::new(Status::Error))
-                }
-            } else {
-                display::render_error(fb, "Set failed");
-                Response::new(Status::Error)
-            }
+    let settings = ScannerSettings::from_bits(raw);
+    if scanner.set_scanner_settings(settings) {
+        if let Some(readback) = scanner.get_scanner_settings() {
+            display::render_scanner_settings(fb, readback);
+            Response::with_payload(Status::Ok, &[readback.bits()])
+                .unwrap_or_else(|| Response::new(Status::Error))
+        } else {
+            display::render_scanner_settings(fb, settings);
+            Response::with_payload(Status::Ok, &[raw])
+                .unwrap_or_else(|| Response::new(Status::Error))
         }
-        None => Response::new(Status::InvalidPayload),
+    } else {
+        display::render_error(fb, "Set failed");
+        Response::new(Status::Error)
     }
 }
 

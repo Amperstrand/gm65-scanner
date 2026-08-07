@@ -888,17 +888,11 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                     let _ = cdc
                                         .write_packet(&[Status::InvalidPayload.to_byte(), 0, 0])
                                         .await;
-                                } else if let Some(settings) =
-                                    ScannerSettings::from_bits(payload[0])
-                                {
+                                } else {
+                                    let settings = ScannerSettings::from_bits(payload[0]);
                                     if COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings)).is_err() {
-                                        // Channel full — scanner task will process next cycle
                                     }
                                     receive_cdc_response_or_timeout!();
-                                } else {
-                                    let _ = cdc
-                                        .write_packet(&[Status::InvalidPayload.to_byte(), 0, 0])
-                                        .await;
                                 }
                             }
                             Command::DisplayQr => {
@@ -1063,10 +1057,9 @@ async fn run_settings_touch() {
                         let mut settings =
                             shared.settings.unwrap_or(ScannerSettings::default());
 
-                        let Some(flag) = scanner_utils::row_to_settings_flag(row) else {
+                        if !scanner_utils::toggle_settings_row(&mut settings, row) {
                             continue;
-                        };
-                        settings ^= flag;
+                        }
 
                         shared.settings = Some(settings);
                         let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));

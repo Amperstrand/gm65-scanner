@@ -7,7 +7,7 @@ use embedded_graphics::{
     text::{Alignment, Text, TextStyleBuilder},
 };
 
-use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings};
+use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings, AimSetting, LightSetting, ReadMode};
 
 use crate::display_utils::{format_byte, format_u32_len, truncate_str};
 
@@ -298,7 +298,7 @@ pub fn render_scanner_settings(
         x_value,
         y,
         "Sound",
-        settings.contains(ScannerSettings::SOUND),
+        settings.buzzer,
         &label_style,
         &on_style,
         &off_style,
@@ -311,7 +311,7 @@ pub fn render_scanner_settings(
         x_value,
         y,
         "Aim/Laser",
-        settings.contains(ScannerSettings::AIM),
+        settings.aim != AimSetting::Off,
         &label_style,
         &on_style,
         &off_style,
@@ -324,7 +324,7 @@ pub fn render_scanner_settings(
         x_value,
         y,
         "Light",
-        settings.contains(ScannerSettings::LIGHT),
+        settings.light != LightSetting::Off,
         &label_style,
         &on_style,
         &off_style,
@@ -337,7 +337,7 @@ pub fn render_scanner_settings(
         x_value,
         y,
         "Continuous",
-        settings.contains(ScannerSettings::CONTINUOUS),
+        settings.read_mode == ReadMode::Continuous,
         &label_style,
         &on_style,
         &off_style,
@@ -350,7 +350,7 @@ pub fn render_scanner_settings(
         x_value,
         y,
         "Command",
-        settings.contains(ScannerSettings::COMMAND),
+        settings.read_mode == ReadMode::Command,
         &label_style,
         &on_style,
         &off_style,
@@ -360,9 +360,9 @@ pub fn render_scanner_settings(
     Text::new("Mode:", Point::new(x_label, y), label_style)
         .draw(fb)
         .ok();
-    let mode_str = if settings.contains(ScannerSettings::CONTINUOUS) {
+    let mode_str = if settings.read_mode == ReadMode::Continuous {
         "CONTINUOUS (auto-scan)"
-    } else if settings.contains(ScannerSettings::COMMAND) {
+    } else if settings.read_mode == ReadMode::Command {
         "COMMAND (trigger needed)"
     } else {
         "MANUAL (button)"

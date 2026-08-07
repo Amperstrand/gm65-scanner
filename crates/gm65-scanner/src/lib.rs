@@ -72,7 +72,7 @@ pub use protocol::{
     build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register, RESPONSE_LEN,
     RESPONSE_PREFIX,
 };
-pub use scanner_core::ScannerSettings;
+pub use scanner_core::{AimSetting, LightSetting, ReadMode, ScannerSettings};
 
 // Re-export scanner core types
 #[cfg(feature = "hil-tests")]

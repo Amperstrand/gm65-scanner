@@ -30,9 +30,19 @@ pub mod config {
     /// Delay before scanning same barcode again.
     pub const SAME_BARCODE_DELAY: u8 = 0x85;
 
-    /// Command mode settings value (ALWAYS_ON | COMMAND).
-    /// Sound, aim, and illumination disabled to reduce visual/audio noise.
-    pub const CMD_MODE: u8 = 0x81;
+    /// Default settings: ALWAYS_ON | SOUND | AIM_WHEN_READING | COMMAND_MODE.
+    ///
+    /// GM65 Settings register (0x0000) bit field layout per datasheet V1.7:
+    ///   Bit 7: Always-on (1 = no sleep)
+    ///   Bit 6: Mute off (1 = buzzer enabled on successful scan)
+    ///   Bits 5-4: AIM/Collimation (00=Off, 01=On-when-reading, 1x=Always)
+    ///   Bits 3-2: LIGHT/Headlamp (00=Off, 01=On-when-reading, 1x=Always)
+    ///   Bits 1-0: Read mode (00=Manual, 01=Command, 10=Continuous, 11=Induction)
+    ///
+    /// 0xD1 = 1_1_01_00_01:
+    ///   Always-on, buzzer enabled, AIM on-when-reading, LIGHT off, Command mode.
+    /// Matches specter-diy default (src/hosts/qr.py MASK property).
+    pub const CMD_MODE: u8 = 0xD1;
 
     /// Firmware version that requires raw mode fix.
     pub const VERSION_NEEDS_RAW: u8 = 0x69;
@@ -42,38 +52,112 @@ pub mod config {
 }
 
 // ============================================================================
-// ScannerSettings Bitflags
+// ScannerSettings — GM65 Settings Register (0x0000)
+// Datasheet: GM65 Bar Code Reader Module User Manual V1.7
+// Provenance: specter-diy src/hosts/qr.py MASK property (shipping hardware)
 // ============================================================================
 
-bitflags::bitflags! {
-    /// Scanner settings bitflags for the Settings register.
-    ///
-    /// These flags control various scanner behaviors like always-on mode,
-    /// sound feedback, aiming light, etc.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct ScannerSettings: u8 {
-        /// Keep scanner always on (don't sleep).
-        const ALWAYS_ON  = 1 << 7;
-        /// Enable beep on successful scan.
-        const SOUND      = 1 << 6;
-        /// Unknown bit 5 (reserved).
-        const UNKNOWN_5  = 1 << 5;
-        /// Enable aiming light pattern.
-        const AIM        = 1 << 4;
-        /// Unknown bit 3 (reserved).
-        const UNKNOWN_3  = 1 << 3;
-        /// Enable illumination light.
-        const LIGHT      = 1 << 2;
-        /// Enable continuous scanning mode.
-        const CONTINUOUS = 1 << 1;
-        /// Enable command-triggered mode.
-        const COMMAND    = 1 << 0;
+/// AIM/Collimation field values for bits 5-4 of the Settings register.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AimSetting {
+    /// Bits 5-4 = 00: aiming light always off.
+    Off     = 0b00,
+    /// Bits 5-4 = 01: aiming light on during reading (default).
+    Reading = 0b01,
+    /// Bits 5-4 = 10: aiming light always on.
+    Always  = 0b10,
+}
+
+/// LIGHT/Headlamp field values for bits 3-2 of the Settings register.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightSetting {
+    /// Bits 3-2 = 00: illumination always off (recommended for QR screens).
+    Off     = 0b00,
+    /// Bits 3-2 = 01: illumination on during reading.
+    Reading = 0b01,
+    /// Bits 3-2 = 10: illumination always on.
+    Always  = 0b10,
+}
+
+/// Read mode field values for bits 1-0 of the Settings register.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadMode {
+    /// Bits 1-0 = 00: manual mode (physical trigger button).
+    Manual     = 0b00,
+    /// Bits 1-0 = 01: command-triggered mode (UART ScanEnable command).
+    Command    = 0b01,
+    /// Bits 1-0 = 10: continuous mode (auto-scan repeatedly).
+    Continuous = 0b10,
+    /// Bits 1-0 = 11: induction mode (proximity-triggered).
+    Induction  = 0b11,
+}
+
+/// Typed representation of the GM65 Settings register (0x0000).
+///
+/// Uses field-based access instead of raw bitflags because the register
+/// uses multi-bit fields (2 bits each for AIM, LIGHT, and ReadMode),
+/// not independent flags. Misinterpreting these as individual bits causes
+/// the "LIGHT always on" bug (setting bit 3 = 0x08 makes bits 3-2 = 10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScannerSettings {
+    /// Bit 7: prevent scanner from sleeping.
+    pub always_on: bool,
+    /// Bit 6: buzzer on successful scan (mute off).
+    pub buzzer: bool,
+    /// Bits 5-4: aiming light/collimation pattern.
+    pub aim: AimSetting,
+    /// Bits 3-2: illumination headlamp.
+    pub light: LightSetting,
+    /// Bits 1-0: scan trigger mode.
+    pub read_mode: ReadMode,
+}
+
+impl ScannerSettings {
+    /// Pack into the raw byte for UART transmission.
+    pub fn bits(&self) -> u8 {
+        let mut val: u8 = 0;
+        if self.always_on { val |= 1 << 7; }
+        if self.buzzer    { val |= 1 << 6; }
+        val |= (self.aim as u8 & 0b11) << 4;
+        val |= (self.light as u8 & 0b11) << 2;
+        val |= self.read_mode as u8 & 0b11;
+        val
+    }
+
+    /// Unpack from a raw register byte.
+    pub fn from_bits(raw: u8) -> Self {
+        Self {
+            always_on: raw & (1 << 7) != 0,
+            buzzer:    raw & (1 << 6) != 0,
+            aim:       match (raw >> 4) & 0b11 {
+                0b00 => AimSetting::Off,
+                0b01 => AimSetting::Reading,
+                _    => AimSetting::Always,
+            },
+            light:     match (raw >> 2) & 0b11 {
+                0b00 => LightSetting::Off,
+                0b01 => LightSetting::Reading,
+                _    => LightSetting::Always,
+            },
+            read_mode: match raw & 0b11 {
+                0b00 => ReadMode::Manual,
+                0b01 => ReadMode::Command,
+                0b10 => ReadMode::Continuous,
+                _    => ReadMode::Induction,
+            },
+        }
     }
 }
 
 impl Default for ScannerSettings {
     fn default() -> Self {
-        Self::ALWAYS_ON | Self::COMMAND
+        Self {
+            always_on: true,
+            buzzer:    true,
+            aim:       AimSetting::Reading,
+            light:     LightSetting::Off,
+            read_mode: ReadMode::Command,
+        }
     }
 }
 
@@ -961,7 +1045,7 @@ mod tests {
     fn test_config_constants() {
         assert_eq!(config::SCAN_INTERVAL_MS, 0x01);
         assert_eq!(config::SAME_BARCODE_DELAY, 0x85);
-        assert_eq!(config::CMD_MODE, 0x81);
+        assert_eq!(config::CMD_MODE, 0xD1);
         assert_eq!(config::VERSION_NEEDS_RAW, 0x69);
         assert_eq!(config::RAW_MODE_VALUE, 0x08);
     }
@@ -973,21 +1057,19 @@ mod tests {
     #[test]
     fn test_scanner_settings_default() {
         let settings = ScannerSettings::default();
-        assert!(settings.contains(ScannerSettings::ALWAYS_ON));
-        assert!(settings.contains(ScannerSettings::COMMAND));
-        assert!(!settings.contains(ScannerSettings::SOUND));
-        assert!(!settings.contains(ScannerSettings::AIM));
-        assert!(!settings.contains(ScannerSettings::CONTINUOUS));
+        assert!(settings.always_on);
+        assert_eq!(settings.read_mode, ReadMode::Command);
+        assert!(settings.buzzer);
+        assert_eq!(settings.aim, AimSetting::Reading);
+        assert_eq!(settings.light, LightSetting::Off);
     }
 
     #[test]
     fn test_scanner_settings_bits() {
-        // CMD_MODE should be ALWAYS_ON | COMMAND (sound/aim disabled)
-        let expected = (1 << 7) | (1 << 0);
-        assert_eq!(config::CMD_MODE, expected);
-
+        let expected = config::CMD_MODE;
         let settings = ScannerSettings::from_bits(expected);
-        assert_eq!(settings, Some(ScannerSettings::default()));
+        assert_eq!(settings, ScannerSettings::default());
+        assert_eq!(settings.bits(), 0xD1);
     }
 
     // ========================================================================
