@@ -343,6 +343,9 @@ fn run_main_loop(mut hw: Hardware) -> ! {
     let mut last_scan_len: usize = 0;
     let mut auto_scan: bool = hw.scanner_connected;
     let mut in_settings: bool = false;
+    let mut touch_active: bool = false;
+    let mut scan_idle_count: u32 = 0;
+    const SCAN_TIMEOUT_ITERS: u32 = 500;
     let mut current_settings: ScannerSettings = if hw.scanner_connected {
         hw.scanner.get_scanner_settings().unwrap_or_default()
     } else {
@@ -353,10 +356,6 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         // USB CDC: poll and dispatch commands
         if hw.usb_dev.poll(&mut [hw.cdc_port.serial_mut()]) {
             if let Some(frame) = hw.cdc_port.receive_frame() {
-                if frame.command == Command::SetSettings || frame.command == Command::ScannerTrigger
-                {
-                    auto_scan = false;
-                }
                 let was_auto = auto_scan;
                 auto_scan = false;
                 let was_in_settings = in_settings;
@@ -388,6 +387,18 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             && hw.scanner.state() == ScannerState::Ready
         {
             let _ = hw.scanner.trigger_scan();
+            scan_idle_count = 0;
+        }
+
+        // Scanner: watchdog — force Ready if stuck in Scanning too long
+        if hw.scanner.state() == ScannerState::Scanning {
+            scan_idle_count += 1;
+            if scan_idle_count >= SCAN_TIMEOUT_ITERS {
+                let _ = hw.scanner.stop_scan();
+                scan_idle_count = 0;
+            }
+        } else {
+            scan_idle_count = 0;
         }
 
         // Scanner: poll for scan results
@@ -422,12 +433,18 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         // Touch: handle taps for settings toggle and navigation
         if hw.touch_found {
             let mut status_buf = [0u8; 1];
-            if hw
+            let touch_now = hw
                 .touch_i2c
                 .write_read(FT6X06_ADDR, &[REG_TD_STATUS], &mut status_buf)
                 .is_ok()
-                && (status_buf[0] & 0x0F) > 0
-            {
+                && (status_buf[0] & 0x0F) > 0;
+
+            if !touch_now {
+                touch_active = false;
+            }
+
+            if touch_now && !touch_active {
+                touch_active = true;
                 let mut coord_buf = [0u8; 4];
                 if hw
                     .touch_i2c
