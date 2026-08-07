@@ -171,10 +171,10 @@ sequenceDiagram
 
 | Dependency | Version/Rev | Purpose |
 |------------|-------------|---------|
-| `stm32f469i-disc` | `ceb8b0e` | Amperstrand BSP fork — sync HAL, SDRAM, LCD, USB. All display fixes: PORTRAIT_DSI timing, LP 16/0, 120ms delay, DSI/LTDC sync. |
+| `stm32f469i-disc` | `8942290` | Amperstrand BSP fork — sync HAL, SDRAM, LCD, USB. Includes restore_pllsai_dividers fix, 120ms DSI delay, Result-returning init_display, greatspectations annotations. |
 | `embassy-stm32f469i-disco` | `57c20e3` | Amperstrand BSP fork — async embassy wrappers, display, touch |
 | `embassy-*` | crates.io | Embassy framework (time 0.5.1, executor 0.10.0, stm32 0.6.0, usb 0.6.0, sync 0.8.0, futures 0.1.2) |
-| `nt35510` | `263d8e4` | NT35510 DSI display driver (Amperstrand fork) |
+| `nt35510` | `4b1ad17` | NT35510 DSI display driver (Amperstrand fork) — power init provenance annotations |
 | `otm8009a` | `76dcda9` | OTM8009A display driver (Amperstrand fork, async feature) |
 | `stm32f4xx-hal` | `0c5bc3d` | Amperstrand HAL fork — PLLSAI `.modify()` fix, LTDC support |
 | `stm32-fmc` | `0.4.0` | SDRAM controller via FMC (async feature) |
@@ -334,10 +334,10 @@ The authoritative commit pins for a verified-working setup. All commits hardware
 | Repository | Commit | Role | Notes |
 |------------|--------|------|-------|
 | [gm65-scanner](https://github.com/Amperstrand/gm65-scanner) | `874cff2` (main) | Scanner driver + firmware examples | USB PHY reset (PR #57), PAC accessor fixes, clippy clean, SAFETY comments. 175 lib tests. Pending HW verification. |
-| [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | `ceb8b0e` | Sync BSP (HAL, SDRAM, LCD, USB) | PORTRAIT_DSI timing fix, LP 16/0, 120ms delay, DSI/LTDC sync |
+| [stm32f469i-disc](https://github.com/Amperstrand/stm32f469i-disc) | `8942290` | Sync BSP (HAL, SDRAM, LCD, USB) | restore_pllsai_dividers fix, 120ms DSI delay, Result-returning init_display, greatspectations annotations |
 | [embassy-stm32f469i-disco](https://github.com/Amperstrand/embassy-stm32f469i-disco) | `57c20e3` | Async BSP (embassy wrappers, display, touch) | Display + touch working, crates.io embassy deps |
 | [stm32f4xx-hal](https://github.com/Amperstrand/stm32f4xx-hal) | `0c5bc3d` | HAL fork | PLLSAI `.modify()` fix (preserves P/Q dividers) |
-| [nt35510](https://github.com/Amperstrand/nt35510) | `263d8e4` | NT35510 DSI display driver | Aligned with BSP |
+| [nt35510](https://github.com/Amperstrand/nt35510) | `4b1ad17` | NT35510 DSI display driver | Power init provenance annotations |
 | [otm8009a](https://github.com/Amperstrand/otm8009a) | `76dcda9` | OTM8009A display driver | Async feature only |
 | [embassy](https://github.com/embassy-rs/embassy) | crates.io | Embassy async framework | time 0.5.1, executor 0.10.0, stm32 0.6.0, usb 0.6.0 |
 
