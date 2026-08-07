@@ -84,9 +84,7 @@ async fn main(_spawner: Spawner) {
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
     embassy_stm32::interrupt::USART6.disable();
 
-    let async_uart = async_shared::AsyncUart {
-        inner: uart,
-    };
+    let async_uart = async_shared::AsyncUart { inner: uart, uart_error_count: 0 };
     let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 
     let mut led_green = Output::new(p.PG6, Level::Low, Speed::Low);
