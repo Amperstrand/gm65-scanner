@@ -34,8 +34,8 @@ usbd-serial = "0.2"
 qrcodegen-no-heap = "1.8"
 bitflags = "2.6"
 
-# BSP - pinned to latest (includes PORTRAIT_DSI timing, LP 16/0, DSI/LTDC sync)
-stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "ceb8b0e", default-features = false }
+# BSP - pinned to latest (includes restore_pllsai_dividers fix, 120ms DSI delay, Result-returning init_display, greatspectations annotations)
+stm32f469i-disc = { git = "https://github.com/Amperstrand/stm32f469i-disc", rev = "8942290", default-features = false }
 
 # Embassy - crates.io
 embassy-time = { version = "0.5.1" }
@@ -47,7 +47,7 @@ embassy-sync = { version = "0.8.0" }
 embassy-futures = { version = "0.1.2" }
 
 [patch.crates-io]
-nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "263d8e4" }
+nt35510 = { git = "https://github.com/Amperstrand/nt35510", rev = "4b1ad17" }
 
 [profile.release]
 debug = true
