@@ -54,6 +54,7 @@ extern crate alloc;
 
 pub mod buffer;
 pub mod decoder;
+pub mod display_util;
 pub mod driver;
 pub mod protocol;
 pub mod scanner_core;
