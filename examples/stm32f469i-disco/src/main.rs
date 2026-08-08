@@ -36,14 +36,8 @@ mod cdc;
 mod display_utils;
 mod scanner_uart;
 mod scanner_utils;
-mod display {
-    const DISPLAY_CENTER_X: i32 = 240;
-    const DISPLAY_MAX_Y: u32 = 800;
-    include!("display.rs");
-}
-mod qr_display {
-    include!("qr_display.rs");
-}
+mod display;
+mod qr_display;
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;

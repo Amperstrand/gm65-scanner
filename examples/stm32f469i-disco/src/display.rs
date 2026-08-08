@@ -12,6 +12,9 @@ use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings, AimSetting, Lig
 
 use crate::display_utils::{format_byte, format_u32_len, truncate_str};
 
+const DISPLAY_CENTER_X: i32 = 240;
+const DISPLAY_MAX_Y: u32 = 800;
+
 mod theme {
     use embedded_graphics::pixelcolor::Rgb888;
     pub const BG_DARK: Rgb888 = Rgb888::new(0x18, 0x18, 0x18);
