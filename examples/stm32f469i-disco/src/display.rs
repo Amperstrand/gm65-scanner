@@ -6,6 +6,7 @@ use embedded_graphics::{
     primitives::Rectangle,
     text::{Alignment, Text, TextStyleBuilder},
 };
+use embedded_text::{TextBox, style::TextBoxStyleBuilder};
 
 use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings, AimSetting, LightSetting, ReadMode};
 
@@ -548,19 +549,21 @@ fn render_raw_data(
     y += DATA_LABEL_Y_OFFSET as u32;
 
     let data_str = core::str::from_utf8(raw).unwrap_or("<binary data>");
-    let mut offset = 0;
-    while offset < data_str.len() && y < DISPLAY_MAX_Y - BOTTOM_MARGIN as u32 {
-        let end = core::cmp::min(offset + CHARS_PER_LINE, data_str.len());
-        Text::new(
-            &data_str[offset..end],
-            Point::new(X_LABEL, y as i32),
-            *value_style,
-        )
-        .draw(fb)
-        .ok();
-        offset = end;
-        y += DATA_LINE_HEIGHT as u32;
-    }
+    let text_area = Rectangle::new(
+        Point::new(X_LABEL, y as i32),
+        Size::new(
+            (DISPLAY_CENTER_X * 2 - X_LABEL as i32 - 10) as u32,
+            DISPLAY_MAX_Y - y - BOTTOM_MARGIN as u32,
+        ),
+    );
+    TextBox::with_textbox_style(
+        data_str,
+        text_area,
+        *value_style,
+        TextBoxStyleBuilder::new().build(),
+    )
+    .draw(fb)
+    .ok();
 }
 
 fn type_name(pt: &PayloadType) -> &'static str {

@@ -24,6 +24,7 @@ panic-halt = "0.2"
 embedded-hal = "1.0"
 embedded-hal-02 = { package = "embedded-hal", version = "0.2", features = ["unproven"] }
 embedded-graphics = "0.8"
+embedded-text = "0.7"
 heapless = "0.8"
 nb = "1.1"
 static_cell = "2.1"

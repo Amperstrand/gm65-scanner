@@ -41,6 +41,7 @@ panic-halt = { workspace = true, optional = true }
 embedded-hal = { workspace = true }
 embedded-hal-02 = { workspace = true }
 embedded-graphics = { workspace = true }
+embedded-text = { workspace = true }
 heapless = { workspace = true }
 linked_list_allocator = { workspace = true }
 nb = { workspace = true }
