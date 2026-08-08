@@ -42,6 +42,7 @@ bitflags = "2.6"
 
 [dev-dependencies]
 futures-executor = "0.3"
+embedded-graphics = "0.8"
 
 [package.metadata.docs.rs]
 all-features = true

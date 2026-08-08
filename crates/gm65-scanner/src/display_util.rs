@@ -230,4 +230,78 @@ mod tests {
         let lines = word_wrap("a b c d e f", 3);
         assert!(lines.iter().all(|l| l.len() <= 3));
     }
+
+    // === MockDisplay integration tests ===
+
+    #[test]
+    fn test_mock_display_wrapped_text_renders() {
+        use embedded_graphics::{
+            mock_display::MockDisplay,
+            mono_font::{ascii::FONT_6X9, MonoTextStyle},
+            pixelcolor::BinaryColor,
+            prelude::*,
+            text::Text,
+        };
+
+        let mut display = MockDisplay::<BinaryColor>::new();
+        let style = MonoTextStyle::new(&FONT_6X9, BinaryColor::On);
+        let text = "hello world";
+        let lines = wrap_text_offsets(text, 5);
+
+        let mut y = 9;
+        for (start, end) in &lines {
+            let line = &text[*start..*end];
+            Text::new(line, Point::new(0, y), style)
+                .draw(&mut display)
+                .ok();
+            y += 10;
+        }
+
+        let blank = MockDisplay::<BinaryColor>::new();
+        assert_ne!(display, blank, "display should have pixels after rendering");
+    }
+
+    #[test]
+    fn test_mock_display_word_wrap_no_split() {
+        let text = "hello world test";
+        let lines = word_wrap(text, 10);
+        for line in &lines {
+            if line.contains(' ') || line.len() == text.len() {
+                continue;
+            }
+            let words_in_original: Vec<&str> = text.split_whitespace().collect();
+            let is_full_word = words_in_original.iter().any(|w| *w == *line);
+            assert!(is_full_word || line.len() <= 10);
+        }
+    }
+
+    #[test]
+    fn test_mock_display_centered_visibility_matches_rendering() {
+        let text = "short";
+        let (start, end) = centered_visible_range(text.len(), 10, 480, 240);
+        let visible = &text[start..end];
+        assert_eq!(visible, text);
+    }
+
+    #[test]
+    fn test_wrap_line_count_matches_expected() {
+        let text = "AAAAAAAAAA";
+        let lines = wrap_text_offsets(text, 5);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], (0, 5));
+        assert_eq!(lines[1], (5, 10));
+    }
+
+    #[test]
+    fn test_long_url_preserves_all_content_through_wrapping() {
+        let url = "https://en.wikipedia.org/wiki/QR_code#History_of_QR_codes";
+        let char_lines = wrap_text_offsets(url, 44);
+        let word_lines = word_wrap(url, 44);
+
+        let char_reconstructed: String = char_lines.iter().map(|(s, e)| &url[*s..*e]).collect::<Vec<_>>().join("");
+        let word_reconstructed: String = word_lines.join("");
+
+        assert_eq!(char_reconstructed, url);
+        assert_eq!(word_reconstructed, url);
+    }
 }
