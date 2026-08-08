@@ -100,7 +100,7 @@ where
         }
         // Reset state if previous scan complete
         if self.core.state() == ScannerState::ScanComplete {
-            self.core.begin_scan().ok();
+            self.core.reset_to_ready();
         }
         loop {
             match self.poll_uart() {
