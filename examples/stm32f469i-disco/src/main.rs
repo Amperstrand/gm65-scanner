@@ -422,9 +422,6 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                     if !in_settings {
                         let payload = gm65_scanner::decode_payload(&data);
                         render_decoded_scan(&mut hw.fb, &payload);
-                        if data.len() <= 200 && core::str::from_utf8(&data).is_ok() {
-                            qr_display::render_qr_mirror(&mut hw.fb, &data);
-                        }
                         let cycles_100ms = hw.sysclk_hz / 10;
                         for _ in 0..3 {
                             hw.led.set_high();
