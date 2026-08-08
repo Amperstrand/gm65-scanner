@@ -234,8 +234,10 @@ impl UrDecoder {
         if self.received == self.total? {
             let mut result = Vec::new();
             for frag in &self.fragments {
-                let d = frag?;
-                result.extend_from_slice(d);
+                match frag {
+                    Some(d) => result.extend_from_slice(d),
+                    None => return None,
+                }
             }
             return Some(result);
         }
