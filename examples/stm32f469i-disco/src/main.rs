@@ -547,10 +547,11 @@ fn handle_command(
         Command::DisplayQr => handle_display_qr(payload, fb),
         Command::EnterSettings => Response::new(Status::Ok),
         Command::Diagnostic => {
+            let (isr_bytes, isr_ore, isr_fires, ring_len) = scanner_uart::ring_stats();
             let live_settings = scanner.get_scanner_settings()
                 .map(|s| s.bits())
                 .unwrap_or(0xFF);
-            let mut buf = [0u8; 16];
+            let mut buf = [0u8; 32];
             buf[0] = diag.scan_count as u8;
             buf[1] = (diag.scan_count >> 8) as u8;
             buf[2] = diag.nak_count as u8;
@@ -564,8 +565,15 @@ fn handle_command(
                 _ => 0,
             };
             buf[6] = live_settings;
-            buf[7] = if diag.ring_overflow { 1 } else { 0 };
-            Response::with_payload(Status::Ok, &buf[..8])
+            buf[7] = ring_len as u8;
+            buf[8] = (isr_bytes & 0xFF) as u8;
+            buf[9] = ((isr_bytes >> 8) & 0xFF) as u8;
+            buf[10] = ((isr_bytes >> 16) & 0xFF) as u8;
+            buf[11] = (isr_ore & 0xFF) as u8;
+            buf[12] = ((isr_ore >> 8) & 0xFF) as u8;
+            buf[13] = (isr_fires & 0xFF) as u8;
+            buf[14] = ((isr_fires >> 8) & 0xFF) as u8;
+            Response::with_payload(Status::Ok, &buf[..15])
                 .unwrap_or_else(|| Response::new(Status::Error))
         }
         Command::SelfTest => {
