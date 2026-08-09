@@ -104,6 +104,8 @@ struct Hardware {
 fn init_hardware() -> Hardware {
     let dp = pac::Peripherals::take().unwrap();
     let cp = CorePeripherals::take().unwrap();
+    let mut dwt = cp.DWT;
+    dwt.enable_cycle_counter();
 
     let mut rcc = dp.RCC.freeze(
         rcc::Config::hse(8.MHz())
@@ -358,9 +360,9 @@ fn run_main_loop(mut hw: Hardware) -> ! {
     let mut auto_scan: bool = hw.scanner_connected;
     let mut in_settings: bool = false;
     let mut touch_active: bool = false;
-    let mut scan_idle_count: u32 = 0;
     let mut on_scan_result: bool = false;
-    const SCAN_TIMEOUT_ITERS: u32 = 100000;
+    let mut scan_start_cycles: u32 = 0;
+    const SCAN_TIMEOUT_CYCLES: u32 = 180_000_000 * 6;
     let mut diag = Diagnostics::default();
     let mut consecutive_failures: u32 = 0;
     let mut current_settings: ScannerSettings = if hw.scanner_connected {
@@ -404,22 +406,19 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             && !hw.scanner.data_ready()
             && hw.scanner.state() == ScannerState::Ready
         {
-            let _ = hw.scanner.trigger_scan(); // non-critical: retried next loop iteration
-            scan_idle_count = 0;
+            let _ = hw.scanner.trigger_scan();
+            scan_start_cycles = cortex_m::peripheral::DWT::cycle_count();
         }
 
         // Scanner: watchdog — force recovery if stuck in Scanning too long
         if hw.scanner.state() == ScannerState::Scanning {
-            scan_idle_count += 1;
-            if scan_idle_count >= SCAN_TIMEOUT_ITERS {
+            let elapsed = cortex_m::peripheral::DWT::cycle_count().wrapping_sub(scan_start_cycles);
+            if elapsed >= SCAN_TIMEOUT_CYCLES {
                 let _ = hw.scanner.stop_scan();
                 hw.scanner.reset_to_ready();
                 diag.watchdog_count += 1;
-                scan_idle_count = 0;
                 consecutive_failures += 1;
             }
-        } else {
-            scan_idle_count = 0;
         }
 
         // Self-healing: re-init scanner after repeated failures
