@@ -1158,8 +1158,6 @@ mod scanner_utils;
 #[path = "../bist.rs"]
 mod bist;
 mod display_async {
-    const DISPLAY_CENTER_X: i32 = 240;
-    const DISPLAY_MAX_Y: u32 = 800;
     include!("../display.rs");
 }
 mod qr_display_async {
