@@ -67,24 +67,21 @@ flowchart TD
 
 Both traits expose identical semantics — only the execution model differs.
 
-**Settings Register 0x0000 Bit Layout**:
+**Settings Register 0x0000 Bit Layout** (per GM65 datasheet V1.7):
 
 ```mermaid
 flowchart LR
-    subgraph high["High nibble"]
-        b7["Bit 7: ALWAYS_ON"]
-        b6["Bit 6: SOUND (buzzer)"]
-        b5["Bit 5: (reserved)"]
-        b4["Bit 4: AIM (laser)"]
+    subgraph high["Bits 7-4"]
+        b7["Bit 7: Always-on"]
+        b6["Bit 6: Mute off (buzzer)"]
+        b54["Bits 5-4: AIM field\n00=Off 01=Reading 1x=Always"]
     end
-    subgraph low["Low nibble"]
-        b3["Bit 3: (reserved)"]
-        b2["Bit 2: LIGHT"]
-        b1["Bit 1: CONTINUOUS (DO NOT USE)"]
-        b0["Bit 0: COMMAND (USE THIS)"]
+    subgraph low["Bits 3-0"]
+        b32["Bits 3-2: LIGHT field\n00=Off 01=Reading 1x=Always"]
+        b10["Bits 1-0: Read mode\n00=Manual 01=Command\n10=Continuous 11=Induction"]
     end
 ```
-Common values: `0x81` = ALWAYS_ON | COMMAND (this driver's default), `0xD1` = ALWAYS_ON | SOUND | AIM | COMMAND (specter-diy default)
+Default: `0xD1` = Always-on | Buzzer | AIM-when-reading | LIGHT-off | Command mode (matches specter-diy)
 
 ## Scanner State Machine
 
