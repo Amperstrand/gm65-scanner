@@ -296,12 +296,11 @@ fn init_hardware() -> Hardware {
     let scanner_connected = match scanner.init() {
         Ok(model) => {
             model_str = scanner_utils::model_to_str(model);
-            scanner.enter_continuous_mode();
             true
         }
         Err(_) => false,
     };
-    let continuous_active = scanner_connected;
+    let continuous_active = false;
 
     if scanner_connected {
         render_boot_status(&mut fb, "[OK] Scanner", boot_line - 1);
