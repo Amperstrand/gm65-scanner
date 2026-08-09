@@ -358,7 +358,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
     let mut touch_active: bool = false;
     let mut scan_idle_count: u32 = 0;
     let mut on_scan_result: bool = false;
-    const SCAN_TIMEOUT_ITERS: u32 = 2000;
+    const SCAN_TIMEOUT_ITERS: u32 = 100000;
     let mut diag = Diagnostics::default();
     let mut current_settings: ScannerSettings = if hw.scanner_connected {
         hw.scanner.get_scanner_settings().unwrap_or_default()
