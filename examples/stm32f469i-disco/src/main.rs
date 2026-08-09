@@ -384,7 +384,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             && !hw.scanner.data_ready()
             && hw.scanner.state() == ScannerState::Ready
         {
-            let _ = hw.scanner.trigger_scan();
+            let _ = hw.scanner.trigger_scan(); // non-critical: retried next loop iteration
             scan_idle_count = 0;
         }
 
@@ -392,7 +392,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         if hw.scanner.state() == ScannerState::Scanning {
             scan_idle_count += 1;
             if scan_idle_count >= SCAN_TIMEOUT_ITERS {
-                let _ = hw.scanner.stop_scan();
+                let _ = hw.scanner.stop_scan(); // best-effort: reset_to_ready handles recovery
                 hw.scanner.reset_to_ready();
                 scan_idle_count = 0;
             }
