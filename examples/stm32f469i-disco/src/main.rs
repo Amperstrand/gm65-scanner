@@ -89,6 +89,7 @@ struct Hardware {
     cdc_port: CdcPort<'static>,
     scanner: Gm65Scanner<scanner_uart::ScannerUart>,
     scanner_connected: bool,
+    continuous_active: bool,
     model_str: &'static str,
     led: hal::gpio::gpiog::PG6<hal::gpio::Output<hal::gpio::PushPull>>,
     touch_i2c: hal::i2c::I2c<hal::pac::I2C1>,
@@ -300,6 +301,7 @@ fn init_hardware() -> Hardware {
         }
         Err(_) => false,
     };
+    let continuous_active = scanner_connected;
 
     if scanner_connected {
         render_boot_status(&mut fb, "[OK] Scanner", boot_line - 1);
@@ -345,6 +347,7 @@ fn init_hardware() -> Hardware {
         cdc_port,
         scanner,
         scanner_connected,
+        continuous_active,
         model_str,
         led,
         touch_i2c,
@@ -400,8 +403,8 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             }
         }
 
-        // Auto-scan: trigger when idle
-        if auto_scan
+        // Auto-scan: only trigger in command mode (not continuous)
+        if !hw.continuous_active && auto_scan
             && !in_settings
             && !hw.scanner.data_ready()
             && hw.scanner.state() == ScannerState::Ready
@@ -410,8 +413,8 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             scan_start_cycles = cortex_m::peripheral::DWT::cycle_count();
         }
 
-        // Scanner: watchdog — force recovery if stuck in Scanning too long
-        if hw.scanner.state() == ScannerState::Scanning {
+        // Watchdog: only in command mode (continuous mode doesn't need recovery)
+        if !hw.continuous_active && hw.scanner.state() == ScannerState::Scanning {
             let elapsed = cortex_m::peripheral::DWT::cycle_count().wrapping_sub(scan_start_cycles);
             if elapsed >= SCAN_TIMEOUT_CYCLES {
                 let _ = hw.scanner.stop_scan();
@@ -422,7 +425,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         }
 
         // Self-healing: re-init scanner after repeated failures
-        if consecutive_failures >= 3 && hw.scanner_connected {
+        if !hw.continuous_active && consecutive_failures >= 3 && hw.scanner_connected {
             let _ = hw.scanner.init();
             hw.scanner.enter_continuous_mode();
             consecutive_failures = 0;
