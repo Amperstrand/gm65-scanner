@@ -113,6 +113,12 @@ pub struct ScannerConfig {
     pub mode: ScanMode,
     /// Whether raw mode is enabled (firmware-specific).
     pub raw_mode: bool,
+    /// Scanner timeout in 0.1s units (0 = infinite). Default: 2 seconds (0x14).
+    pub timeout: u8,
+    /// Scan interval in 100ms units. Default: 0x01 (100ms).
+    pub scan_interval: u8,
+    /// Same-barcode delay in 0.1s units. Default: 0x85 (5 seconds).
+    pub same_barcode_delay: u8,
 }
 
 impl Default for ScannerConfig {
@@ -122,6 +128,9 @@ impl Default for ScannerConfig {
             baud_rate: 9600,
             mode: ScanMode::CommandTriggered,
             raw_mode: true,
+            timeout: 0x14,
+            scan_interval: 0x01,
+            same_barcode_delay: 0x85,
         }
     }
 }

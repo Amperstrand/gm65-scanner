@@ -177,7 +177,7 @@ pub(crate) type RegisterConfig = (Register, u8);
 /// # Example
 ///
 /// ```rust,ignore
-/// let config = init_config_sequence();
+/// let config = init_config_sequence(&scanner_config);
 /// for (reg, target_val) in config.iter() {
 ///     let current = read_register(*reg)?;
 ///     if current != *target_val {
@@ -185,12 +185,11 @@ pub(crate) type RegisterConfig = (Register, u8);
 ///     }
 /// }
 /// ```
-pub fn init_config_sequence() -> [RegisterConfig; 5] {
-    use config::*;
+pub fn init_config_sequence(config: &ScannerConfig) -> [RegisterConfig; 5] {
     [
-        (Register::Timeout, 0x14),
-        (Register::ScanInterval, SCAN_INTERVAL_MS),
-        (Register::SameBarcodeDelay, SAME_BARCODE_DELAY),
+        (Register::Timeout, config.timeout),
+        (Register::ScanInterval, config.scan_interval),
+        (Register::SameBarcodeDelay, config.same_barcode_delay),
         (Register::BarType, 0x01),
         (Register::QrEnable, 0x01),
     ]
@@ -618,7 +617,7 @@ impl ScannerCore {
                     self.fail_init(ScannerError::ConfigFailed);
                     return InitAction::Fail(ScannerError::ConfigFailed);
                 }
-                let config_seq = init_config_sequence();
+                let config_seq = init_config_sequence(&self.config);
                 let (reg, _target) = config_seq[0];
                 self.init_step = InitStep::ApplyConfig { index: 0 };
                 InitAction::ReadRegister(reg)
@@ -629,7 +628,7 @@ impl ScannerCore {
                     self.fail_init(ScannerError::ConfigFailed);
                     return InitAction::Fail(ScannerError::ConfigFailed);
                 }
-                let config_seq = init_config_sequence();
+                let config_seq = init_config_sequence(&self.config);
                 let (reg, target) = config_seq[index];
                 let val = result.expect("checked is_none above");
                 if val != target {
@@ -678,7 +677,7 @@ impl ScannerCore {
     /// Called after `VerifyRegister` action. Always advances to the next
     /// config register or version check, regardless of verify result.
     pub fn init_advance_verify(&mut self) -> InitAction {
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&self.config);
         self.config_seq_index += 1;
         if self.config_seq_index < config_seq.len() {
             let (reg, _target) = config_seq[self.config_seq_index];
@@ -810,6 +809,9 @@ mod tests {
             baud_rate: 9600,
             mode: ScanMode::CommandTriggered,
             raw_mode: true,
+            timeout: 0x14,
+            scan_interval: 0x01,
+            same_barcode_delay: 0x85,
         };
         let core = ScannerCore::new(config);
 
@@ -1084,7 +1086,7 @@ mod tests {
 
     #[test]
     fn test_init_config_sequence() {
-        let seq = init_config_sequence();
+        let seq = init_config_sequence(&ScannerConfig::default());
         assert_eq!(seq.len(), 5);
 
         // Verify the sequence contains expected registers
@@ -1092,10 +1094,10 @@ mod tests {
         assert_eq!(seq[0].1, 0x14);
 
         assert_eq!(seq[1].0, Register::ScanInterval);
-        assert_eq!(seq[1].1, config::SCAN_INTERVAL_MS);
+        assert_eq!(seq[1].1, ScannerConfig::default().scan_interval);
 
         assert_eq!(seq[2].0, Register::SameBarcodeDelay);
-        assert_eq!(seq[2].1, config::SAME_BARCODE_DELAY);
+        assert_eq!(seq[2].1, ScannerConfig::default().same_barcode_delay);
 
         assert_eq!(seq[3].0, Register::BarType);
         assert_eq!(seq[3].1, 0x01);
@@ -1303,7 +1305,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(0xA0));
         let action = core.init_advance(Some(config::CMD_MODE));
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         assert_eq!(action, InitAction::ReadRegister(config_seq[0].0));
         assert_eq!(core.init_step(), InitStep::ApplyConfig { index: 0 });
     }
@@ -1320,7 +1322,7 @@ mod tests {
 
     #[test]
     fn test_init_advance_config_sequence_write_needed() {
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         let (reg, target) = config_seq[0];
         let wrong_val = if target == 0x00 { 0xFF } else { 0x00 };
 
@@ -1335,7 +1337,7 @@ mod tests {
 
     #[test]
     fn test_init_advance_config_sequence_no_write_needed() {
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         let (reg, target) = config_seq[0];
 
         let mut core = ScannerCore::with_default_config();
@@ -1360,7 +1362,7 @@ mod tests {
 
     #[test]
     fn test_init_advance_verify_next_register() {
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
 
         let mut core = ScannerCore::with_default_config();
         core.init_begin();
@@ -1375,7 +1377,7 @@ mod tests {
 
     #[test]
     fn test_init_advance_verify_last_register() {
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
 
         let mut core = ScannerCore::with_default_config();
         core.init_begin();
@@ -1402,7 +1404,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(config::CMD_MODE));
 
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         for i in 0..config_seq.len() {
             core.init_advance(Some(config_seq[i].1));
             if i < config_seq.len() - 1 {
@@ -1422,7 +1424,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(config::CMD_MODE));
 
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         for i in 0..config_seq.len() {
             core.init_advance(Some(config_seq[i].1));
             if i < config_seq.len() - 1 {
@@ -1443,7 +1445,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(config::CMD_MODE));
 
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         for i in 0..config_seq.len() {
             core.init_advance(Some(config_seq[i].1));
             if i < config_seq.len() - 1 {
@@ -1468,7 +1470,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(config::CMD_MODE));
 
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         for i in 0..config_seq.len() {
             core.init_advance(Some(config_seq[i].1));
             if i < config_seq.len() - 1 {
@@ -1489,7 +1491,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(config::CMD_MODE));
 
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         for i in 0..config_seq.len() {
             core.init_advance(Some(config_seq[i].1));
             if i < config_seq.len() - 1 {
@@ -1510,7 +1512,7 @@ mod tests {
         core.init_advance(Some(0xA0));
         core.init_advance(Some(config::CMD_MODE));
 
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
         for i in 0..config_seq.len() {
             core.init_advance(Some(config_seq[i].1));
             if i < config_seq.len() - 1 {
@@ -1532,7 +1534,7 @@ mod tests {
     #[test]
     fn test_full_init_happy_path() {
         let mut core = ScannerCore::with_default_config();
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
 
         let mut action = core.init_begin();
         assert_eq!(action, InitAction::DrainAndRead(Register::SerialOutput));
@@ -1568,7 +1570,7 @@ mod tests {
     #[test]
     fn test_full_init_with_serial_output_fix() {
         let mut core = ScannerCore::with_default_config();
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
 
         core.init_begin();
         core.init_advance(Some(0xA3));
@@ -1589,7 +1591,7 @@ mod tests {
     #[test]
     fn test_full_init_with_raw_mode_fix() {
         let mut core = ScannerCore::with_default_config();
-        let config_seq = init_config_sequence();
+        let config_seq = init_config_sequence(&ScannerConfig::default());
 
         core.init_begin();
         core.init_advance(Some(0xA0));
