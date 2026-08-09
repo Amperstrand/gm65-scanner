@@ -22,6 +22,8 @@ pub enum Command {
     SetSettings = 0x14,
     DisplayQr = 0x15,
     EnterSettings = 0x16,
+    Diagnostic = 0x20,
+    SelfTest = 0x21,
 }
 
 impl Command {
@@ -34,6 +36,8 @@ impl Command {
             0x14 => Some(Command::SetSettings),
             0x15 => Some(Command::DisplayQr),
             0x16 => Some(Command::EnterSettings),
+            0x20 => Some(Command::Diagnostic),
+            0x21 => Some(Command::SelfTest),
             _ => None,
         }
     }

@@ -45,6 +45,16 @@ use display::render_decoded_scan;
 static EP_MEMORY: ConstStaticCell<[u32; 1024]> = ConstStaticCell::new([0; 1024]);
 static USB_BUS: StaticCell<usb_device::bus::UsbBusAllocator<UsbBusType>> = StaticCell::new();
 
+#[derive(Default, Clone, Copy)]
+struct Diagnostics {
+    scan_count: u32,
+    nak_count: u32,
+    watchdog_count: u32,
+    scanner_state: u8,
+    settings_raw: u8,
+    ring_overflow: bool,
+}
+
 fn render_boot_status(fb: &mut impl DrawTarget<Color = Rgb888>, line: &str, line_num: u32) {
     use embedded_graphics::mono_font::{ascii::FONT_6X10, MonoTextStyle};
     use embedded_graphics::text::{Alignment, Text, TextStyleBuilder};
@@ -349,6 +359,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
     let mut scan_idle_count: u32 = 0;
     let mut on_scan_result: bool = false;
     const SCAN_TIMEOUT_ITERS: u32 = 500;
+    let mut diag = Diagnostics::default();
     let mut current_settings: ScannerSettings = if hw.scanner_connected {
         hw.scanner.get_scanner_settings().unwrap_or_default()
     } else {
@@ -369,6 +380,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                     &mut hw.scanner,
                     &mut last_scan_data,
                     &mut last_scan_len,
+                    &diag,
                 );
                 hw.cdc_port.send_response(&response);
                 if was_auto && !in_settings {
@@ -399,6 +411,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             if scan_idle_count >= SCAN_TIMEOUT_ITERS {
                 let _ = hw.scanner.stop_scan(); // best-effort: reset_to_ready handles recovery
                 hw.scanner.reset_to_ready();
+                diag.watchdog_count += 1;
                 scan_idle_count = 0;
             }
         } else {
@@ -410,6 +423,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             for _ in 0..200 {
                 if let Some(data) = hw.scanner.try_read_scan() {
                     if data.len() == 1 && data[0] == 0x15 {
+                        diag.nak_count += 1;
                         continue;
                     }
                     let copy_len = data.len().min(MAX_PAYLOAD_SIZE - 1);
@@ -423,6 +437,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                         render_decoded_scan(&mut hw.fb, &payload);
                         on_scan_result = true;
                         auto_scan = false;
+                        diag.scan_count += 1;
                         let cycles_100ms = hw.sysclk_hz / 10;
                         for _ in 0..3 {
                             hw.led.set_high();
@@ -521,6 +536,7 @@ fn handle_command(
     scanner: &mut Gm65Scanner<scanner_uart::ScannerUart>,
     last_scan_data: &mut Option<[u8; MAX_PAYLOAD_SIZE - 1]>,
     last_scan_len: &mut usize,
+    diag: &Diagnostics,
 ) -> Response {
     match command {
         Command::ScannerStatus => handle_scanner_status(scanner),
@@ -530,6 +546,43 @@ fn handle_command(
         Command::SetSettings => handle_set_settings(scanner, payload, fb),
         Command::DisplayQr => handle_display_qr(payload, fb),
         Command::EnterSettings => Response::new(Status::Ok),
+        Command::Diagnostic => {
+            let live_settings = scanner.get_scanner_settings()
+                .map(|s| s.bits())
+                .unwrap_or(0xFF);
+            let mut buf = [0u8; 16];
+            buf[0] = diag.scan_count as u8;
+            buf[1] = (diag.scan_count >> 8) as u8;
+            buf[2] = diag.nak_count as u8;
+            buf[3] = (diag.nak_count >> 8) as u8;
+            buf[4] = diag.watchdog_count as u8;
+            buf[5] = match scanner.state() {
+                gm65_scanner::ScannerState::Ready => 1,
+                gm65_scanner::ScannerState::Scanning => 2,
+                gm65_scanner::ScannerState::ScanComplete => 3,
+                gm65_scanner::ScannerState::Error(_) => 4,
+                _ => 0,
+            };
+            buf[6] = live_settings;
+            buf[7] = if diag.ring_overflow { 1 } else { 0 };
+            Response::with_payload(Status::Ok, &buf[..8])
+                .unwrap_or_else(|| Response::new(Status::Error))
+        }
+        Command::SelfTest => {
+            let connected = scanner.state() != gm65_scanner::ScannerState::Uninitialized;
+            let settings_ok = if let Some(s) = scanner.get_scanner_settings() {
+                diag.settings_raw == s.bits()
+            } else {
+                false
+            };
+            let mut buf = [0u8; 4];
+            buf[0] = if connected { 1 } else { 0 };
+            buf[1] = if settings_ok { 1 } else { 0 };
+            buf[2] = diag.scan_count.min(255) as u8;
+            buf[3] = if scanner.data_ready() { 1 } else { 0 };
+            Response::with_payload(Status::Ok, &buf)
+                .unwrap_or_else(|| Response::new(Status::Error))
+        }
     }
 }
 
