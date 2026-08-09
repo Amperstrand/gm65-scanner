@@ -547,24 +547,19 @@ fn render_raw_data(
     Text::new("Data:", Point::new(X_LABEL, y as i32), *label_style)
         .draw(fb)
         .ok();
-    y += DATA_LABEL_Y_OFFSET as u32;
+    y += 25;
 
     let data_str = core::str::from_utf8(raw).unwrap_or("<binary data>");
-    let text_area = Rectangle::new(
-        Point::new(X_LABEL, y as i32),
-        Size::new(
-            (DISPLAY_CENTER_X * 2 - X_LABEL as i32 - 10) as u32,
-            DISPLAY_MAX_Y - y - BOTTOM_MARGIN as u32,
-        ),
-    );
-    TextBox::with_textbox_style(
-        data_str,
-        text_area,
-        *value_style,
-        TextBoxStyleBuilder::new().build(),
-    )
-    .draw(fb)
-    .ok();
+    let lines = gm65_scanner::display_util::word_wrap(data_str, 44);
+    for line in &lines {
+        if y as i32 >= DISPLAY_MAX_Y as i32 - 20 {
+            break;
+        }
+        Text::new(line, Point::new(X_LABEL, y as i32), *value_style)
+            .draw(fb)
+            .ok();
+        y += 22;
+    }
 }
 
 fn type_name(pt: &PayloadType) -> &'static str {

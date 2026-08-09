@@ -151,6 +151,10 @@ fn init_hardware() -> Hardware {
     let fb_buffer: &'static mut [u32] =
         unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sdram.mem, orientation.fb_size()) };
 
+    for pixel in fb_buffer.iter_mut() {
+        *pixel = 0xFF000000;
+    }
+
     let (mut display_ctrl, _controller, _orient) = lcd::init_display_full_argb8888(
         dp.DSI,
         dp.LTDC,
@@ -343,6 +347,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
     let mut in_settings: bool = false;
     let mut touch_active: bool = false;
     let mut scan_idle_count: u32 = 0;
+    let mut on_scan_result: bool = false;
     const SCAN_TIMEOUT_ITERS: u32 = 500;
     let mut current_settings: ScannerSettings = if hw.scanner_connected {
         hw.scanner.get_scanner_settings().unwrap_or_default()
@@ -416,6 +421,8 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                     if !in_settings {
                         let payload = gm65_scanner::decode_payload(&data);
                         render_decoded_scan(&mut hw.fb, &payload);
+                        on_scan_result = true;
+                        auto_scan = false;
                         let cycles_100ms = hw.sysclk_hz / 10;
                         for _ in 0..3 {
                             hw.led.set_high();
@@ -457,7 +464,11 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                     {
                         let dx = tx;
                         let dy = ty;
-                        if in_settings {
+                        if on_scan_result {
+                            on_scan_result = false;
+                            auto_scan = hw.scanner_connected;
+                            display::render_home(&mut hw.fb, hw.scanner_connected, hw.model_str);
+                        } else if in_settings {
                             if (715..765).contains(&dy) && (40..240).contains(&dx) {
                                 in_settings = false;
                                 auto_scan = hw.scanner_connected;
@@ -471,6 +482,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                                 if scanner_utils::toggle_settings_row(&mut current_settings, row) {
                                     if hw.scanner_connected {
                                         hw.scanner.set_scanner_settings(current_settings);
+                                        hw.scanner.save_settings();
                                     }
                                     display::render_scanner_settings(&mut hw.fb, current_settings);
                                 }

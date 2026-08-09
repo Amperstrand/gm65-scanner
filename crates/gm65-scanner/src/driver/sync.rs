@@ -212,7 +212,7 @@ where
             .is_some_and(|r| r != Gm65Response::Invalid)
     }
 
-    fn save_settings(&mut self) -> bool {
+    pub fn save_settings(&mut self) -> bool {
         let cmd = protocol::build_save_settings();
         let result = self
             .send_command(&cmd)
