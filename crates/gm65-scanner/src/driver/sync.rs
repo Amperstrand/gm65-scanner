@@ -155,14 +155,12 @@ where
         let max_attempts = 2_000_000u32;
 
         while resp.len() < RESPONSE_LEN && total_attempts < max_attempts {
+            total_attempts += 1;
             match self.uart.read() {
                 Ok(byte) => {
                     resp.push(byte);
-                    total_attempts = 0;
                 }
-                Err(nb::Error::WouldBlock) => {
-                    total_attempts += 1;
-                }
+                Err(nb::Error::WouldBlock) => {}
                 Err(_) => {
                     return None;
                 }
