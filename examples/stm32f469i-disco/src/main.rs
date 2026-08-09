@@ -428,8 +428,12 @@ fn run_main_loop(mut hw: Hardware) -> ! {
             diag.reinit_count += 1;
         }
 
-        // Scanner: poll for scan results
-        if !hw.scanner.data_ready() {
+        // Scanner: poll for scan results (skip if viewing result)
+        if on_scan_result {
+            for _ in 0..100 {
+                if hw.scanner.poll_uart().is_none() { break; }
+            }
+        } else if !hw.scanner.data_ready() {
             for _ in 0..200 {
                 if let Some(data) = hw.scanner.try_read_scan() {
                     if data.len() == 1 && data[0] == 0x15 {
