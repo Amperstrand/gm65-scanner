@@ -50,6 +50,7 @@ struct Diagnostics {
     scan_count: u32,
     nak_count: u32,
     watchdog_count: u32,
+    reinit_count: u32,
     scanner_state: u8,
     settings_raw: u8,
     ring_overflow: bool,
@@ -360,6 +361,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
     let mut on_scan_result: bool = false;
     const SCAN_TIMEOUT_ITERS: u32 = 100000;
     let mut diag = Diagnostics::default();
+    let mut consecutive_failures: u32 = 0;
     let mut current_settings: ScannerSettings = if hw.scanner_connected {
         hw.scanner.get_scanner_settings().unwrap_or_default()
     } else {
@@ -409,13 +411,21 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         if hw.scanner.state() == ScannerState::Scanning {
             scan_idle_count += 1;
             if scan_idle_count >= SCAN_TIMEOUT_ITERS {
-                let _ = hw.scanner.stop_scan(); // best-effort: reset_to_ready handles recovery
+                let _ = hw.scanner.stop_scan();
                 hw.scanner.reset_to_ready();
                 diag.watchdog_count += 1;
                 scan_idle_count = 0;
+                consecutive_failures += 1;
             }
         } else {
             scan_idle_count = 0;
+        }
+
+        // Self-healing: re-init scanner after repeated failures
+        if consecutive_failures >= 3 && hw.scanner_connected {
+            let _ = hw.scanner.init();
+            consecutive_failures = 0;
+            diag.reinit_count += 1;
         }
 
         // Scanner: poll for scan results
@@ -438,6 +448,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                         on_scan_result = true;
                         auto_scan = false;
                         diag.scan_count += 1;
+                        consecutive_failures = 0;
                         let cycles_100ms = hw.sysclk_hz / 10;
                         for _ in 0..3 {
                             hw.led.set_high();
@@ -557,23 +568,24 @@ fn handle_command(
             buf[2] = diag.nak_count as u8;
             buf[3] = (diag.nak_count >> 8) as u8;
             buf[4] = diag.watchdog_count as u8;
-            buf[5] = match scanner.state() {
+            buf[5] = diag.reinit_count as u8;
+            buf[6] = match scanner.state() {
                 gm65_scanner::ScannerState::Ready => 1,
                 gm65_scanner::ScannerState::Scanning => 2,
                 gm65_scanner::ScannerState::ScanComplete => 3,
                 gm65_scanner::ScannerState::Error(_) => 4,
                 _ => 0,
             };
-            buf[6] = live_settings;
-            buf[7] = ring_len as u8;
-            buf[8] = (isr_bytes & 0xFF) as u8;
-            buf[9] = ((isr_bytes >> 8) & 0xFF) as u8;
-            buf[10] = ((isr_bytes >> 16) & 0xFF) as u8;
-            buf[11] = (isr_ore & 0xFF) as u8;
-            buf[12] = ((isr_ore >> 8) & 0xFF) as u8;
-            buf[13] = (isr_fires & 0xFF) as u8;
-            buf[14] = ((isr_fires >> 8) & 0xFF) as u8;
-            Response::with_payload(Status::Ok, &buf[..15])
+            buf[7] = live_settings;
+            buf[8] = ring_len as u8;
+            buf[9] = (isr_bytes & 0xFF) as u8;
+            buf[10] = ((isr_bytes >> 8) & 0xFF) as u8;
+            buf[11] = ((isr_bytes >> 16) & 0xFF) as u8;
+            buf[12] = (isr_ore & 0xFF) as u8;
+            buf[13] = ((isr_ore >> 8) & 0xFF) as u8;
+            buf[14] = (isr_fires & 0xFF) as u8;
+            buf[15] = ((isr_fires >> 8) & 0xFF) as u8;
+            Response::with_payload(Status::Ok, &buf[..16])
                 .unwrap_or_else(|| Response::new(Status::Error))
         }
         Command::SelfTest => {
