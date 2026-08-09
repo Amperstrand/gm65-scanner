@@ -695,6 +695,7 @@ fn handle_set_settings(
     let raw = payload[0];
     let settings = ScannerSettings::from_bits(raw);
     if scanner.set_scanner_settings(settings) {
+        scanner.save_settings();
         if let Some(readback) = scanner.get_scanner_settings() {
             display::render_scanner_settings(fb, readback);
             Response::with_payload(Status::Ok, &[readback.bits()])
