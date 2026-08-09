@@ -1,4 +1,4 @@
-use core::ptr;
+use core::cell::RefCell;
 use heapless::spsc::Queue;
 
 use stm32f469i_disc::hal::pac::USART6;
@@ -36,26 +36,21 @@ impl embedded_hal_02::serial::Read<u8> for ScannerUart {
     type Error = ();
 
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        cortex_m::interrupt::free(|_| unsafe {
-            let ring = &mut *RING_PTR;
-            ring.dequeue().ok_or(nb::Error::WouldBlock)
+        cortex_m::interrupt::free(|cs| {
+            RING.borrow(cs).borrow_mut().dequeue().ok_or(nb::Error::WouldBlock)
         })
     }
 }
 
 const RING_SIZE: usize = 512;
-static mut RING: Option<Queue<u8, RING_SIZE>> = None;
-static mut RING_PTR: *mut Queue<u8, RING_SIZE> = ptr::null_mut();
+
+static RING: cortex_m::interrupt::Mutex<RefCell<Queue<u8, RING_SIZE>>> =
+    cortex_m::interrupt::Mutex::new(RefCell::new(Queue::new()));
 
 pub fn init_scanner_uart(
     serial: stm32f469i_disc::hal::serial::Serial<USART6>,
 ) -> ScannerUart {
     let (tx, _rx) = serial.split();
-
-    unsafe {
-        RING = Some(Queue::new());
-        RING_PTR = RING.as_mut().unwrap() as *mut _;
-    }
 
     let usart = unsafe { &*USART6::ptr() };
     usart.cr1().modify(|_, w| w.rxneie().set_bit());
@@ -70,11 +65,8 @@ pub fn handle_usart6_interrupt() {
 
     if sr.rxne().bit_is_set() {
         let byte = usart.dr().read().bits() as u8;
-        cortex_m::interrupt::free(|_| unsafe {
-            if !RING_PTR.is_null() {
-                let ring = &mut *RING_PTR;
-                ring.enqueue(byte).ok();
-            }
+        cortex_m::interrupt::free(|cs| {
+            RING.borrow(cs).borrow_mut().enqueue(byte).ok();
         });
     }
 

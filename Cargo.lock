@@ -669,6 +669,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-text"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cf5c72c52db2f7dbe4a9c1ed81cd21301e8d66311b194fa41c04fb4f71843ba"
+dependencies = [
+ "az",
+ "embedded-graphics",
+ "object-chain",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -803,6 +814,7 @@ dependencies = [
  "bitflags 2.11.0",
  "defmt 1.0.1",
  "embassy-time",
+ "embedded-graphics",
  "embedded-hal 0.2.7",
  "embedded-io-async",
  "futures-executor",
@@ -985,6 +997,12 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "object-chain"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41af26158b0f5530f7b79955006c2727cd23d0d8e7c3109dc316db0a919784dd"
 
 [[package]]
 name = "once_cell"
@@ -1318,7 +1336,7 @@ dependencies = [
 [[package]]
 name = "stm32f469i-disc"
 version = "0.4.0"
-source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=ceb8b0e#ceb8b0ee1d1fb6abfc1036ee3ef18a595b455523"
+source = "git+https://github.com/Amperstrand/stm32f469i-disc?rev=8942290#89422900596b4816ed0447ae96c1b975bf8d0183"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -1352,6 +1370,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-io 0.7.1",
  "embedded-io-async",
+ "embedded-text",
  "gm65-scanner",
  "heapless 0.8.0",
  "linked_list_allocator",
@@ -1701,3 +1720,8 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[patch.unused]]
+name = "nt35510"
+version = "0.2.1"
+source = "git+https://github.com/Amperstrand/nt35510?rev=4b1ad17#4b1ad177bfcf1ffee7f452238eaf91a80a817a44"
