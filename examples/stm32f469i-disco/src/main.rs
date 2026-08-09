@@ -293,14 +293,7 @@ fn init_hardware() -> Hardware {
     let scanner_connected = match scanner.init() {
         Ok(model) => {
             model_str = scanner_utils::model_to_str(model);
-            let cont = gm65_scanner::ScannerSettings {
-                always_on: true,
-                buzzer: true,
-                aim: gm65_scanner::AimSetting::Reading,
-                light: gm65_scanner::LightSetting::Off,
-                read_mode: gm65_scanner::ReadMode::Continuous,
-            };
-            scanner.set_scanner_settings(cont);
+            scanner.enter_continuous_mode();
             true
         }
         Err(_) => false,

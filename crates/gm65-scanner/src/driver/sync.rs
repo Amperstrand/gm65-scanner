@@ -377,6 +377,18 @@ where
     pub fn reset_to_ready(&mut self) {
         self.core.reset_to_ready();
     }
+
+    pub fn enter_continuous_mode(&mut self) {
+        let cmd = protocol::build_set_setting(
+            protocol::Register::Settings.address_bytes(),
+            0xD2,
+        );
+        let _ = self.uart_write_all(&cmd);
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
+        self.drain_uart();
+    }
 }
 
 // ============================================================================
