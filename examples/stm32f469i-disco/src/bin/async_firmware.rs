@@ -914,6 +914,9 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                 }
                                 receive_cdc_response_or_timeout!();
                             }
+                            Command::Diagnostic | Command::SelfTest => {
+                                let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
+                            }
                         }
                         continue;
                     }
