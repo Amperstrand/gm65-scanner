@@ -152,7 +152,7 @@ where
 
         let mut resp = Vec::with_capacity(RESPONSE_LEN);
         let mut total_attempts = 0u32;
-        let max_attempts = 2_000_000u32;
+        let max_attempts = 200_000u32;
 
         while resp.len() < RESPONSE_LEN && total_attempts < max_attempts {
             total_attempts += 1;
