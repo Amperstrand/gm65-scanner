@@ -424,6 +424,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         // Self-healing: re-init scanner after repeated failures
         if consecutive_failures >= 3 && hw.scanner_connected {
             let _ = hw.scanner.init();
+            hw.scanner.enter_continuous_mode();
             consecutive_failures = 0;
             diag.reinit_count += 1;
         }

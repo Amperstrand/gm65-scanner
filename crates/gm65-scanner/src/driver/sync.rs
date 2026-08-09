@@ -377,14 +377,19 @@ where
     }
 
     pub fn enter_continuous_mode(&mut self) {
+        self.do_stop_scan();
+        for _ in 0..500_000 { core::hint::spin_loop(); }
         let cmd = protocol::build_set_setting(
             protocol::Register::Settings.address_bytes(),
             0xD2,
         );
-        let _ = self.uart_write_all(&cmd);
-        for _ in 0..1_000_000 {
-            core::hint::spin_loop();
+        for attempt in 0..3 {
+            if self.uart_write_all(&cmd).is_ok() {
+                break;
+            }
+            for _ in 0..100_000 { core::hint::spin_loop(); }
         }
+        for _ in 0..2_000_000 { core::hint::spin_loop(); }
         self.drain_uart();
     }
 }
