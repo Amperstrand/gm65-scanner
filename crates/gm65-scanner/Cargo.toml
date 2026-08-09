@@ -39,6 +39,7 @@ embassy-time = { workspace = true, optional = true }
 
 # Always required
 bitflags = "2.6"
+maybe-async = "0.2"
 
 [dev-dependencies]
 futures-executor = "0.3"

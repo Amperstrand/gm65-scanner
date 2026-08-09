@@ -36,6 +36,7 @@
 
 mod traits;
 mod types;
+pub mod io;
 
 #[cfg(test)]
 mod test_helpers;
