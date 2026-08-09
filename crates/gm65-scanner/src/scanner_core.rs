@@ -908,7 +908,7 @@ mod tests {
     fn test_config_constants() {
         assert_eq!(config::SCAN_INTERVAL_MS, 0x01);
         assert_eq!(config::SAME_BARCODE_DELAY, 0x85);
-        assert_eq!(config::CMD_MODE, 0xD1);
+        assert_eq!(config::CMD_MODE, 0xD2);
         assert_eq!(config::VERSION_NEEDS_RAW, 0x69);
         assert_eq!(config::RAW_MODE_VALUE, 0x08);
     }
@@ -921,7 +921,7 @@ mod tests {
     fn test_scanner_settings_default() {
         let settings = ScannerSettings::default();
         assert!(settings.always_on);
-        assert_eq!(settings.read_mode, ReadMode::Command);
+        assert_eq!(settings.read_mode, ReadMode::Continuous);
         assert!(settings.buzzer);
         assert_eq!(settings.aim, AimSetting::Reading);
         assert_eq!(settings.light, LightSetting::Off);
@@ -932,7 +932,7 @@ mod tests {
         let expected = config::CMD_MODE;
         let settings = ScannerSettings::from_bits(expected);
         assert_eq!(settings, ScannerSettings::default());
-        assert_eq!(settings.bits(), 0xD1);
+        assert_eq!(settings.bits(), 0xD2);
     }
 
     // ========================================================================
@@ -946,7 +946,7 @@ mod tests {
 
         // Verify the sequence contains expected registers
         assert_eq!(seq[0].0, Register::Timeout);
-        assert_eq!(seq[0].1, 0x14);
+        assert_eq!(seq[0].1, ScannerConfig::default().timeout);
 
         assert_eq!(seq[1].0, Register::ScanInterval);
         assert_eq!(seq[1].1, ScannerConfig::default().scan_interval);

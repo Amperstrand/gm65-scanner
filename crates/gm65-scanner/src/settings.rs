@@ -3,7 +3,7 @@
 pub mod config {
     pub const SCAN_INTERVAL_MS: u8 = 0x01;
     pub const SAME_BARCODE_DELAY: u8 = 0x85;
-    pub const CMD_MODE: u8 = 0xD1;
+    pub const CMD_MODE: u8 = 0xD2;
     pub const VERSION_NEEDS_RAW: u8 = 0x69;
     pub const RAW_MODE_VALUE: u8 = 0x08;
 }
@@ -85,7 +85,7 @@ impl Default for ScannerSettings {
             buzzer:    true,
             aim:       AimSetting::Reading,
             light:     LightSetting::Off,
-            read_mode: ReadMode::Command,
+            read_mode: ReadMode::Continuous,
         }
     }
 }
