@@ -115,10 +115,12 @@ pub fn render_qr_code_with_yield(
 }
 
 #[cfg(not(feature = "scanner-async"))]
+#[allow(dead_code)]
 pub fn render_qr_mirror(fb: &mut impl DrawTarget<Color = Rgb888>, data: &[u8]) {
     render_qr_mirror_with_yield(fb, data, || {});
 }
 
+#[allow(dead_code)]
 pub fn render_qr_mirror_with_yield(
     fb: &mut impl DrawTarget<Color = Rgb888>,
     data: &[u8],

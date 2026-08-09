@@ -5,7 +5,6 @@
 //! for the embedded-graphics rendering used by the firmware examples.
 
 use alloc::vec::Vec;
-use alloc::string::String;
 
 /// Split text into lines that fit within `chars_per_line` characters.
 ///

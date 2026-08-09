@@ -64,8 +64,6 @@ const Y_BACK_LABEL: i32 = 750;
 
 const MAX_MESSAGE_LEN: usize = 60;
 const HEX_BUF_SIZE: usize = 8;
-const CHARS_PER_LINE: usize = 44;
-const DATA_LINE_HEIGHT: i32 = 22;
 
 #[cfg(feature = "scanner-async")]
 const BIST_TITLE_Y: i32 = 40;
