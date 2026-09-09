@@ -22,6 +22,7 @@ SHELL          = /bin/bash
          run-sync run-async \
          flash-sync flash-async \
          test-sync test-async test-cdc test-device \
+         test-qr-loopback hil-place spec-check \
          recover reset monitor \
          clean
 
@@ -73,6 +74,24 @@ test-async: build-async
 
 test-device:
 	python3 scripts/test_on_device.py both
+
+# ── CYD -> GM65 QR loopback (flash-mutation HIL; restores wallet image) ────
+
+test-qr-loopback:
+	cd tools/hil && python3 -m pytest tests -v
+
+hil-place:
+	bash tools/hil/labgrid-place.sh
+
+# ── Spec-quote drift check (greatspectations) ──────────────────────────────
+
+spec-check:
+	uv tool run --from /home/ubuntu/src/greatspectations greatspectate check \
+	  --config specquotes.toml \
+	  --comment-start "// " --comment-continue "//" \
+	  crates/gm65-scanner/src/protocol.rs \
+	  crates/gm65-scanner/src/buffer.rs \
+	  crates/gm65-scanner/src/scanner_core.rs
 
 test-cdc:
 	@source $(FLASH_HELPERS); \

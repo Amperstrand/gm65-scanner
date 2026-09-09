@@ -4,6 +4,8 @@ members = [
     "crates/gm65-scanner",
     "examples/stm32f469i-disco",
 ]
+# Xtensa ESP32 crate for the CYD QR rig — separate toolchain (+esp, build-std)
+exclude = ["tools/cyd-qr"]
 
 [workspace.package]
 version = "0.2.0"
