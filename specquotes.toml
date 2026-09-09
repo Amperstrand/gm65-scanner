@@ -1,0 +1,13 @@
+# Spec-quote checks (greatspectations) — see hackathon-tooling
+# patterns/spec-compliance/greatspectations-drift-detection.md.
+# The spec source is our own protocol findings doc (reverse-engineered from
+# specter-diy; the GM65 datasheet protocol section is WRONG). Quotes anchor
+# the implementation to the verified wire behavior.
+# Run from the repo root with the experimental fork:
+#   uvx --from /home/ubuntu/src/greatspectations greatspectate check \
+#     --config specquotes.toml --comment-start "// " --comment-continue "//" \
+#     crates/gm65-scanner/src/protocol.rs crates/gm65-scanner/src/buffer.rs \
+#     crates/gm65-scanner/src/scanner_core.rs
+[sources.gm65]
+format = "mediawiki"
+file = "crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md"

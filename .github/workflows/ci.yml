@@ -80,6 +80,21 @@ jobs:
       - name: Clippy (async firmware)
         run: cargo clippy -p stm32f469i-disco-scanner --no-default-features --features scanner-async,defmt --target thumbv7em-none-eabihf -- -D warnings
 
+  spec-quotes:
+    name: Spec quotes (greatspectations)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Check spec-quote drift
+        run: |
+          uvx --from git+https://github.com/rustyrussell/greatspectations greatspectate check \
+            --config specquotes.toml \
+            --comment-start "// " --comment-continue "//" \
+            crates/gm65-scanner/src/protocol.rs \
+            crates/gm65-scanner/src/buffer.rs \
+            crates/gm65-scanner/src/scanner_core.rs
+
   publish-dry-run:
     name: Publish dry-run
     runs-on: ubuntu-latest

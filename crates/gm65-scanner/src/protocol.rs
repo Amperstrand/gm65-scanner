@@ -35,6 +35,7 @@ use alloc::vec::Vec;
 pub const HEADER: [u8; 2] = [0x7E, 0x00];
 
 /// Sentinel suffix appended to set/get commands (not a real CRC).
+// GM65: **The `AB CD` suffix is NOT a CRC/XOR checksum.** It is a constant sentinel meaning "no checksum". The specter-diy code names it `CRC_NO_CHECKSUM`.
 pub const CRC_NO_CHECKSUM: [u8; 2] = [0xAB, 0xCD];
 
 /// Sentinel suffix for the save-settings command.
@@ -44,9 +45,11 @@ pub const CRC_NO_CHECKSUM: [u8; 2] = [0xAB, 0xCD];
 pub const SAVE_SENTINEL: [u8; 2] = [0xDE, 0xC8];
 
 /// Response prefix: `02 00 00 01` indicates a successful operation.
+// GM65: **Critical**: Responses do NOT start with `7E 00` and do NOT end with `0x55`. The datasheet's response format is wrong.
 pub const RESPONSE_PREFIX: [u8; 4] = [0x02, 0x00, 0x00, 0x01];
 
 /// Expected response frame length in bytes.
+// GM65: For `get_setting` queries, the scanner responds with exactly 7 bytes:
 pub const RESPONSE_LEN: usize = 7;
 
 /// Command type: set register parameter.

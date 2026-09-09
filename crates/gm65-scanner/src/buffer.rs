@@ -33,6 +33,7 @@ impl ScanBuffer {
 
     /// Append a byte. Returns `false` if the buffer is full.
     #[must_use]
+    // GM65: After a successful scan, the scanner sends the decoded QR data followed by `\r` (or `\r\n`). The host reads bytes until an EOL marker is detected.
     pub fn push(&mut self, byte: u8) -> bool {
         if self.len >= MAX_SCAN_SIZE {
             return false;

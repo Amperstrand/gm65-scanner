@@ -106,6 +106,7 @@ pub fn fix_serial_output(value: u8) -> u8 {
 /// # Returns
 ///
 /// `true` if the version requires the raw mode fix.
+// GM65: 7. **Version 0x69 RAW mode fix**: Some GM65 firmware versions corrupt binary QR data. Enabling undocumented RAW mode (`0x08` at address `0x00BC`) fixes this. The fix persists across reboots if EEPROM save succeeds.
 #[inline]
 #[must_use]
 pub fn version_needs_raw_fix(version: u8) -> bool {
@@ -207,6 +208,7 @@ pub enum InitStep {
     /// Checking firmware version.
     CheckVersion,
     /// Saving settings to NVRAM.
+    // GM65: 6. **EEPROM save may fail**: Some scanners reject the save command. This is non-fatal; settings take effect immediately.
     SaveSettings,
     /// Initialization complete.
     Complete,
