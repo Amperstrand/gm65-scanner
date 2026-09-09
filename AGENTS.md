@@ -475,3 +475,28 @@ FreedomTechFeed) keep the existing owner-gate flow. Read the target
 repo CONTRIBUTING/AI policy before drafting anything upstream.
 Canonical text: lightning-playground AGENTS.md (standing rule UPDATE
 2026-09-06).
+
+## CYD QR Loopback Rig (2026-09-09)
+
+Hands-off scan testing: CYD (ST7796 320x480, `tools/cyd-qr` firmware) renders
+QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
+`gm65-qr-loopback` + fips-lab boards.toml flash gates) drives both ends.
+`make test-qr-loopback`, `make hil-place`, `make spec-check`.
+
+- **Board topology (proven by probe)**: ONE physical F469I-DISCO shared by
+  this repo and the micronuts wallet — ST-Link `066FFF...4152` is its debug
+  face; user-USB CDC carries whichever firmware is flashed (async gm65 =
+  `c0de:cafe`, sync gm65 AND wallet = `16c0:27dd` serial `F4691` —
+  distinguish by by-id PRODUCT string). Sessions MUST backup the 2MiB flash
+  and restore the wallet image (`tools/hil/tests/test_qr_loopback.py` does).
+- **st-flash wedges**: a write alone leaves target USB dead; always follow
+  with `st-flash --connect-under-reset reset` (bench-verified twice).
+- **CYD panel**: ST7796 (NOT ILI9341) — pin map from `~/src/cyk/embassy-hello`
+  (BL=GPIO27 active-high, inverted, BGR, 10MHz). ILI9341/ST7789/ILI9342
+  features remain for 2432S028-family boards.
+- **GM65 decodes phone QRs but never CYD-screen QRs** (all sizes/positions/
+  mirror-parity/illumination, three firmware builds) — open physics issue:
+  screen glint/moiré/working-distance. Reader itself is proven good.
+- **Spec quotes**: `// GM65:` comments are greatspectations verbatim quotes
+  from `crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md`; `make
+  spec-check` / CI `spec-quotes` job fails on drift.
