@@ -3,7 +3,11 @@
 pub mod config {
     pub const SCAN_INTERVAL_MS: u8 = 0x01;
     pub const SAME_BARCODE_DELAY: u8 = 0x85;
-    pub const CMD_MODE: u8 = 0xD1;
+    /// Command mode, silent: aim-LED while reading, no decode buzzer.
+    /// Decode performance is identical to the buzzer-armed 0xD1 (rig
+    /// A/B 2026-09-10, 24/24 scans, same latency) — specter-diy's 0xD1
+    /// legacy adds only the beep. Hosts wanting it: SetSettings(0xD1).
+    pub const CMD_MODE: u8 = 0x91;
     pub const VERSION_NEEDS_RAW: u8 = 0x69;
     pub const RAW_MODE_VALUE: u8 = 0x08;
 }
@@ -80,9 +84,10 @@ impl ScannerSettings {
 
 impl Default for ScannerSettings {
     fn default() -> Self {
+        // Silent command mode — must equal config::CMD_MODE (0x91).
         Self {
             always_on: true,
-            buzzer:    true,
+            buzzer:    false,
             aim:       AimSetting::Reading,
             light:     LightSetting::Off,
             read_mode: ReadMode::Command,
