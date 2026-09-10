@@ -53,6 +53,17 @@
 
 ## Mitigations, ranked by cost
 
+**RESOLVED 2026-09-10 (matrix experiment, self-identifying sequential QRs):**
+on this exact GM65 + ST7796 rig the winning configuration is **inverted
+rendering (white modules on black) + ECC-H + ~203px QR (224px cap)** —
+only inverted cells decoded; normal polarity never did, at any size or
+position. Film-negative works because the black background cuts screen
+emission/bloom and the engine (fw 0x87) reads inverse codes. The 261px
+full-size QR never decoded — 203px is the FOV sweet spot. The full
+loopback harness runs 6/6 green in this configuration (byte-exact
+roundtrips at 10/45/127 bytes). Rig constant: `QR_WINNING_CAP = 224`
+(tools/hil/rig.py).
+
 1. Distance ≥ 4 cm (DoF floor); sweet spot 8–15 cm for large modules.
 2. Tilt the screen 10–20° (kills specular glint; breaks moiré pose-lock).
    Beware TN contrast inversion beyond ~30° viewing angle.

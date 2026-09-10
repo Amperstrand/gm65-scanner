@@ -476,32 +476,38 @@ repo CONTRIBUTING/AI policy before drafting anything upstream.
 Canonical text: lightning-playground AGENTS.md (standing rule UPDATE
 2026-09-06).
 
-## CYD QR Loopback Rig (2026-09-09)
+## CYD QR Loopback Rig (2026-09-09) — WORKING 6/6 since 2026-09-10
 
 Hands-off scan testing: CYD (ST7796 320x480, `tools/cyd-qr` firmware) renders
 QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
 `gm65-qr-loopback` + fips-lab boards.toml flash gates) drives both ends.
-`make test-qr-loopback`, `make hil-place`, `make spec-check`.
+`make test-qr-loopback`, `make hil-place`, `make spec-check`. **Green 6/6**
+(2026-09-10): byte-exact roundtrips at 10/45/127B on HEAD async firmware.
 
+- **Winning render config (matrix experiment 2026-09-10)**: INVERTED (white
+  modules on black) + ECC-H + 224px cap (~203px QR) — only inverted cells
+  ever decoded. `QR_WINNING_CAP` in tools/hil/rig.py; ECCH/INV are CYD
+  firmware commands. Buzzer: `GM65_BUZZER=1` arms it (default silent 0x91 —
+  it beeps every decode).
 - **Board topology (proven by probe)**: ONE physical F469I-DISCO shared by
   this repo and the micronuts wallet — ST-Link `066FFF...4152` is its debug
   face; user-USB CDC carries whichever firmware is flashed (async gm65 =
   `c0de:cafe`, sync gm65 AND wallet = `16c0:27dd` serial `F4691` —
   distinguish by by-id PRODUCT string). Sessions MUST backup the 2MiB flash
-  and restore the wallet image (`tools/hil/tests/test_qr_loopback.py` does).
+  and restore whatever image was present (`tools/hil` fixture does).
 - **st-flash wedges**: a write alone leaves target USB dead; always follow
-  with `st-flash --connect-under-reset reset` (bench-verified twice).
+  with `st-flash --connect-under-reset reset`. If the CDC then still fails
+  to appear, the xHCI port (PCI `0000:07:00.3`) is wedged host-side —
+  PCI remove+rescan restores it instantly (`rig.recover_xhci_port`).
 - **CYD panel**: ST7796 (NOT ILI9341) — pin map from `~/src/cyk/embassy-hello`
   (BL=GPIO27 active-high, inverted, BGR, 10MHz). ILI9341/ST7789/ILI9342
   features remain for 2432S028-family boards.
-- **GM65 decodes phone QRs repeatedly** (logged 2026-09-08 21:21
-  `page.link/naxz`; user-verified buzzer+LCD feedback 2026-09-10) **but
-  never CYD-screen QRs** — all sizes/positions/mirror-parity/illumination,
-  normal AND inverted rendering, screen moved by hand, three firmware
-  builds. Root-caused to optics: see
-  `crates/gm65-scanner/docs/GM65-OPTICS-FINDINGS.md` (110 PPI pose-locked
-  moiré, no screen mode register, 4cm DoF floor). CYD firmware supports
-  INV (film-negative) rendering for engine-side inverse-code support tests.
+- **Sync-firmware virtual human** (d0b8d3b): CDC commands dismiss the
+  scan-result freeze that was touch-gated — hosts polling ScannerData drive
+  continuous scanning (module beeped on triggers while firmware never read
+  data before this fix). `GM65_TEST_FW=sync|async` picks the test firmware.
 - **Spec quotes**: `// GM65:` comments are greatspectations verbatim quotes
   from `crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md`; `make
+  spec-check` / CI `spec-quotes` job fails on drift.
+
   spec-check` / CI `spec-quotes` job fails on drift.
