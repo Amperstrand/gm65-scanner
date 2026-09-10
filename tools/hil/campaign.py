@@ -37,6 +37,7 @@ EXPERIMENTS = [
     ("e5_negative_controls", lambda cdc, cyd: experiments.e5_negative_controls(cdc, cyd)),
     ("e6_wedge_repro", experiments.e6_wedge_repro),
     ("e7_jitter_net", lambda cdc, cyd: experiments.e7_jitter_net(cdc, cyd)),
+    ("e8_soak_diag", lambda cdc, cyd: experiments.e8_soak_diag(cdc, cyd)),
 ]
 
 QUICK_SUBSET = ["e1_reliability_soak", "e5_negative_controls"]

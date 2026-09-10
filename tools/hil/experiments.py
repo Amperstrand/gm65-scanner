@@ -200,6 +200,27 @@ def e6_wedge_repro(cdc, cyd):
     return observations
 
 
+def e8_soak_diag(cdc, cyd, n=60):
+    """The #92 discriminator: scan loop with Diagnostic (0x20) polled every
+    5th scan. The counter that spikes as delivery dies names the failing
+    subsystem (isr_ore/uart => UART desync; watchdog/reinit => state
+    machine; all flat => upstream drop)."""
+    rows = []
+    baseline = cdc.diagnostics()
+    for i in range(n):
+        payload = gm65qr.unique_payload(9000 + i, 10)
+        r = gm65qr.scan_roundtrip(cdc, cyd, payload, deadline_s=15.0)
+        row = {"i": i, "ok": r["ok"], "latency_s": r["latency_s"]}
+        if i % 5 == 0:
+            row["diag"] = cdc.diagnostics()
+        rows.append(row)
+    final = cdc.diagnostics()
+    oks = sum(1 for r in rows if r["ok"])
+    return {"baseline": baseline, "final": final, "rows": rows,
+            "ok": oks, "n": n,
+            "degraded_after": next((r["i"] for r in rows if not r["ok"]), None)}
+
+
 def e7_jitter_net(cdc, cyd, n=50):
     """Unknown-unknowns catcher: randomized renders (size x cap x payload)
     with continuous polling; every anomaly is recorded, never asserted away."""
