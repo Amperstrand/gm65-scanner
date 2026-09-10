@@ -54,6 +54,15 @@ pub struct AsyncUart<'d> {
     pub uart_error_count: u32,
 }
 
+// Diagnostic (0x20) counters — globals so the CDC task can read them
+// without owning the driver's AsyncUart (docs/DESIGN-cdc-diagnostics.md).
+#[cfg(feature = "scanner-async")]
+pub static DIAG_UART_ERRORS: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+#[cfg(feature = "scanner-async")]
+pub static DIAG_SCANS_CAPTURED: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
 #[cfg(feature = "scanner-async")]
 impl<'d> embedded_io::ErrorType for AsyncUart<'d> {
     type Error = embassy_stm32::usart::Error;
@@ -79,6 +88,7 @@ impl<'d> embedded_io_async::Read for AsyncUart<'d> {
                     }
                     Err(nb::Error::Other(_e)) => {
                         self.uart_error_count = self.uart_error_count.saturating_add(1);
+                        DIAG_UART_ERRORS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                         embassy_time::Timer::after_micros(10).await;
                     }
                 }

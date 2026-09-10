@@ -235,6 +235,7 @@ pub enum HostCommand {
     EnterSettings,
     ScannerStatusCdc,
     ScannerDataCdc,
+    GetDiagnostics,
 }
 
 #[cfg(feature = "scanner-async")]
@@ -249,6 +250,7 @@ pub enum CdcResponse {
     SettingsReadFailed,
     SetSettingsResult { bits: u8 },
     SetSettingsWriteFailed,
+    Diagnostics([u8; 10]),
     Ok,
     Error,
 }
@@ -607,6 +609,25 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                         // Channel full — CDC task will timeout
                     }
                 }
+                HostCommand::GetDiagnostics => {
+                    let shared = SHARED.lock().await;
+                    // layout: docs/DESIGN-cdc-diagnostics.md (async, 10 bytes)
+                    let scans = async_shared::DIAG_SCANS_CAPTURED
+                        .load(core::sync::atomic::Ordering::Relaxed);
+                    let uart_errors = async_shared::DIAG_UART_ERRORS
+                        .load(core::sync::atomic::Ordering::Relaxed);
+                    let mut buf = [0u8; 10];
+                    buf[0..4].copy_from_slice(&scans.to_le_bytes());
+                    buf[4..8].copy_from_slice(&uart_errors.to_le_bytes());
+                    buf[8] = if shared.scanner_initialized { 1 } else { 0 };
+                    buf[9] = if shared.auto_scan { 1 } else { 0 };
+                    if CDC_RESPONSE_CHANNEL
+                        .try_send(CdcResponse::Diagnostics(buf))
+                        .is_err()
+                    {
+                        // Channel full — CDC task will timeout
+                    }
+                }
                 HostCommand::ScannerDataCdc => {
                     let mut shared = SHARED.lock().await;
                     match shared.last_scan.take() {
@@ -668,6 +689,8 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                             let mut shared = SHARED.lock().await;
                             shared.last_scan = Some(data);
                         }
+                        async_shared::DIAG_SCANS_CAPTURED
+                            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                         for _ in 0..LED_BLINK_COUNT {
                             {
                                 let mut led = LED.lock().await;
@@ -767,6 +790,14 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                 }
                 CdcResponse::SetSettingsWriteFailed => {
                     let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
+                }
+                CdcResponse::Diagnostics(buf) => {
+                    let mut frame = [0u8; 13];
+                    frame[0] = Status::Ok.to_byte();
+                    frame[1] = 0;
+                    frame[2] = buf.len() as u8;
+                    frame[3..].copy_from_slice(&buf);
+                    let _ = cdc.write_packet(&frame).await;
                 }
                 CdcResponse::Ok => {
                     let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
@@ -906,6 +937,13 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                     // Channel full — display will catch up
                                 }
                                 let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
+                            }
+                            Command::Diagnostic => {
+                                log_info!("CMD: DIAGNOSTIC");
+                                if COMMAND_CHANNEL.try_send(HostCommand::GetDiagnostics).is_err() {
+                                    // Channel full — scanner task will process next cycle
+                                }
+                                receive_cdc_response_or_timeout!();
                             }
                             Command::EnterSettings => {
                                 log_info!("CMD: ENTER_SETTINGS");
