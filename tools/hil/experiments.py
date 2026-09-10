@@ -107,9 +107,12 @@ def e3_scan_speed(cdc, cyd):
 
 
 def e4_settings_ab(cdc, cyd):
-    """Issue #11 research: decode performance under settings 0x81 / 0x91 / 0xD1."""
+    """Decode performance under settings 0x81 vs 0x91. The buzzer-armed
+    0xD1 leg is deliberately excluded — it beeps on every decode and beep-
+    by-default is owner-forbidden; its equivalence is already established
+    (2026-09-10 campaign: 8/8 at identical 5.59s, LIMITATIONS.md)."""
     out = {}
-    for value, name in ((0x81, "0x81-quiet"), (0x91, "0x91-aim"), (0xD1, "0xD1-buzzer")):
+    for value, name in ((0x81, "0x81-quiet"), (0x91, "0x91-aim")):
         cdc.drain()
         cdc.send_recv(rig.CMD_SET_SETTINGS, bytes([value]))
         cdc.drain()
@@ -124,6 +127,8 @@ def e4_settings_ab(cdc, cyd):
         out[name] = {"readback": verify.hex() if verify else None,
                      "ok": oks, "n": 8,
                      "avg_latency_s": round(sum(lats) / len(lats), 2) if lats else None}
+    cdc.drain()
+    cdc.send_recv(rig.CMD_SET_SETTINGS, bytes([rig.SETTINGS_SILENT]))
     return out
 
 
