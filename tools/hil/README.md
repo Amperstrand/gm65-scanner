@@ -46,11 +46,16 @@ Build: `. ~/export-esp.sh && cd ../cyd-qr && cargo +esp build --release`
 Results land in `results/run-*/` (verdicts JSON, flash backup, ledger
 append in `results/history.jsonl`).
 
-## Open physics issue (2026-09-09)
+## Open physics issue (2026-09-09 → 2026-09-10)
 
-The GM65 decodes hand-held phone QRs (proven, logged) but has never decoded
-a CYD-screen QR — across sizes 40-288px, 18 screen positions, both mirror
-parities, with/without module illumination, on three firmware builds
-(April-sync/async known-good + HEAD). Suspects: specular ambient glint on
-the parallel-mounted screen, LCD moiré at close range, or working-distance
-mismatch. See the bench session notes in the repo AGENTS.md.
+The GM65 decodes hand-held phone QRs — verified repeatedly (logged instance
+2026-09-08 21:21 `page.link/naxz` on April-async; user-observed buzzer + LCD
+feedback 2026-09-10) — but has never decoded a CYD-screen QR, even with the
+screen physically moved/tilted by hand, across sizes 40-288px, 18 positions,
+both mirror parities, with/without module illumination, normal AND inverted
+(film-negative) rendering, on three firmware builds (April-sync/async
+known-good + HEAD). Root causes documented in
+`crates/gm65-scanner/docs/GM65-OPTICS-FINDINGS.md`: ST7796 ~110 PPI grid
+pose-locks moiré into the 648x488 sensor, no screen/exposure register on
+GM65, 4cm DoF floor. Best next hardware: a ~285+ PPI display (LilyGo
+T-Display-S3 class) or e-ink/paper.

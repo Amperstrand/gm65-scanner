@@ -494,9 +494,14 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
 - **CYD panel**: ST7796 (NOT ILI9341) — pin map from `~/src/cyk/embassy-hello`
   (BL=GPIO27 active-high, inverted, BGR, 10MHz). ILI9341/ST7789/ILI9342
   features remain for 2432S028-family boards.
-- **GM65 decodes phone QRs but never CYD-screen QRs** (all sizes/positions/
-  mirror-parity/illumination, three firmware builds) — open physics issue:
-  screen glint/moiré/working-distance. Reader itself is proven good.
+- **GM65 decodes phone QRs repeatedly** (logged 2026-09-08 21:21
+  `page.link/naxz`; user-verified buzzer+LCD feedback 2026-09-10) **but
+  never CYD-screen QRs** — all sizes/positions/mirror-parity/illumination,
+  normal AND inverted rendering, screen moved by hand, three firmware
+  builds. Root-caused to optics: see
+  `crates/gm65-scanner/docs/GM65-OPTICS-FINDINGS.md` (110 PPI pose-locked
+  moiré, no screen mode register, 4cm DoF floor). CYD firmware supports
+  INV (film-negative) rendering for engine-side inverse-code support tests.
 - **Spec quotes**: `// GM65:` comments are greatspectations verbatim quotes
   from `crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md`; `make
   spec-check` / CI `spec-quotes` job fails on drift.

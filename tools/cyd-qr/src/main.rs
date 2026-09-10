@@ -259,7 +259,9 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
         .init(&mut Delay::new())
         .expect("display init");
 
-    clear_white(&mut display);
+    clear_bg(&mut display, false);
+
+    let mut inverted = false;
 
     // UART0 = the CH340 USB-serial port the host drives
     let uart = Uart::new(p.UART0, UartConfig::default().with_baudrate(115_200))
@@ -288,7 +290,8 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
             if overflow {
                 reply_bytes(&mut tx, b"ERR TOOLONG\n").await;
             } else if len > 0 {
-                handle_line(&line[..len], &mut display, &mut tx, banner).await;
+                handle_line(&line[..len], &mut display, &mut tx, banner, &mut inverted)
+                    .await;
             }
             len = 0;
             overflow = false;
@@ -308,6 +311,7 @@ async fn handle_line(
     display: &mut Display,
     tx: &mut Tx,
     banner: &'static ([u8; 96], usize),
+    inverted: &mut bool,
 ) {
     if line == b"ID" {
         reply_bytes(tx, FW_ID.as_bytes()).await;
@@ -319,8 +323,18 @@ async fn handle_line(
         reply_bytes(tx, b"\n").await;
         return;
     }
+    if line == b"INV" {
+        *inverted = !*inverted;
+        clear_bg(display, *inverted);
+        if *inverted {
+            reply_bytes(tx, b"INVERTED 1\n").await;
+        } else {
+            reply_bytes(tx, b"INVERTED 0\n").await;
+        }
+        return;
+    }
     if line == b"CLR" {
-        clear_white(display);
+        clear_bg(display, *inverted);
         reply_bytes(tx, b"CLEARED\n").await;
         return;
     }
@@ -395,7 +409,7 @@ async fn handle_line(
             return;
         }
     };
-    match render_qr(display, text, cap, anchor) {
+    match render_qr(display, text, cap, anchor, *inverted) {
         Ok((modules, scale)) => {
             reply_bytes(tx, b"RENDERED ").await;
             reply_u16(tx, modules as u16).await;
@@ -416,7 +430,11 @@ fn render_qr(
     text: &str,
     cap_px: usize,
     anchor: Option<(usize, usize)>,
+    inverted: bool,
 ) -> Result<(usize, usize), ()> {
+    // Inverted mode (film negative): white modules on black — less emission,
+    // less sensor bloom; only decodable if the engine supports inverse codes.
+    let (bg, fg) = if inverted { (BLACK, WHITE) } else { (WHITE, BLACK) };
     let mut temp = [0u8; QR_BUF];
     let mut out = [0u8; QR_BUF];
     let qr = QrCode::encode_text(
@@ -444,7 +462,7 @@ fn render_qr(
 
     let mut row;
     for y in 0..SCREEN_H {
-        row = [WHITE; SCREEN_W];
+        row = [bg; SCREEN_W];
         if y >= y0 && y < y0 + px {
             let my = (y - y0) / scale;
             if my >= QUIET_MODULES && my < QUIET_MODULES + size {
@@ -454,7 +472,7 @@ fn render_qr(
                         let x_start = x0 + (mx + QUIET_MODULES) * scale;
                         for x in x_start..x_start + scale {
                             if x < SCREEN_W {
-                                row[x] = BLACK;
+                                row[x] = fg;
                             }
                         }
                     }
@@ -469,8 +487,8 @@ fn render_qr(
     Ok((size, scale))
 }
 
-fn clear_white(display: &mut Display) {
-    let row = [WHITE; SCREEN_W];
+fn clear_bg(display: &mut Display, inverted: bool) {
+    let row = [if inverted { BLACK } else { WHITE }; SCREEN_W];
     for y in 0..SCREEN_H {
         display
             .set_pixels(0, y as u16, SCREEN_W as u16 - 1, y as u16, row)
