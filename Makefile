@@ -22,7 +22,7 @@ SHELL          = /bin/bash
          run-sync run-async \
          flash-sync flash-async \
          test-sync test-async test-cdc test-device \
-         test-qr-loopback hil-place spec-check \
+         test-qr-loopback test-qr-campaign hil-place spec-check \
          recover reset monitor \
          clean
 
@@ -79,6 +79,9 @@ test-device:
 
 test-qr-loopback:
 	cd tools/hil && python3 -m pytest tests -v
+
+test-qr-campaign:
+	cd tools/hil && python3 campaign.py
 
 hil-place:
 	bash tools/hil/labgrid-place.sh

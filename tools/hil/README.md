@@ -38,13 +38,60 @@ esp-hal + mipidsi ST7796 build (config provenance: the slint demo in
 
 Build: `. ~/export-esp.sh && cd ../cyd-qr && cargo +esp build --release`
 
-## Run
+## Workflow
 
-    make test-qr-loopback     # from repo root (pytest: flash + matrix + restore)
-    make hil-place            # (re)create the labgrid place after coordinator restarts
+Two layers, two jobs:
 
-Results land in `results/run-*/` (verdicts JSON, flash backup, ledger
-append in `results/history.jsonl`).
+| Layer | Command | Purpose |
+|-------|---------|---------|
+| **Regression gate** | `make test-qr-loopback` | 6/6 pytest suite: CYD up, scanner connected, byte-exact roundtrips (10/45/127B), negative control, backup/restore. ~3.5 min. Run before merges. |
+| **Characterization campaign** | `make test-qr-campaign` | `campaign.py --firmwares async,sync`: reliability soak, QR envelope ladder, scan-speed/cadence, settings A/B (issue #11), negative controls, settings-wedge repro + auto-recovery, randomized jitter net. Artifacts: `results/campaign-*/`. ~45 min unattended. |
+
+Both take the bench flock FIRST, then the labgrid place; both backup the
+2 MiB flash and restore whatever image was present (verified by by-id
+product string). Fault isolation: one experiment wedging records and the
+campaign continues; the xHCI port self-heals (PCI remove/rescan) inside
+every CDC wait.
+
+## Reference module for other Amperstrand projects
+
+`gm65qr.py` is the bring-along client (no gm65-scanner repo coupling beyond
+`rig.py` — copy both):
+
+```python
+from gm65qr import arm_winning_config, scan_roundtrip, unique_payload, WINNING_CAP
+arm_winning_config(cyd)                      # inverted + ECC-H + 224px cap
+r = scan_roundtrip(cdc, cyd, b"any-payload") # {ok, latency_s, modules, ...}
+```
+
+It encodes every bench lesson: winning render config, no-drain polling
+(clipped-payload fix), ACK-frame sanitizing (`02 00 00 01 xx 33 31` leaks),
+stale-buffer consumption before negative windows, unique sequential
+payloads to defeat the module's 5s same-barcode delay.
+
+**Known limits (campaign-measured, see results/campaign-*/summary.md).**
+
+## Labgrid deployment (cross-project reservation)
+
+The place `gm65-qr-loopback` binds BOTH bench tokens
+(`ai-legion-small-microfips/cyd-serial` + `.../stm32-stlink`). Other
+projects (micronuts-class) reserve the pair:
+
+    labgrid-client -x 192.168.13.221:20408 -p gm65-qr-loopback acquire
+    # ... drive via tools/hil/rig.py + gm65qr.py (direct I/O, flock honored)
+    labgrid-client -x 192.168.13.221:20408 -p gm65-qr-loopback release
+
+Or via the labgrid pytest plugin: `pytest --lg-env tools/hil/labgrid-env.yaml`.
+Place tags carry live state (`firmware=`, `test=`, `owner=`, `ts=`) —
+`make hil-place` recreates the place after coordinator restarts.
+
+## Open physics — RESOLVED
+
+Inverted rendering (white modules on black) + ECC-H + ~203px QR is the only
+decoding configuration on the GM65+ST7796 pair (matrix experiment
+2026-09-10); root analysis in `crates/gm65-scanner/docs/GM65-OPTICS-FINDINGS.md`.
+Phone/hand-held QRs decode in any polarity; the CYD rig needs the winning
+config armed (gm65qr does it automatically).
 
 ## Open physics issue (2026-09-09 → 2026-09-10)
 
