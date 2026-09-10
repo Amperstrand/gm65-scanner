@@ -2,6 +2,12 @@
 
 > Owner-gated: ready to paste into GitHub. Filed as a draft here per the
 > external-posting policy (agents never post; owner copy-pastes).
+>
+> **UPDATE 2026-09-10 (campaign E6)**: NOT reproducible on HEAD (both
+> firmwares accepted 0xE9 with a healthy protocol afterwards). The wedge
+> was April-era (`74686b6`) behavior. The result-discarding code smell
+> below remains valid, and the campaign surfaced a RELATED live bug: see
+> "sustained-load scan-delivery degradation" in tools/hil/LIMITATIONS.md.
 
 - **Title**: Rejected SetSettings value permanently desyncs the CDC
   protocol until power cycle / board reset
