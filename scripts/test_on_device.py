@@ -270,12 +270,12 @@ def test_cdc_protocol(client, label=""):
     client.drain()
 
     # 5. SetSettings
-    test_val = 0xD1
+    test_val = 0x91
     client.send(CMD_SET_SETTINGS, bytes([test_val]))
     status, payload = client.recv()
     check(f"{prefix}SetSettings: status OK", status == STATUS_OK, f"got 0x{status:02x}" if status is not None else "no response")
     if status == STATUS_OK and payload:
-        check(f"{prefix}SetSettings: readback 0xD1", payload[0] == test_val, f"got 0x{payload[0]:02x}")
+        check(f"{prefix}SetSettings: readback 0x91", payload[0] == test_val, f"got 0x{payload[0]:02x}")
 
     client.drain()
 
@@ -284,7 +284,7 @@ def test_cdc_protocol(client, label=""):
     status, payload = client.recv()
     check(f"{prefix}GetSettings verify: status OK", status == STATUS_OK, f"got 0x{status:02x}" if status is not None else "no response")
     if payload:
-        check(f"{prefix}GetSettings verify: 0xD1", payload[0] == 0xD1, f"got 0x{payload[0]:02x}")
+        check(f"{prefix}GetSettings verify: 0x91", payload[0] == 0x91, f"got 0x{payload[0]:02x}")
 
 
 def test_enumeration(client, vid, pid, label=""):

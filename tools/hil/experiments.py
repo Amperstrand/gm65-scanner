@@ -155,8 +155,13 @@ def e5_negative_controls(cdc, cyd):
 def e6_wedge_repro(cdc, cyd):
     """Reproduce the settings-write wedge (issue draft 2026-09-10) and prove
     automated recovery. DESTRUCTIVE to the CDC session — caller must
-    re-flash/reset afterwards; the campaign runner does."""
+    re-flash/reset afterwards; the campaign runner does. The 0xE9 value has
+    the buzzer bit set — the screen is blanked first so no decode (and no
+    beep) can occur during the wedge window."""
     observations = {}
+    gm65qr.consume_stale(cdc)
+    cyd.clear()
+    time.sleep(1.0)
     cdc.drain()
     st, _ = cdc.send_recv(rig.CMD_SET_SETTINGS, bytes([0xE9]))
     observations["setsettings_e9_status"] = f"0x{st:02x}" if st is not None else "none"

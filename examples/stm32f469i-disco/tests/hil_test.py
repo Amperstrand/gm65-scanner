@@ -227,7 +227,7 @@ def test_protocol(client):
 
     # Test 5: SetSettings
     print("\n5. SetSettings")
-    test_val = 0xD1  # ALWAYS_ON | SOUND | AIM | COMMAND
+    test_val = 0x91  # ALWAYS_ON | AIM | COMMAND (silent — buzzer off by default)
     client.send(CMD_SET_SETTINGS, bytes([test_val]))
     status, payload = client.recv()
     check("set status == OK", status == STATUS_OK, f"got 0x{status:02x}")
@@ -240,7 +240,7 @@ def test_protocol(client):
     status, payload = client.recv()
     check("status == OK", status == STATUS_OK, f"got 0x{status:02x}")
     if payload:
-        check("settings == 0xD1", payload[0] == 0xD1, f"got 0x{payload[0]:02x}")
+        check("settings == 0x91", payload[0] == 0x91, f"got 0x{payload[0]:02x}")
 
     print(f"\n=== Results: {passed} passed, {failed} failed ===\n")
     return failed == 0
