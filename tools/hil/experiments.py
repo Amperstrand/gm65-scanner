@@ -14,8 +14,9 @@ import gm65qr
 import rig
 
 # QR payload-size ladder (byte mode): crosses every version boundary up to
-# the CYD firmware's 250-byte payload cap.
-LADDER = [7, 10, 14, 24, 34, 44, 58, 72, 92, 116, 146, 180, 220, 250]
+# ~240 bytes — the CYD firmware's line buffer rejects 249+ byte payloads
+# (LINE_MAX off-by-one, bench 2026-09-10).
+LADDER = [7, 10, 14, 24, 34, 44, 58, 72, 92, 116, 146, 180, 220, 240]
 CAPS = [224, 192, 160]
 
 
