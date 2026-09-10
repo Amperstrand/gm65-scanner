@@ -361,7 +361,10 @@ class StmCdcClient:
         """Diagnostic (0x20) counters. Layouts differ per firmware (documented
         in docs/DESIGN-cdc-diagnostics.md): sync carries scan/nak/watchdog/
         reinit + ISR ring stats (incl. overrun errors — the UART-desync
-        signal); async carries scans_delivered + uart_errors."""
+        signal); async carries scans_delivered + uart_errors. Drains first:
+        after a failed scan window the buffer can hold a stale 0x12
+        response that would otherwise be misread as the diag answer."""
+        self.drain()
         status, payload = self.send_recv(CMD_DIAGNOSTIC, timeout=4.0)
         if status != STATUS_OK or not payload:
             raise RigError(f"diagnostics failed: status=0x{status:02x} "
