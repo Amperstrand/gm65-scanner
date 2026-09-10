@@ -506,6 +506,13 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
   scan-result freeze that was touch-gated — hosts polling ScannerData drive
   continuous scanning (module beeped on triggers while firmware never read
   data before this fix). `GM65_TEST_FW=sync|async` picks the test firmware.
+- **Characterization campaign + limits** (2026-09-10): `make
+  test-qr-campaign` runs reliability/envelope/speed/settings/negatives/
+  wedge/jitter on both firmwares; measured limits live in
+  `tools/hil/LIMITATIONS.md` (reliability 100% both fw; 92B/frame QR
+  ceiling at 53 modules; settings byte irrelevant to decode performance —
+  closes #11's question; sustained-load scan-delivery degradation in both
+  firmwares with different recovery paths — issue-worthy).
 - **Spec quotes**: `// GM65:` comments are greatspectations verbatim quotes
   from `crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md`; `make
   spec-check` / CI `spec-quotes` job fails on drift.
