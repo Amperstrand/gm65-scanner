@@ -509,5 +509,3 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
 - **Spec quotes**: `// GM65:` comments are greatspectations verbatim quotes
   from `crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md`; `make
   spec-check` / CI `spec-quotes` job fails on drift.
-
-  spec-check` / CI `spec-quotes` job fails on drift.
