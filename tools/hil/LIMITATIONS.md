@@ -53,13 +53,18 @@ decode buzzer. No performance reason to prefer any.
 
 1. **Sustained-load scan-delivery degradation (both firmwares).** After
    ~10 min of back-to-back envelope renders/decodes, scan delivery
-   collapses (async: after 30 sustained decodes + SetSettings; sync:
-   earlier — cell ~8 of the envelope ladder). CDC stays healthy;
-   ScannerStatus still reports connected=1. Recovery differs:
-   - async: SWD reset (reboot) restores (E7 post-reset: 38/50).
-   - sync: a SetSettings command heals it in place (its stop_scan +
-     readback sequence resyncs the UART path) — E4 went 8/8×3 immediately.
-   Likely firmware state-machine/UART desync under load — issue-worthy.
+   collapses. CDC stays healthy; ScannerStatus still reports connected=1.
+   Reproduced on healthy boots (twice on sync, once on async; 2026-09-10):
+   - async: collapses after ~30 sustained decodes; SWD reset restores
+     (post-reset jitter 38/50).
+   - sync: collapses at ~cell 8 of the envelope ladder (9/45 cells
+     pass — only the first sizes decode), then E3/E4/E7 stay at ~0 even
+     after E6's SWD reset (1/50) and despite SetSettings writes. The
+     earlier "SetSettings heals in place" observation did NOT reproduce —
+     time-at-rest is a confound. Only a fresh flash+boot reliably recovers
+     sync (E1 40/40 after every bringup).
+   Likely firmware state-machine/UART desync under load — needs the
+   DIAGNOSTICS counters (#91/#92) to discriminate.
 2. **Sync self-healing × blank screen (E5).** A blank screen longer than
    ~6s trips the watchdog 3× → the firmware's self-healing enters
    continuous mode → the CDC virtual-human trigger/poll loop no longer
