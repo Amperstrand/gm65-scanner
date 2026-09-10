@@ -63,26 +63,44 @@ def place_tags(firmware, status):
         pass
 
 
-def bringup_firmware(fw, log):
-    """Flash + heal + settle, return (cdc, cyd) or raise."""
-    os.environ["GM65_TEST_FW"] = fw
-    bin_path = rig.build_stm32_bin()
-    rig.flash_stm32(bin_path)
-    if fw == "async":
-        port = rig.wait_serial_port(rig.GM65_CDC_VIDPID, timeout=45)
-    else:
-        port = rig.wait_stm32_cdc("gm65-scanner", timeout=45)
-    time.sleep(3)
-    cdc = rig.cdc_with_retries(port)
-    rig.arm_scanner_settings(cdc)  # silent 0x91 unless GM65_BUZZER=1
-    elf = rig.build_cyd_elf()
-    rig.flash_cyd(elf)
-    time.sleep(2)
-    cyd = rig.CydQrClient(str(rig.cyd_port()))
-    assert cyd.id().startswith("CYDQR")
-    gm65qr.arm_winning_config(cyd)
-    note(log, f"{fw}: CDC={port}, scanner={cdc.scanner_status()}, winning config armed")
-    return cdc, cyd
+def bringup_firmware(fw, log, attempts=2):
+    """Flash + heal + settle, return (cdc, cyd) or raise. Retries once on a
+    bad-boot signature (model==0 — observed when the previous run was
+    killed mid-scan and the fresh init races the module's leftover UART
+    stream; bench 2026-09-10 campaign #4)."""
+    last_err = None
+    for attempt in range(attempts):
+        if attempt:
+            note(log, f"{fw}: bad boot — SWD reset, bringup retry {attempt}")
+            rig.st_reset()
+            time.sleep(8)
+        os.environ["GM65_TEST_FW"] = fw
+        bin_path = rig.build_stm32_bin()
+        rig.flash_stm32(bin_path)
+        if fw == "async":
+            port = rig.wait_serial_port(rig.GM65_CDC_VIDPID, timeout=45)
+        else:
+            port = rig.wait_stm32_cdc("gm65-scanner", timeout=45)
+        time.sleep(3)
+        cdc = rig.cdc_with_retries(port)
+        status = cdc.scanner_status()
+        if status.get("model", 0) == 0 or status.get("connected") != 1:
+            last_err = f"bad boot signature: {status}"
+            try:
+                cdc.close()
+            except Exception:
+                pass
+            continue
+        rig.arm_scanner_settings(cdc)  # silent 0x91 unless GM65_BUZZER=1
+        elf = rig.build_cyd_elf()
+        rig.flash_cyd(elf)
+        time.sleep(2)
+        cyd = rig.CydQrClient(str(rig.cyd_port()))
+        assert cyd.id().startswith("CYDQR")
+        gm65qr.arm_winning_config(cyd)
+        note(log, f"{fw}: CDC={port}, scanner={status}, winning config armed")
+        return cdc, cyd
+    raise RuntimeError(f"{fw}: bringup failed after {attempts} attempts: {last_err}")
 
 
 def main():
