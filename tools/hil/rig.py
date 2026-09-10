@@ -103,27 +103,82 @@ def find_serial_by_id(id_substring, timeout=15.0):
     return None
 
 
+def recover_xhci_port():
+    """The F469 user-USB port (bus 3 = PCI 0000:07:00.3) wedges host-side
+    after flash cycles — the device never re-enumerates until the controller
+    is bounced. Bench-verified 2026-09-10 (kernel shows clean disconnect, no
+    reconnect; PCI remove+rescan restores it instantly). Safe: nothing else
+    lives on that controller."""
+    import subprocess as sp
+
+    for cmd in (
+        ["sudo", "tee", "/sys/bus/pci/devices/0000:07:00.3/remove"],
+        ["sudo", "tee", "/sys/bus/pci/rescan"],
+    ):
+        proc = sp.run(cmd, input=b"1\n", capture_output=True)
+        if proc.returncode != 0:
+            raise RigError(f"xhci recovery failed at {' '.join(cmd[-2:])}")
+        time.sleep(2)
+
+
+def wait_serial_by_id_healed(id_substring, timeout=30.0):
+    """wait_serial_by_id with a one-shot xHCI bounce if the CDC stays absent
+    past the first half of the window."""
+    import glob as _glob
+
+    deadline = time.monotonic() + timeout
+    bounced = False
+    while time.monotonic() < deadline:
+        matches = _glob.glob(f"/dev/serial/by-id/*{id_substring}*")
+        if matches:
+            return matches[0]
+        if not bounced and time.monotonic() > deadline - timeout / 2:
+            recover_xhci_port()
+            bounced = True
+        time.sleep(0.5)
+    return None
+
+
 def wait_serial_port(vidpid, serial_number=None, timeout=15.0):
-    port = find_serial_port(vidpid, serial_number, timeout)
-    if port is None:
-        who = f"vid:pid={vidpid[0]:04x}:{vidpid[1]:04x}"
-        if serial_number:
-            who += f" serial={serial_number}"
-        raise RigError(f"serial device not found: {who}")
-    return port
+    deadline = time.monotonic() + timeout
+    bounced = False
+    while time.monotonic() < deadline:
+        port = find_serial_port(vidpid, serial_number, timeout=0.5)
+        if port:
+            return port
+        if not bounced and time.monotonic() > deadline - timeout / 2:
+            recover_xhci_port()
+            bounced = True
+    who = f"vid:pid={vidpid[0]:04x}:{vidpid[1]:04x}"
+    if serial_number:
+        who += f" serial={serial_number}"
+    raise RigError(f"serial device not found: {who}")
 
 
 def wait_stm32_cdc(id_substring, timeout=25.0):
-    """Wait for the F469's user-USB CDC by /dev/serial/by-id substring.
+    """Wait for the F469's user-USB CDC by /dev/serial/by-id substring, with
+    a one-shot xHCI controller bounce if the port wedges after flashing.
     Both gm65 firmwares and the micronuts wallet share VID:PID 16c0:27dd /
     serial F4691, so the by-id PRODUCT string is the only discriminator:
       gm65-scanner_QR_Barcode_Scanner_F4691   (this repo's firmware)
       Micronuts_Cashu_Hardware_Wallet_F4691   (the wallet image to restore)
     The async firmware is the odd one out on VID:PID (c0de:cafe)."""
-    port = find_serial_by_id(id_substring, timeout)
+    port = wait_serial_by_id_healed(id_substring, timeout)
     if port is None:
         raise RigError(f"no /dev/serial/by-id entry matching {id_substring!r}")
     return port
+
+
+def stm32_cdc_identity():
+    """Product substring of whatever firmware currently owns the F469's
+    user USB ('gm65-scanner_QR_Barcode_Scanner' / 'Micronuts_Cashu_Hardware_
+    Wallet' / 'gm65-scanner_USB' for async), or None when absent."""
+    import glob as _glob
+
+    for entry in _glob.glob("/dev/serial/by-id/*F4691*"):
+        name = entry.rsplit("/", 1)[-1]
+        return name[: -len("-if00")]
+    return None
 
 
 def cdc_with_retries(port, attempts=10, settle_s=3.0, timeout=10.0):
@@ -271,17 +326,25 @@ def build_cyd_elf() -> Path:
 
 
 def build_stm32_bin() -> Path:
+    """Build the firmware under test. GM65_TEST_FW selects sync (the
+    touch-gate fix lineage, buzzer-proven scan path) or async (default,
+    channel-based CDC)."""
+    fw = os.environ.get("GM65_TEST_FW", "async")
+    if fw == "sync":
+        bin_name, features = "stm32f469i-disco-scanner", "sync-mode"
+    else:
+        bin_name, features = "async_firmware", "scanner-async"
     manifest = REPO_ROOT / "examples" / "stm32f469i-disco" / "Cargo.toml"
     elf = _cargo_bin(
         [
             "cargo", "build", "--release", "--target", "thumbv7em-none-eabihf",
-            "--manifest-path", str(manifest), "--bin", "async_firmware",
-            "--no-default-features", "--features", "scanner-async",
+            "--manifest-path", str(manifest), "--bin", bin_name,
+            "--no-default-features", "--features", features,
             "--message-format=json",
         ],
-        cwd=REPO_ROOT, bin_name="async_firmware",
+        cwd=REPO_ROOT, bin_name=bin_name,
     )
-    bin_path = Path("/tmp/gm65-async_firmware.bin")
+    bin_path = Path(f"/tmp/gm65-{bin_name}.bin")
     result = subprocess.run(
         ["arm-none-eabi-objcopy", "-O", "binary", str(elf), str(bin_path)],
         capture_output=True, timeout=60,

@@ -377,6 +377,15 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         // USB CDC: poll and dispatch commands
         if hw.usb_dev.poll(&mut [hw.cdc_port.serial_mut()]) {
             if let Some(frame) = hw.cdc_port.receive_frame() {
+                // Virtual human: a CDC command dismisses the scan-result
+                // freeze the same way a screen touch does. Without this,
+                // on_scan_result gated scanning to one-shot-until-touch and
+                // a host polling ScannerData could never free it (module
+                // beeped on triggers while the firmware never read the data).
+                if on_scan_result {
+                    on_scan_result = false;
+                    auto_scan = hw.scanner_connected;
+                }
                 let was_auto = auto_scan;
                 auto_scan = false;
                 let was_in_settings = in_settings;
