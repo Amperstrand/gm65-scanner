@@ -29,28 +29,33 @@ def qr_rig(rig_lock, artifacts_dir):
     rig.require_board(rig.STM32_REGISTRY_KEY, "flash")
 
     (verdicts := artifacts_dir / "verdicts.json").write_text("[]")
-    backup_path = artifacts_dir / "stm32-wallet-backup.bin"
+    backup_path = artifacts_dir / "stm32-firmware-backup.bin"
+    pre_session_identity = rig.stm32_cdc_identity()
 
     cyd = None
     cdc = None
     try:
-        # CYD: build, flash, verify line protocol
+        # CYD: build, flash, verify line protocol + arm the winning render
+        # config (inverted + ECC-H, matrix experiment 2026-09-10)
         elf = rig.build_cyd_elf()
         rig.flash_cyd(elf)
         time.sleep(2)
         cyd = rig.CydQrClient(str(rig.cyd_port()))
         fw_id = cyd.id()
         assert fw_id.startswith("CYDQR"), f"unexpected CYD firmware id: {fw_id!r}"
+        cyd.set_inverted(True)
+        cyd.set_ecch(True)
 
-        # F469: backup wallet image, flash gm65 async firmware, verify CDC + GM65
+        # F469: backup whatever image is present, flash gm65 async firmware
         rig.backup_stm32(backup_path)
         bin_path = rig.build_stm32_bin()
         rig.flash_stm32(bin_path)
-        port = rig.wait_serial_port(rig.GM65_CDC_VIDPID, timeout=25)
+        port = rig.wait_serial_port(rig.GM65_CDC_VIDPID, timeout=40)
         time.sleep(3)
         cdc = rig.cdc_with_retries(port)
         status = cdc.scanner_status()
         assert status["connected"] == 1, f"GM65 not connected: {status}"
+        rig.arm_scanner_settings(cdc)
 
         yield {"cyd": cyd, "cdc": cdc, "artifacts": artifacts_dir,
                "verdicts": verdicts, "backup": backup_path}
@@ -62,9 +67,11 @@ def qr_rig(rig_lock, artifacts_dir):
             if cyd:
                 cyd.close()
             rig.restore_stm32(backup_path)
-            # wallet identity: product string, NOT VID:PID/serial (gm65 sync
-            # firmware shares both with the wallet)
-            rig.wait_stm32_cdc("Micronuts_Cashu_Hardware_Wallet", timeout=120)
+            # verify by identity captured at session start — the board may
+            # legitimately run gm65 sync firmware, the wallet, or anything
+            # else the previous session left on it
+            expected = pre_session_identity or "F4691"
+            rig.wait_stm32_cdc(expected, timeout=120)
             results["restored"] = True
         finally:
             record = json.loads(verdicts.read_text() or "[]")

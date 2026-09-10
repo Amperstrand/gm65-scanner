@@ -96,6 +96,8 @@ type PanelModel = mipidsi::models::ST7796;
 
 type Tx = esp_hal::uart::UartTx<'static, esp_hal::Async>;
 
+static ECC_HIGH: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 const WHITE: Rgb565 = Rgb565::WHITE;
 const BLACK: Rgb565 = Rgb565::BLACK;
 
@@ -333,6 +335,17 @@ async fn handle_line(
         }
         return;
     }
+    if line == b"ECCH" {
+        use core::sync::atomic::Ordering;
+        let now = !ECC_HIGH.load(Ordering::Relaxed);
+        ECC_HIGH.store(now, Ordering::Relaxed);
+        if now {
+            reply_bytes(tx, b"ECC HIGH\n").await;
+        } else {
+            reply_bytes(tx, b"ECC MEDIUM\n").await;
+        }
+        return;
+    }
     if line == b"CLR" {
         clear_bg(display, *inverted);
         reply_bytes(tx, b"CLEARED\n").await;
@@ -437,11 +450,16 @@ fn render_qr(
     let (bg, fg) = if inverted { (BLACK, WHITE) } else { (WHITE, BLACK) };
     let mut temp = [0u8; QR_BUF];
     let mut out = [0u8; QR_BUF];
+    let ecc = if ECC_HIGH.load(core::sync::atomic::Ordering::Relaxed) {
+        QrCodeEcc::High
+    } else {
+        QrCodeEcc::Medium
+    };
     let qr = QrCode::encode_text(
         text,
         &mut temp,
         &mut out,
-        QrCodeEcc::Medium,
+        ecc,
         Version::MIN,
         Version::MAX,
         None,

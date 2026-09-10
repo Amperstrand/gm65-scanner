@@ -44,8 +44,37 @@ STM32_FLASH_BASE = 0x08000000
 CMD_STATUS = 0x10
 CMD_TRIGGER = 0x11
 CMD_DATA = 0x12
+CMD_GET_SETTINGS = 0x13
+CMD_SET_SETTINGS = 0x14
 STATUS_OK = 0x00
 STATUS_NO_DATA = 0x12
+
+# Winning CYD render config (matrix experiment 2026-09-10): inverted
+# polarity (white modules on black) + ECC-H + 224px cap (~203px QR, 7px per
+# module for a v1) decodes continuously on the fixed rig; the 288px cap
+# (9px/module) never decoded — FOV sweet spot.
+QR_WINNING_CAP = 224
+
+# Scanner settings bytes (settings register 0x0000): aim-while-reading is
+# present in every scan-proven configuration; the buzzer bit (6) is
+# optional feedback — GM65_BUZZER=1 arms it, default silent.
+SETTINGS_SILENT = 0x91
+SETTINGS_BUZZER = 0xD1
+
+
+def arm_scanner_settings(cdc: "StmCdcClient") -> None:
+    """Apply the scan-proven settings byte. Buzzer off unless
+    GM65_BUZZER=1 (it beeps on every decode — annoying on long runs)."""
+    value = SETTINGS_BUZZER if os.environ.get("GM65_BUZZER", "0") == "1" else SETTINGS_SILENT
+    cdc.drain()
+    status, _ = cdc.send_recv(CMD_SET_SETTINGS, bytes([value]))
+    cdc.drain()
+    verify_status, verify = cdc.send_recv(CMD_GET_SETTINGS)
+    if verify != bytes([value]):
+        # the module occasionally answers the write itself with 0xFF while
+        # still persisting the value (bench 2026-09-10) — the readback is
+        # the source of truth
+        raise RigError(f"settings write 0x{value:02x} not persisted (readback {verify.hex()})")
 
 
 class RigError(RuntimeError):
@@ -218,12 +247,32 @@ class CydQrClient:
     def id(self) -> str:
         return self._cmd("ID")
 
-    def show_qr(self, payload: bytes) -> tuple[int, int]:
-        reply = self._cmd("QR " + payload.hex())
+    def set_inverted(self, target: bool) -> None:
+        """Film-negative rendering (white modules on black) — the proven
+        decodable polarity on this GM65+ST7796 rig (matrix experiment
+        2026-09-10: only INV cells decoded)."""
+        for _ in range(2):
+            r = self._cmd("INV")
+            if (target and r == "INVERTED 1") or (not target and r == "INVERTED 0"):
+                return
+        raise RigError(f"INV toggle stuck at {r!r}")
+
+    def set_ecch(self, target: bool) -> None:
+        for _ in range(2):
+            r = self._cmd("ECCH")
+            if (target and r == "ECC HIGH") or (not target and r == "ECC MEDIUM"):
+                return
+        raise RigError(f"ECCH toggle stuck at {r!r}")
+
+    def show_qr_capped(self, payload: bytes, cap: int) -> tuple[int, int]:
+        reply = self._cmd(f"QRS {cap} " + payload.hex())
         parts = reply.split()
         if len(parts) != 4 or parts[0] != "RENDERED":
             raise RigError(f"CYD QR render failed: {reply!r} (payload {payload[:20]!r})")
         return int(parts[1]), int(parts[2])
+
+    def show_qr(self, payload: bytes) -> tuple[int, int]:
+        return self.show_qr_capped(payload, QR_WINNING_CAP)
 
     def clear(self) -> None:
         reply = self._cmd("CLR")
