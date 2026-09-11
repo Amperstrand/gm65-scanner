@@ -132,6 +132,23 @@ def e4_settings_ab(cdc, cyd):
     return out
 
 
+def pose_canary(cdc):
+    """Pose-drift discriminator (#99): one trigger with live ISR counters
+    but no delivery points at the POSE, not the module. Called by the
+    campaign when E1 lands 0/40."""
+    d0 = cdc.diagnostics()
+    cdc.trigger()
+    time.sleep(1.0)
+    status, pl = cdc.read_data()
+    d1 = cdc.diagnostics()
+    isr0 = d0.get("isr_fires") or 0
+    isr1 = d1.get("isr_fires") or 0
+    delivered = status == rig.STATUS_OK and len(pl) >= 2
+    return {"isr_delta": isr1 - isr0, "delivered_probe": delivered,
+            "suspect_pose": (isr1 - isr0) > 0 and not delivered,
+            "diag": d1}
+
+
 def e5_negative_controls(cdc, cyd):
     """Blank screen must yield no NEW decode (after stale consume), and
     scanning must recover after re-rendering."""

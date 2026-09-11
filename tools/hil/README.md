@@ -101,13 +101,24 @@ Host-side: `rig.StmCdcClient` + the payload contract `[sent, ok, model]`.
 ## Rig pose — the #1 operational risk
 
 The decode pocket is a narrow physical pose. Before ANY "nothing decodes"
-investigation: re-verify the pose. Buzzer-assisted calibration:
+investigation: re-verify the pose. Buzzer-assisted calibration (#99):
 
-    GM65_BUZZER=1 make test-qr-loopback   # or the pose-find listener pattern
+    make pose-find            # or: cd tools/hil && python3 pose_find.py 20
 
-Move the harness slowly (tilt ±15°, sweep 8–20cm) until beeps, then tape it.
+The helper arms the decode buzzer, renders a fresh QR every ~4s, and logs
+every decode. Procedure:
+
+1. Start the helper, then move the harness SLOWLY — tilt ±15°, sweep
+   8–20cm — until the module beeps (beep = decode).
+2. When beeps start, STOP. Tape the pocket exactly there (mark the bench
+   and the harness position).
+3. Confirm with `make test-qr-loopback` (6/6 at rest proves the taped
+   pocket). The helper re-silences the module on exit.
+
 Fingerprint of a pose problem: healthy diagnostics (isr deltas on trigger,
-ScanComplete states, high scan_count) but 0/5 roundtrips at rest.
+ScanComplete states, high scan_count) but 0/5 roundtrips at rest. The
+campaign carries a pose canary: E1 0/40 with live module counters reports
+POSE (not module) failure.
 
 ## Open physics — RESOLVED
 

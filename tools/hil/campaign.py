@@ -157,6 +157,16 @@ def main():
                     err = traceback.format_exc(limit=3)
                 fw_results[name] = {"duration_s": round(time.monotonic() - t0, 1),
                                     "result": result, "error": err}
+                if (name == "e1_reliability_soak" and err is None
+                        and result and result.get("ok") == 0):
+                    # pose canary (#99): 0/40 with live counters => pose
+                    try:
+                        canary = experiments.pose_canary(cdc)
+                        fw_results["pose_canary"] = canary
+                        note(log, f"{fw}: POSE canary "
+                             f"{'TRIPPED — pose, not module' if canary['suspect_pose'] else 'quiet (module-side suspicion)'}")
+                    except Exception:
+                        pass
                 status = "ERROR" if err else "ok"
                 note(log, f"{fw}/{name}: {status} ({fw_results[name]['duration_s']}s)")
                 if name == "e6_wedge_repro" and result and result.get("recovered_via_swd_reset"):
