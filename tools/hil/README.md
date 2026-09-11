@@ -85,6 +85,30 @@ Or via the labgrid pytest plugin: `pytest --lg-env tools/hil/labgrid-env.yaml`.
 Place tags carry live state (`firmware=`, `test=`, `owner=`, `ts=`) —
 `make hil-place` recreates the place after coordinator restarts.
 
+## Module heal (wedge recovery, no power cycle)
+
+The GM65 decode engine can wedge while its register server stays alive
+(#92). Both heal tiers ship in the sync firmware:
+
+    cdc 0x22  FactoryReset — reset + baud dance + full re-init (bench-proven:
+              restored a module wedged at 9600; expect ONE boot beep — factory
+              defaults re-arm the buzzer until the re-init silences it)
+    cdc 0x23  ModuleReboot — 0xA5 deep-sleep tier (validation was
+              pose-confounded; try this FIRST — it keeps baud+settings)
+
+Host-side: `rig.StmCdcClient` + the payload contract `[sent, ok, model]`.
+
+## Rig pose — the #1 operational risk
+
+The decode pocket is a narrow physical pose. Before ANY "nothing decodes"
+investigation: re-verify the pose. Buzzer-assisted calibration:
+
+    GM65_BUZZER=1 make test-qr-loopback   # or the pose-find listener pattern
+
+Move the harness slowly (tilt ±15°, sweep 8–20cm) until beeps, then tape it.
+Fingerprint of a pose problem: healthy diagnostics (isr deltas on trigger,
+ScanComplete states, high scan_count) but 0/5 roundtrips at rest.
+
 ## Open physics — RESOLVED
 
 Inverted rendering (white modules on black) + ECC-H + ~203px QR is the only
