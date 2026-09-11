@@ -952,6 +952,15 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                 }
                                 receive_cdc_response_or_timeout!();
                             }
+                            // Heal tiers 0x22/0x23 are sync-firmware-only:
+                            // the baud dance needs raw BRR control from the
+                            // single scanner owner. Defined error, not silence.
+                            Command::FactoryReset | Command::ModuleReboot => {
+                                log_info!("CMD: HEAL (sync-only)");
+                                let _ = cdc
+                                    .write_packet(&[Status::Error.to_byte(), 0, 0])
+                                    .await;
+                            }
                             Command::Diagnostic | Command::SelfTest => {
                                 let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
                             }
