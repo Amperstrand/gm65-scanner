@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import experiments
 import gm65qr
 import rig
-from tollgate_lab import BenchLockHeldError, acquire_bench_lock
+from tollgate_lab import BenchLockHeldError, acquire_bench_lock, ensure_run_headroom
 
 COORDINATOR = "192.168.13.221:20408"
 PLACE = "gm65-qr-loopback"
@@ -116,6 +116,10 @@ def main():
     log = open(run_dir / "campaign.log", "a")
 
     try:
+        hygiene = ensure_run_headroom()
+        if hygiene.acted:
+            note(f"disk hygiene: {hygiene.actions}")
+
         lock = acquire_bench_lock("amperstrand-bench", project="gm65-campaign",
                                   cwd=str(Path(__file__).resolve().parents[2]))
     except BenchLockHeldError as exc:

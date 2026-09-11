@@ -65,6 +65,17 @@ def pytest_sessionstart(session):
         _lg_acquire_or_exit()
         session.stash[LG_ACQUIRED_KEY] = True
 
+    # Shared disk hygiene (2026-09-11 ENOSPC incident): no-op with
+    # headroom, conservative prunes without — tollgate_lab owns it.
+    try:
+        from tollgate_lab import ensure_run_headroom
+
+        hygiene = ensure_run_headroom()
+        if hygiene.acted:
+            print(f"disk hygiene: {hygiene.actions}")
+    except Exception:
+        pass  # hygiene must never gate a bench run
+
 
 @pytest.fixture(scope="session")
 def rig_lock(request):
