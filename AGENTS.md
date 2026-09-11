@@ -516,3 +516,30 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
 - **Spec quotes**: `// GM65:` comments are greatspectations verbatim quotes
   from `crates/gm65-scanner/docs/GM65-PROTOCOL-FINDINGS.md`; `make
   spec-check` / CI `spec-quotes` job fails on drift.
+
+## Module Heal + Pose Lessons (2026-09-11)
+
+- **Remote module heal WORKS**: CDC FactoryReset (0x22) = factory reset +
+  baud dance (USART6 BRR scaled ×12 from the live value) + full re-init;
+  restores a module wedged at any baud, re-silences the buzzer. ModuleReboot
+  (0x23) = 0xA5 deep-sleep tier (untested cleanly — see issues). Drivers:
+  `factory_reset()`, `set_baud_115200()`, `deep_sleep_reboot()`.
+- **The module wedge (#92)**: decode engine dies while the UART register
+  server stays alive (ACKs flow, settings R/W fine, zero decodes, watchdog
+  climbs). Trigger: sustained envelope load or killed-mid-scan sessions.
+  Factory-reset reboot alone did NOT restore decode in the one controlled
+  attempt — but that verdict is POSE-CONFOUNDED (see below); communication
+  restoration is proven.
+- **THE POSE IS THE RIG'S #1 OPERATIONAL RISK**: the decode pocket is a
+  narrow pose (found interactively every time; a 'settled' harness position
+  at nominal distance can sit fully outside it). The module can accumulate
+  100+ decodes in the pocket and zero 5cm away. Any "nothing decodes"
+  investigation MUST first re-verify the pose (buzzer-assisted: GM65_BUZZER=1
+  + slow harness movement; 122 lifetime decodes vs 0/5 static is the
+  fingerprint). Mark/tape the pocket when found.
+- **Factory reset side effects**: module reboots at 9600 + buzzer-armed
+  defaults. The heal's re-init fixes both; boot beep is expected once.
+- **Diagnostic (0x20) is the first tool** for any scan investigation:
+  isr_bytes/isr_fires deltas prove module-firmware liveness, watchdog/reinit
+  tell the scan-loop story, state=ScanComplete+scan_count>0 with no host
+  data = pose or buffer issue, NOT a dead module.
