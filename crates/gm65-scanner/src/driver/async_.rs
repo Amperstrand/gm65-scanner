@@ -226,6 +226,20 @@ impl<UART> Gm65ScannerAsync<UART> {
         }
     }
 
+    /// Deep-sleep reboot (0xA5 at the function register): module reboots,
+    /// wakes on the next UART activity, KEEPS settings and baud — the
+    /// cheapest module heal for state carry-over (issue #100 Tier A).
+    /// Async parity with the sync driver's `deep_sleep_reboot`.
+    pub async fn deep_sleep_reboot(&mut self) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        let cmd = protocol::build_set_setting(Register::FactoryReset.address_bytes(), 0xA5);
+        self.send_command(&cmd)
+            .await
+            .is_some_and(|r| r != Gm65Response::Invalid)
+    }
+
     pub async fn factory_reset(&mut self) -> bool
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
