@@ -103,13 +103,11 @@ where
             self.core.reset_to_ready();
         }
         loop {
-            match self.poll_uart() {
-                Some(byte) => match self.core.handle_scan_byte(byte) {
-                    ScanByteResult::Complete(data) => return Some(data),
-                    ScanByteResult::BufferOverflow => return None,
-                    ScanByteResult::NeedMore => continue,
-                },
-                None => return None,
+            let byte = self.poll_uart()?;
+            match self.core.handle_scan_byte(byte) {
+                ScanByteResult::Complete(data) => return Some(data),
+                ScanByteResult::BufferOverflow => return None,
+                ScanByteResult::NeedMore => continue,
             }
         }
     }

@@ -2,7 +2,7 @@
 name = "gm65-scanner"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.91"
 description = "UART driver for GM65/M3Y QR barcode scanner modules (sync and async)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Amperstrand/gm65-scanner"

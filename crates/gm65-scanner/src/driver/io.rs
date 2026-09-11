@@ -5,6 +5,10 @@
 //! implement these traits, enabling future unification via maybe-async.
 
 #[cfg(feature = "sync")]
+// Unit errors are deliberate at this layer: the driver-level
+// ScannerError taxonomy maps every failure that callers can act on
+// (redesigning the IO error type is #95's maybe-async groundwork).
+#[allow(clippy::result_unit_err)]
 pub trait SyncScannerIO {
     fn write_all(&mut self, data: &[u8]) -> Result<(), ()>;
     fn read_byte(&mut self) -> Option<u8>;
@@ -12,6 +16,11 @@ pub trait SyncScannerIO {
 }
 
 #[cfg(feature = "async")]
+// RPITIT is the crate's chosen async ABI (no boxing, no allocator — see
+// README "Sync vs Async"); the embedded executors implementing this trait
+// do not need auto-trait bounds on the returned futures. Unit errors: as
+// above, the driver-level taxonomy owns actionable errors.
+#[allow(async_fn_in_trait, clippy::result_unit_err)]
 pub trait AsyncScannerIO {
     async fn write_all(&mut self, data: &[u8]) -> Result<(), ()>;
     async fn read_byte(&mut self) -> Option<u8>;
