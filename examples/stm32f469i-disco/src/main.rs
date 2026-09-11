@@ -386,6 +386,13 @@ fn run_main_loop(mut hw: Hardware) -> ! {
                     on_scan_result = false;
                     auto_scan = hw.scanner_connected;
                 }
+                // A CDC frame means a host is driving the loop — leave
+                // module continuous mode and resume command-driven
+                // scanning (mirror of the dismissal above; #93).
+                if hw.continuous_active {
+                    hw.scanner.exit_continuous_mode();
+                    hw.continuous_active = false;
+                }
                 let was_auto = auto_scan;
                 auto_scan = false;
                 let was_in_settings = in_settings;
@@ -436,6 +443,7 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         if !hw.continuous_active && consecutive_failures >= 3 && hw.scanner_connected {
             let _ = hw.scanner.init();
             hw.scanner.enter_continuous_mode();
+            hw.continuous_active = true;
             consecutive_failures = 0;
             diag.reinit_count += 1;
         }

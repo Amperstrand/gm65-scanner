@@ -427,7 +427,7 @@ where
             protocol::Register::Settings.address_bytes(),
             0xD2,
         );
-        for attempt in 0..3 {
+        for _ in 0..3 {
             if self.uart_write_all(&settings_cmd).is_ok() { break; }
             for _ in 0..100_000 { core::hint::spin_loop(); }
         }
@@ -436,11 +436,37 @@ where
             protocol::Register::ScanEnable.address_bytes(),
             0x01,
         );
-        for attempt in 0..3 {
+        for _ in 0..3 {
             if self.uart_write_all(&scan_cmd).is_ok() { break; }
             for _ in 0..100_000 { core::hint::spin_loop(); }
         }
         for _ in 0..2_000_000 { core::hint::spin_loop(); }
+        self.drain_uart();
+    }
+
+    /// Leave module continuous mode: stop the scan-enable stream, then
+    /// restore command-mode settings (config::CMD_MODE — silent, aim-while-
+    /// reading). The mirror of `enter_continuous_mode`; a host driving the
+    /// CDC loop calls this to resume command-driven scanning (#93).
+    pub fn exit_continuous_mode(&mut self) {
+        let stop_cmd = protocol::build_set_setting(
+            protocol::Register::ScanEnable.address_bytes(),
+            0x00,
+        );
+        for _ in 0..3 {
+            if self.uart_write_all(&stop_cmd).is_ok() { break; }
+            for _ in 0..100_000 { core::hint::spin_loop(); }
+        }
+        for _ in 0..1_000_000 { core::hint::spin_loop(); }
+        let settings_cmd = protocol::build_set_setting(
+            protocol::Register::Settings.address_bytes(),
+            crate::settings::config::CMD_MODE,
+        );
+        for _ in 0..3 {
+            if self.uart_write_all(&settings_cmd).is_ok() { break; }
+            for _ in 0..100_000 { core::hint::spin_loop(); }
+        }
+        for _ in 0..1_000_000 { core::hint::spin_loop(); }
         self.drain_uart();
     }
 }
@@ -882,6 +908,31 @@ mod tests {
         let written = handle.written_bytes();
         let expected = protocol::build_set_setting(Register::Settings.address_bytes(), 0x81);
         assert_eq!(&written[..], &expected[..]);
+    }
+
+    #[test]
+    fn test_exit_continuous_mode_wire_bytes() {
+        // #93: leaving module continuous mode must stop the scan-enable
+        // stream and restore command-mode settings, in that order
+        let mock = MockUart::new();
+        let handle = mock.clone();
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        scanner.exit_continuous_mode();
+        let written = handle.written_bytes();
+        let stop = protocol::build_set_setting(Register::ScanEnable.address_bytes(), 0x00);
+        let settings = protocol::build_set_setting(
+            Register::Settings.address_bytes(),
+            crate::settings::config::CMD_MODE,
+        );
+        let stop_pos = written
+            .windows(9)
+            .position(|w| w == stop)
+            .expect("ScanEnable=0x00 stop write missing");
+        let settings_pos = written
+            .windows(9)
+            .position(|w| w == settings)
+            .expect("Settings=CMD_MODE restore write missing");
+        assert!(stop_pos < settings_pos, "stop must precede settings restore");
     }
 
     #[test]
