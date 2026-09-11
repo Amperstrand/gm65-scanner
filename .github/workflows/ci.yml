@@ -54,7 +54,7 @@ jobs:
       - name: Build sync HIL test
         run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_sync --no-default-features --features hil-tests,defmt
       - name: Build async HIL test
-        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_async --no-default-features --features scanner-async,defmt
+        run: cargo build --release --target thumbv7em-none-eabihf -p stm32f469i-disco-scanner --bin hil_test_async --no-default-features --features scanner-async,defmt,gm65-scanner/hil-tests
 
   lint:
     name: Lint
