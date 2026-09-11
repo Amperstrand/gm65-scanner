@@ -226,6 +226,23 @@ impl<UART> Gm65ScannerAsync<UART> {
         }
     }
 
+    /// Command the module back to 115200 baud (2-byte register 0x002A).
+    /// Must be sent while the host UART is at the module's CURRENT baud
+    /// (9600 after a factory reset). The module switches immediately; the
+    /// ACK may arrive at either rate, so the return value is advisory —
+    /// verify with a full init afterwards. Async mirror of the sync
+    /// driver's `set_baud_115200`.
+    pub async fn set_baud_115200(&mut self) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        let cmd =
+            protocol::build_set_setting_2byte(Register::BaudRate.address_bytes(), [0x1A, 0x00]);
+        self.send_command(&cmd)
+            .await
+            .is_some_and(|r| r != Gm65Response::Invalid)
+    }
+
     /// Deep-sleep reboot (0xA5 at the function register): module reboots,
     /// wakes on the next UART activity, KEEPS settings and baud — the
     /// cheapest module heal for state carry-over (issue #100 Tier A).
