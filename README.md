@@ -267,7 +267,6 @@ cargo check -p gm65-scanner              # sync (default)
 cargo check -p gm65-scanner --features async
 cargo check -p gm65-scanner --features defmt
 cargo check -p gm65-scanner --features async,defmt
-cargo check -p gm65-scanner --features std
 ```
 
 ### Hardware-in-the-Loop (HIL) Tests

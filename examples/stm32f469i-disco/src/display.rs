@@ -6,7 +6,6 @@ use embedded_graphics::{
     primitives::Rectangle,
     text::{Alignment, Text, TextStyleBuilder},
 };
-use embedded_text::{style::TextBoxStyleBuilder, TextBox};
 
 use gm65_scanner::{
     AimSetting, DecodedPayload, LightSetting, PayloadType, ReadMode, ScannerSettings,
@@ -79,8 +78,6 @@ const BIST_STATUS_X: i32 = 360;
 const BIST_SUMMARY_Y: i32 = 720;
 
 const MODE_LABEL_Y_OFFSET: i32 = 35;
-const DATA_LABEL_Y_OFFSET: i32 = 25;
-const BOTTOM_MARGIN: i32 = 20;
 
 pub fn render_status(fb: &mut impl DrawTarget<Color = Rgb888>, message: &str) {
     let _ = fb.clear(Rgb888::BLACK);

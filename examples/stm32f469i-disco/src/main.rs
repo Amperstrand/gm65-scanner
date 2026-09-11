@@ -51,9 +51,7 @@ struct Diagnostics {
     nak_count: u32,
     watchdog_count: u32,
     reinit_count: u32,
-    scanner_state: u8,
     settings_raw: u8,
-    ring_overflow: bool,
 }
 
 fn render_boot_status(fb: &mut impl DrawTarget<Color = Rgb888>, line: &str, line_num: u32) {

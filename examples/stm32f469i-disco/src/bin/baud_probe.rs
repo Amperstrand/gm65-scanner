@@ -209,6 +209,8 @@ fn switch_to_pll_hse() -> u32 {
             defmt::info!("HSE ready");
         }
 
+        // PLLCFGR bitfield, field by field (bit 16 PLLSRC=0 HSI explicit)
+        #[allow(clippy::identity_op)]
         let pllcfgr: u32 =
             (4 & 0x3F) | ((168 & 0x1FF) << 6) | (0 << 16) | (1 << 22) | ((7 & 0xF) << 24);
         core::ptr::write_volatile(RCC_PLLCFGR as *mut u32, pllcfgr);
@@ -248,7 +250,8 @@ fn main() -> ! {
     let config = Config::default();
     let p = embassy_stm32::init(config);
 
-    let mut led_green = Output::new(p.PG6, Level::Low, Speed::Low);
+    // underscore binding holds pin ownership (LED configured, not driven here)
+    let _led_green = Output::new(p.PG6, Level::Low, Speed::Low);
     let mut led_red = Output::new(p.PD5, Level::Low, Speed::Low);
     let mut led_blue = Output::new(p.PK3, Level::Low, Speed::Low);
 

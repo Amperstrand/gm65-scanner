@@ -982,10 +982,8 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                         .await;
                                 } else {
                                     let settings = ScannerSettings::from_bits(payload[0]);
-                                    if COMMAND_CHANNEL
-                                        .try_send(HostCommand::SetSettings(settings))
-                                        .is_err()
-                                    {}
+                                    let _ = COMMAND_CHANNEL
+                                        .try_send(HostCommand::SetSettings(settings));
                                     receive_cdc_response_or_timeout!();
                                 }
                             }
@@ -1028,7 +1026,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                 log_info!("CMD: HEAL (sync-only)");
                                 let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
                             }
-                            Command::Diagnostic | Command::SelfTest => {
+                            Command::SelfTest => {
                                 let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
                             }
                         }

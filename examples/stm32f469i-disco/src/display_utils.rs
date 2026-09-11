@@ -50,6 +50,8 @@ pub fn format_byte(b: u8) -> heapless::String<4> {
 
 /// Split text into lines that fit within `chars_per_line` characters.
 /// Returns line boundaries as (start, end) byte offsets into the original string.
+// Tested utility kept for render paths that re-adopt text wrapping.
+#[allow(dead_code)]
 pub fn wrap_text_offsets(text: &str, chars_per_line: usize) -> heapless::Vec<(usize, usize), 32> {
     let mut lines = heapless::Vec::new();
     let mut offset = 0;
@@ -66,6 +68,8 @@ pub fn wrap_text_offsets(text: &str, chars_per_line: usize) -> heapless::Vec<(us
 /// Calculate the visible portion of centered text on a display.
 /// Returns (start_byte, end_byte) into the text that fits within display_width pixels,
 /// given font_width pixels per character and center_x as the center point.
+// Tested utility kept for render paths that re-adopt centering.
+#[allow(dead_code)]
 pub fn centered_visible_range(
     text_len_chars: usize,
     font_width: usize,
@@ -80,9 +84,8 @@ pub fn centered_visible_range(
         return (0, 0);
     }
 
-    let visible_left = left_edge.saturating_sub(0);
-    let chars_hidden_left = visible_left / font_width;
-    let visible_width = display_width.saturating_sub(visible_left.max(0));
+    let chars_hidden_left = left_edge / font_width;
+    let visible_width = display_width.saturating_sub(left_edge);
     let chars_visible = visible_width / font_width;
 
     let start = chars_hidden_left.min(text_len_chars);
