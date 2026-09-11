@@ -47,14 +47,8 @@ CMD_DATA = 0x12
 CMD_GET_SETTINGS = 0x13
 CMD_SET_SETTINGS = 0x14
 CMD_DIAGNOSTIC = 0x20
-CMD_DIAGNOSTIC = 0x20
 STATUS_OK = 0x00
 STATUS_NO_DATA = 0x12
-
-# Diagnostic (0x20) 16-byte payload, sync firmware (main.rs handle_command):
-# little-endian; counters truncated by the wire format.
-DIAG_STATE_NAMES = {0: "Other", 1: "Ready", 2: "Scanning", 3: "ScanComplete",
-                    4: "Error"}
 
 # Winning CYD render config (matrix experiment 2026-09-10): inverted
 # polarity (white modules on black) + ECC-H + 224px cap (~203px QR, 7px per
@@ -327,29 +321,6 @@ class StmCdcClient:
             raise RigError(f"ScannerStatus failed: status={status} payload={payload!r}")
         return {"model": payload[0], "fw": payload[1], "connected": payload[2]}
 
-    def diagnostics(self):
-        """Diagnostic (0x20): firmware counters + ISR ring stats. The
-        spiking counter at scan-delivery death discriminates the #92
-        degradation hypotheses (uart_errors/isr_ore => UART desync;
-        watchdog/reinit => state machine; flat => upstream drop)."""
-        status, payload = self.send_recv(CMD_DIAGNOSTIC)
-        if status != STATUS_OK or len(payload) < 16:
-            raise RigError(f"Diagnostic failed: status={status} len={len(payload)}")
-        p = payload
-        return {
-            "scan_count": p[0] | (p[1] << 8),
-            "nak_count": p[2] | (p[3] << 8),
-            "watchdog_count": p[4],
-            "reinit_count": p[5],
-            "state": DIAG_STATE_NAMES.get(p[6], f"?{p[6]}"),
-            "state_raw": p[6],
-            "settings": p[7],
-            "ring_len": p[8],
-            "isr_bytes": p[9] | (p[10] << 8) | (p[11] << 16),
-            "isr_ore": p[12] | (p[13] << 8),
-            "isr_fires": p[14] | (p[15] << 8),
-        }
-
     def trigger(self):
         status, _ = self.send_recv(CMD_TRIGGER, timeout=8.0)
         return status
@@ -358,18 +329,20 @@ class StmCdcClient:
         return self.send_recv(CMD_DATA, timeout=4.0)
 
     def diagnostics(self):
-        """Diagnostic (0x20) counters. Layouts differ per firmware (documented
-        in docs/DESIGN-cdc-diagnostics.md): sync carries scan/nak/watchdog/
-        reinit + ISR ring stats (incl. overrun errors — the UART-desync
-        signal); async carries scans_delivered + uart_errors. Drains first:
-        after a failed scan window the buffer can hold a stale 0x12
+        """Diagnostic (0x20) counters. Layouts are exact-length per firmware
+        (docs/DESIGN-cdc-diagnostics.md): sync = 16 bytes (scan/nak/watchdog/
+        reinit + ISR ring stats incl. overrun errors — the UART-desync
+        signal), async = 10 bytes (scans_delivered + uart_errors). Length,
+        not content heuristics: a zero-counter sync boot must not parse as
+        async (bench 2026-09-11 — garbage uart_errors=0xFCFCFC40). Drains
+        first: after a failed scan window the buffer can hold a stale 0x12
         response that would otherwise be misread as the diag answer."""
         self.drain()
         status, payload = self.send_recv(CMD_DIAGNOSTIC, timeout=4.0)
         if status != STATUS_OK or not payload:
             raise RigError(f"diagnostics failed: status=0x{status:02x} "
                            f"payload={payload.hex() if payload else 'none'}")
-        if len(payload) >= 16 and self._looks_sync(payload):
+        if len(payload) == 16:
             return {
                 "fw": "sync",
                 "scan_count": payload[0] | (payload[1] << 8),
@@ -383,7 +356,7 @@ class StmCdcClient:
                 "isr_overrun_errors": payload[12] | (payload[13] << 8),
                 "isr_fires": payload[14] | (payload[15] << 8),
             }
-        if len(payload) >= 10:
+        if len(payload) == 10:
             return {
                 "fw": "async",
                 "scans_delivered": int.from_bytes(payload[0:4], "little"),
@@ -392,13 +365,6 @@ class StmCdcClient:
                 "auto_scan": payload[9],
             }
         raise RigError(f"unknown diagnostics layout: {payload.hex()}")
-
-    @staticmethod
-    def _looks_sync(payload: bytes) -> bool:
-        # sync layout is fixed 16 bytes; async layout starts with a u32
-        # little-endian scan count whose high bytes are zero for <256 scans
-        return len(payload) == 16 and (payload[1] != 0 or payload[3] != 0
-                                       or payload[9] != 0 or payload[10] != 0)
 
 
 def _kill_port_users(port: Path):
