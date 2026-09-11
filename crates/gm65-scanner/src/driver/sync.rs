@@ -239,10 +239,8 @@ where
     /// ACK may arrive at either rate, so the return value is advisory —
     /// verify with a full init afterwards.
     pub fn set_baud_115200(&mut self) -> bool {
-        let cmd = protocol::build_set_setting_2byte(
-            Register::BaudRate.address_bytes(),
-            [0x1A, 0x00],
-        );
+        let cmd =
+            protocol::build_set_setting_2byte(Register::BaudRate.address_bytes(), [0x1A, 0x00]);
         self.send_command(&cmd)
             .is_some_and(|r| r != Gm65Response::Invalid)
     }
@@ -254,10 +252,7 @@ where
     /// boot beep). The host wakes it with any UART traffic and must allow
     /// reboot time before the next command.
     pub fn deep_sleep_reboot(&mut self) -> bool {
-        let cmd = protocol::build_set_setting(
-            Register::FactoryReset.address_bytes(),
-            0xA5,
-        );
+        let cmd = protocol::build_set_setting(Register::FactoryReset.address_bytes(), 0xA5);
         self.send_command(&cmd)
             .is_some_and(|r| r != Gm65Response::Invalid)
     }
@@ -420,25 +415,35 @@ where
 
     pub fn enter_continuous_mode(&mut self) {
         self.do_stop_scan();
-        for _ in 0..500_000 { core::hint::spin_loop(); }
-        let settings_cmd = protocol::build_set_setting(
-            protocol::Register::Settings.address_bytes(),
-            0xD2,
-        );
-        for _ in 0..3 {
-            if self.uart_write_all(&settings_cmd).is_ok() { break; }
-            for _ in 0..100_000 { core::hint::spin_loop(); }
+        for _ in 0..500_000 {
+            core::hint::spin_loop();
         }
-        for _ in 0..1_000_000 { core::hint::spin_loop(); }
-        let scan_cmd = protocol::build_set_setting(
-            protocol::Register::ScanEnable.address_bytes(),
-            0x01,
-        );
+        let settings_cmd =
+            protocol::build_set_setting(protocol::Register::Settings.address_bytes(), 0xD2);
         for _ in 0..3 {
-            if self.uart_write_all(&scan_cmd).is_ok() { break; }
-            for _ in 0..100_000 { core::hint::spin_loop(); }
+            if self.uart_write_all(&settings_cmd).is_ok() {
+                break;
+            }
+            for _ in 0..100_000 {
+                core::hint::spin_loop();
+            }
         }
-        for _ in 0..2_000_000 { core::hint::spin_loop(); }
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
+        let scan_cmd =
+            protocol::build_set_setting(protocol::Register::ScanEnable.address_bytes(), 0x01);
+        for _ in 0..3 {
+            if self.uart_write_all(&scan_cmd).is_ok() {
+                break;
+            }
+            for _ in 0..100_000 {
+                core::hint::spin_loop();
+            }
+        }
+        for _ in 0..2_000_000 {
+            core::hint::spin_loop();
+        }
         self.drain_uart();
     }
 
@@ -447,24 +452,34 @@ where
     /// reading). The mirror of `enter_continuous_mode`; a host driving the
     /// CDC loop calls this to resume command-driven scanning (#93).
     pub fn exit_continuous_mode(&mut self) {
-        let stop_cmd = protocol::build_set_setting(
-            protocol::Register::ScanEnable.address_bytes(),
-            0x00,
-        );
+        let stop_cmd =
+            protocol::build_set_setting(protocol::Register::ScanEnable.address_bytes(), 0x00);
         for _ in 0..3 {
-            if self.uart_write_all(&stop_cmd).is_ok() { break; }
-            for _ in 0..100_000 { core::hint::spin_loop(); }
+            if self.uart_write_all(&stop_cmd).is_ok() {
+                break;
+            }
+            for _ in 0..100_000 {
+                core::hint::spin_loop();
+            }
         }
-        for _ in 0..1_000_000 { core::hint::spin_loop(); }
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
         let settings_cmd = protocol::build_set_setting(
             protocol::Register::Settings.address_bytes(),
             crate::settings::config::CMD_MODE,
         );
         for _ in 0..3 {
-            if self.uart_write_all(&settings_cmd).is_ok() { break; }
-            for _ in 0..100_000 { core::hint::spin_loop(); }
+            if self.uart_write_all(&settings_cmd).is_ok() {
+                break;
+            }
+            for _ in 0..100_000 {
+                core::hint::spin_loop();
+            }
         }
-        for _ in 0..1_000_000 { core::hint::spin_loop(); }
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
         self.drain_uart();
     }
 }
@@ -930,7 +945,10 @@ mod tests {
             .windows(9)
             .position(|w| w == settings)
             .expect("Settings=CMD_MODE restore write missing");
-        assert!(stop_pos < settings_pos, "stop must precede settings restore");
+        assert!(
+            stop_pos < settings_pos,
+            "stop must precede settings restore"
+        );
     }
 
     #[test]

@@ -84,7 +84,10 @@ async fn main(_spawner: Spawner) {
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
     embassy_stm32::interrupt::USART6.disable();
 
-    let async_uart = async_shared::AsyncUart { inner: uart, uart_error_count: 0 };
+    let async_uart = async_shared::AsyncUart {
+        inner: uart,
+        uart_error_count: 0,
+    };
     let mut scanner = Gm65ScannerAsync::with_default_config(async_uart);
 
     let mut led_green = Output::new(p.PG6, Level::Low, Speed::Low);
@@ -107,7 +110,9 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[1/5] init_detects_scanner: FAIL");
         led_red.set_high();
-        loop { cortex_m::asm::wfi(); }
+        loop {
+            cortex_m::asm::wfi();
+        }
     }
 
     if results.ping_after_init {
@@ -116,7 +121,9 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[2/5] ping_after_init: FAIL");
         led_red.set_high();
-        loop { cortex_m::asm::wfi(); }
+        loop {
+            cortex_m::asm::wfi();
+        }
     }
 
     if results.trigger_and_stop {
@@ -125,7 +132,9 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[3/5] trigger_and_stop: FAIL");
         led_red.set_high();
-        loop { cortex_m::asm::wfi(); }
+        loop {
+            cortex_m::asm::wfi();
+        }
     }
 
     if results.read_scan_timeout {
@@ -134,7 +143,9 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[4/5] read_scan_timeout: FAIL");
         led_red.set_high();
-        loop { cortex_m::asm::wfi(); }
+        loop {
+            cortex_m::asm::wfi();
+        }
     }
 
     if results.state_transitions {
@@ -143,7 +154,9 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("[5/5] state_transitions: FAIL");
         led_red.set_high();
-        loop { cortex_m::asm::wfi(); }
+        loop {
+            cortex_m::asm::wfi();
+        }
     }
 
     defmt::info!("All 5 core HIL tests passed!");
@@ -166,7 +179,9 @@ async fn main(_spawner: Spawner) {
     } else {
         defmt::error!("Extended HIL tests FAILED");
         led_red.set_high();
-        loop { cortex_m::asm::wfi(); }
+        loop {
+            cortex_m::asm::wfi();
+        }
     }
 
     defmt::info!("All 8 HIL tests passed!");
@@ -179,7 +194,13 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Orange LED blinks while waiting.");
     defmt::info!("You have 10 seconds.");
 
-    let aim_settings = ScannerSettings { always_on: true, buzzer: false, aim: AimSetting::Reading, light: LightSetting::Off, read_mode: ReadMode::Command };
+    let aim_settings = ScannerSettings {
+        always_on: true,
+        buzzer: false,
+        aim: AimSetting::Reading,
+        light: LightSetting::Off,
+        read_mode: ReadMode::Command,
+    };
     if scanner.set_scanner_settings(aim_settings).await {
         defmt::info!("Aim laser enabled - point at QR code now!");
     } else {
@@ -222,7 +243,9 @@ async fn main(_spawner: Spawner) {
     }
 
     defmt::info!("Done. Looping forever.");
-    loop { cortex_m::asm::wfi(); }
+    loop {
+        cortex_m::asm::wfi();
+    }
 }
 
 #[cfg(not(feature = "scanner-async"))]

@@ -33,11 +33,11 @@ use usb_device::prelude::*;
 use gm65_scanner::{Gm65Scanner, ScannerDriverSync, ScannerSettings, ScannerState};
 
 mod cdc;
+mod display;
 mod display_utils;
+mod qr_display;
 mod scanner_uart;
 mod scanner_utils;
-mod display;
-mod qr_display;
 
 use cdc::{CdcPort, Command, Response, Status, MAX_PAYLOAD_SIZE};
 use display::render_decoded_scan;
@@ -419,7 +419,8 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         }
 
         // Auto-scan: only trigger in command mode (not continuous)
-        if !hw.continuous_active && auto_scan
+        if !hw.continuous_active
+            && auto_scan
             && !in_settings
             && !hw.scanner.data_ready()
             && hw.scanner.state() == ScannerState::Ready
@@ -451,7 +452,9 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         // Scanner: poll for scan results (skip if viewing result)
         if on_scan_result {
             for _ in 0..100 {
-                if hw.scanner.poll_uart().is_none() { break; }
+                if hw.scanner.poll_uart().is_none() {
+                    break;
+                }
             }
         } else if !hw.scanner.data_ready() {
             for _ in 0..200 {
@@ -583,7 +586,8 @@ fn handle_command(
         Command::EnterSettings => Response::new(Status::Ok),
         Command::Diagnostic => {
             let (isr_bytes, isr_ore, isr_fires, ring_len) = scanner_uart::ring_stats();
-            let live_settings = scanner.get_scanner_settings()
+            let live_settings = scanner
+                .get_scanner_settings()
                 .map(|s| s.bits())
                 .unwrap_or(0xFF);
             let mut buf = [0u8; 32];
@@ -624,8 +628,7 @@ fn handle_command(
             buf[1] = if settings_ok { 1 } else { 0 };
             buf[2] = diag.scan_count.min(255) as u8;
             buf[3] = if scanner.data_ready() { 1 } else { 0 };
-            Response::with_payload(Status::Ok, &buf)
-                .unwrap_or_else(|| Response::new(Status::Error))
+            Response::with_payload(Status::Ok, &buf).unwrap_or_else(|| Response::new(Status::Error))
         }
         Command::ModuleReboot => {
             // Deep-sleep reboot heal tier 2 (#92): keeps baud + settings
@@ -634,15 +637,12 @@ fn handle_command(
             let sent = scanner.deep_sleep_reboot();
             cortex_m::asm::delay(180_000_000); // ~1s deep sleep + wake + reboot
             let responsive = scanner.ping();
-            let model = scanner_utils::model_to_status_byte(
-                scanner.status().model,
-            );
+            let model = scanner_utils::model_to_status_byte(scanner.status().model);
             let mut buf = [0u8; 3];
             buf[0] = if sent { 1 } else { 0 };
             buf[1] = if responsive { 1 } else { 0 };
             buf[2] = model;
-            Response::with_payload(Status::Ok, &buf)
-                .unwrap_or_else(|| Response::new(Status::Error))
+            Response::with_payload(Status::Ok, &buf).unwrap_or_else(|| Response::new(Status::Error))
         }
         Command::FactoryReset => {
             // Module heal (#92/#93): factory-reset (register server accepts
@@ -654,8 +654,8 @@ fn handle_command(
             // Payload: [reset_accepted, reinit_ok, model]
             let accepted = scanner.factory_reset();
             cortex_m::asm::delay(90_000_000); // ~0.5s module reboot
-            // SAFETY: sole USART6 owner (single-threaded main loop); BRR
-            // write only changes the baud divisor, briefly, for the dance.
+                                              // SAFETY: sole USART6 owner (single-threaded main loop); BRR
+                                              // write only changes the baud divisor, briefly, for the dance.
             let usart6 = unsafe { &*pac::USART6::ptr() };
             let brr_115200 = usart6.brr().read().bits();
             // SAFETY: raw divisor write — value derived from the live BRR
@@ -667,15 +667,12 @@ fn handle_command(
             unsafe { usart6.brr().write(|w| w.bits(brr_115200)) };
             cortex_m::asm::delay(900_000);
             let reinit = scanner.init().is_ok();
-            let model = scanner_utils::model_to_status_byte(
-                scanner.status().model,
-            );
+            let model = scanner_utils::model_to_status_byte(scanner.status().model);
             let mut buf = [0u8; 3];
             buf[0] = if accepted { 1 } else { 0 };
             buf[1] = if reinit { 1 } else { 0 };
             buf[2] = model;
-            Response::with_payload(Status::Ok, &buf)
-                .unwrap_or_else(|| Response::new(Status::Error))
+            Response::with_payload(Status::Ok, &buf).unwrap_or_else(|| Response::new(Status::Error))
         }
     }
 }

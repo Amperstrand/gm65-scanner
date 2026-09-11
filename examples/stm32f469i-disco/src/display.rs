@@ -6,9 +6,11 @@ use embedded_graphics::{
     primitives::Rectangle,
     text::{Alignment, Text, TextStyleBuilder},
 };
-use embedded_text::{TextBox, style::TextBoxStyleBuilder};
+use embedded_text::{style::TextBoxStyleBuilder, TextBox};
 
-use gm65_scanner::{DecodedPayload, PayloadType, ScannerSettings, AimSetting, LightSetting, ReadMode};
+use gm65_scanner::{
+    AimSetting, DecodedPayload, LightSetting, PayloadType, ReadMode, ScannerSettings,
+};
 
 use crate::display_utils::{format_byte, format_u32_len, truncate_str};
 

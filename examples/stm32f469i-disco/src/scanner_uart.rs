@@ -37,7 +37,10 @@ impl embedded_hal_02::serial::Read<u8> for ScannerUart {
 
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         cortex_m::interrupt::free(|cs| {
-            RING.borrow(cs).borrow_mut().dequeue().ok_or(nb::Error::WouldBlock)
+            RING.borrow(cs)
+                .borrow_mut()
+                .dequeue()
+                .ok_or(nb::Error::WouldBlock)
         })
     }
 }
@@ -51,9 +54,7 @@ static ISR_BYTES: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32:
 static ISR_ORE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 static ISR_FIRES: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
-pub fn init_scanner_uart(
-    serial: stm32f469i_disc::hal::serial::Serial<USART6>,
-) -> ScannerUart {
+pub fn init_scanner_uart(serial: stm32f469i_disc::hal::serial::Serial<USART6>) -> ScannerUart {
     let (tx, _rx) = serial.split();
 
     let usart = unsafe { &*USART6::ptr() };

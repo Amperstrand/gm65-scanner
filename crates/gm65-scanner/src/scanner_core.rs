@@ -14,7 +14,7 @@ extern crate alloc;
 use crate::buffer::ScanBuffer;
 use crate::driver::{ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
 use crate::protocol::Register;
-pub use crate::settings::{config, ScannerSettings, AimSetting, LightSetting, ReadMode};
+pub use crate::settings::{config, AimSetting, LightSetting, ReadMode, ScannerSettings};
 
 // ============================================================================
 // Init Sequence Configuration

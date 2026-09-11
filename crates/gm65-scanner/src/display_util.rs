@@ -94,8 +94,8 @@ pub fn word_wrap(text: &str, chars_per_line: usize) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
     use alloc::string::String;
+    use alloc::vec;
 
     // === wrap_text_offsets tests ===
 
@@ -297,7 +297,11 @@ mod tests {
         let char_lines = wrap_text_offsets(url, 44);
         let word_lines = word_wrap(url, 44);
 
-        let char_reconstructed: String = char_lines.iter().map(|(s, e)| &url[*s..*e]).collect::<Vec<_>>().join("");
+        let char_reconstructed: String = char_lines
+            .iter()
+            .map(|(s, e)| &url[*s..*e])
+            .collect::<Vec<_>>()
+            .join("");
         let word_reconstructed: String = word_lines.join("");
 
         assert_eq!(char_reconstructed, url);

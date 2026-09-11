@@ -18,7 +18,10 @@ use cortex_m_rt::entry;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use gm65_scanner::{driver::hil_tests, Gm65Scanner, ScannerDriverSync, ScannerSettings, AimSetting, LightSetting, ReadMode};
+use gm65_scanner::{
+    driver::hil_tests, AimSetting, Gm65Scanner, LightSetting, ReadMode, ScannerDriverSync,
+    ScannerSettings,
+};
 use linked_list_allocator::LockedHeap;
 use stm32f469i_disc::{hal::pac, hal::prelude::*, hal::rcc, hal::serial::Serial6, led::Led};
 
@@ -156,7 +159,13 @@ fn main() -> ! {
     defmt::info!("You have 5 seconds. Aim laser is ON.");
     defmt::info!("Orange LED blinks while waiting for scan.");
 
-    let aim_settings = ScannerSettings { always_on: true, buzzer: false, aim: AimSetting::Reading, light: LightSetting::Off, read_mode: ReadMode::Command };
+    let aim_settings = ScannerSettings {
+        always_on: true,
+        buzzer: false,
+        aim: AimSetting::Reading,
+        light: LightSetting::Off,
+        read_mode: ReadMode::Command,
+    };
     let _ = scanner.set_scanner_settings(aim_settings);
 
     let max_retries: u32 = 50;

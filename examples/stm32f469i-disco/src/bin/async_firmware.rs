@@ -24,19 +24,19 @@ use alloc::vec::Vec;
 
 #[cfg(all(feature = "scanner-async", feature = "defmt"))]
 use defmt_rtt as _;
-#[cfg(all(feature = "scanner-async", feature = "defmt"))]
-use panic_probe as _;
 #[cfg(all(feature = "scanner-async", not(feature = "defmt")))]
 use panic_halt as _;
+#[cfg(all(feature = "scanner-async", feature = "defmt"))]
+use panic_probe as _;
 
 #[cfg(feature = "scanner-async")]
 use embassy_executor::Spawner;
 #[cfg(feature = "scanner-async")]
-use embassy_stm32::{i2c, interrupt::InterruptExt, peripherals, usart, usb};
-#[cfg(feature = "scanner-async")]
 use embassy_stm32::exti::ExtiInput;
 #[cfg(feature = "scanner-async")]
 use embassy_stm32::gpio::Pull;
+#[cfg(feature = "scanner-async")]
+use embassy_stm32::{i2c, interrupt::InterruptExt, peripherals, usart, usb};
 #[cfg(feature = "scanner-async")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "scanner-async")]
@@ -57,9 +57,9 @@ use gm65_scanner::{Gm65ScannerAsync, ScannerModel, ScannerSettings};
 use linked_list_allocator::LockedHeap;
 
 #[cfg(feature = "scanner-async")]
-use embassy_stm32f469i_disco::{BoardHint, DisplayCtrl};
-#[cfg(feature = "scanner-async")]
 use embassy_stm32f469i_disco::touch::TouchCtrl;
+#[cfg(feature = "scanner-async")]
+use embassy_stm32f469i_disco::{BoardHint, DisplayCtrl};
 
 mod async_shared {
     #[cfg(feature = "scanner-async")]
@@ -158,17 +158,23 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 #[cfg(feature = "scanner-async")]
-static SCAN_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, CHANNEL_CAPACITY> = Channel::new();
+static SCAN_CHANNEL: Channel<CriticalSectionRawMutex, ScanResult, CHANNEL_CAPACITY> =
+    Channel::new();
 #[cfg(feature = "scanner-async")]
-static SDRAM_CHANNEL: Channel<CriticalSectionRawMutex, SdramStatus, CHANNEL_CAPACITY> = Channel::new();
+static SDRAM_CHANNEL: Channel<CriticalSectionRawMutex, SdramStatus, CHANNEL_CAPACITY> =
+    Channel::new();
 #[cfg(feature = "scanner-async")]
-static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayEvent, CHANNEL_CAPACITY> = Channel::new();
+static DISPLAY_CHANNEL: Channel<CriticalSectionRawMutex, DisplayEvent, CHANNEL_CAPACITY> =
+    Channel::new();
 #[cfg(feature = "scanner-async")]
-static TOUCH_CHANNEL: Channel<CriticalSectionRawMutex, TouchEvent, CHANNEL_CAPACITY> = Channel::new();
+static TOUCH_CHANNEL: Channel<CriticalSectionRawMutex, TouchEvent, CHANNEL_CAPACITY> =
+    Channel::new();
 #[cfg(feature = "scanner-async")]
-static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, HostCommand, CMD_CHANNEL_CAPACITY> = Channel::new();
+static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, HostCommand, CMD_CHANNEL_CAPACITY> =
+    Channel::new();
 #[cfg(feature = "scanner-async")]
-static CDC_RESPONSE_CHANNEL: Channel<CriticalSectionRawMutex, CdcResponse, CMD_CHANNEL_CAPACITY> = Channel::new();
+static CDC_RESPONSE_CHANNEL: Channel<CriticalSectionRawMutex, CdcResponse, CMD_CHANNEL_CAPACITY> =
+    Channel::new();
 #[cfg(feature = "scanner-async")]
 static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState::new());
 #[cfg(feature = "scanner-async")]
@@ -182,13 +188,15 @@ static SCANNER_INIT_DONE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 #[cfg(feature = "scanner-async")]
 static USB_EP_OUT_BUF: static_cell::StaticCell<[u8; USB_BUF_SIZE]> = static_cell::StaticCell::new();
 #[cfg(feature = "scanner-async")]
-static USB_CONFIG_DESC: static_cell::StaticCell<[u8; USB_BUF_SIZE]> = static_cell::StaticCell::new();
+static USB_CONFIG_DESC: static_cell::StaticCell<[u8; USB_BUF_SIZE]> =
+    static_cell::StaticCell::new();
 #[cfg(feature = "scanner-async")]
 static USB_BOS_DESC: static_cell::StaticCell<[u8; USB_BUF_SIZE]> = static_cell::StaticCell::new();
 #[cfg(feature = "scanner-async")]
 static USB_MSOS_DESC: static_cell::StaticCell<[u8; USB_BUF_SIZE]> = static_cell::StaticCell::new();
 #[cfg(feature = "scanner-async")]
-static USB_CONTROL_BUF: static_cell::StaticCell<[u8; USB_SMALL_BUF_SIZE]> = static_cell::StaticCell::new();
+static USB_CONTROL_BUF: static_cell::StaticCell<[u8; USB_SMALL_BUF_SIZE]> =
+    static_cell::StaticCell::new();
 #[cfg(feature = "scanner-async")]
 static USB_STATE: static_cell::StaticCell<State<'static>> = static_cell::StaticCell::new();
 
@@ -322,10 +330,13 @@ async fn init_peripherals() -> Peripherals {
     let sdram_ok = sdram.test_quick();
     let framebuffer_bytes = sdram.into_bytes();
     log_info!("SDRAM: base={:#010x} test={}", sdram_base, sdram_ok);
-    if SDRAM_CHANNEL.try_send(SdramStatus {
-        base_address: sdram_base,
-        test_passed: sdram_ok,
-    }).is_err() {
+    if SDRAM_CHANNEL
+        .try_send(SdramStatus {
+            base_address: sdram_base,
+            test_passed: sdram_ok,
+        })
+        .is_err()
+    {
         // Channel full — one-time init notification, not critical
     }
 
@@ -354,7 +365,10 @@ async fn init_peripherals() -> Peripherals {
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = UART_BAUD;
     let uart = usart::Uart::new_blocking(p.USART6, p.PG9, p.PG14, uart_config).unwrap();
-    let async_uart = async_shared::AsyncUart { inner: uart, uart_error_count: 0 };
+    let async_uart = async_shared::AsyncUart {
+        inner: uart,
+        uart_error_count: 0,
+    };
 
     // GM65 module needs settle time after UART pin configuration.
     // Matches sync firmware delay (sysclk_hz / 2 = 500ms at 180MHz).
@@ -468,7 +482,10 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
             if let Some(settings) = scanner.get_scanner_settings().await {
                 let mut shared = SHARED.lock().await;
                 shared.settings = Some(settings);
-                if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings)).is_err() {
+                if DISPLAY_CHANNEL
+                    .try_send(DisplayEvent::Settings(settings))
+                    .is_err()
+                {
                     // Channel full — display will catch up
                 }
             } else if DISPLAY_CHANNEL.try_send(DisplayEvent::Home).is_err() {
@@ -478,7 +495,12 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
         }
         Err(_e) => {
             log_error!("Scanner: init failed {:?}", _e);
-            if DISPLAY_CHANNEL.try_send(DisplayEvent::Error(alloc::string::String::from("Scanner init failed"))).is_err() {
+            if DISPLAY_CHANNEL
+                .try_send(DisplayEvent::Error(alloc::string::String::from(
+                    "Scanner init failed",
+                )))
+                .is_err()
+            {
                 // Channel full — display will catch up
             }
             SCANNER_INIT_DONE.signal(());
@@ -500,10 +522,16 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                     log_info!("Scanner: host trigger");
                     if scanner.trigger_scan().await.is_err() {
                         log_error!("Scanner: trigger failed");
-                        if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerFail).is_err() {
+                        if CDC_RESPONSE_CHANNEL
+                            .try_send(CdcResponse::TriggerFail)
+                            .is_err()
+                        {
                             // Channel full — CDC task will timeout
                         }
-                    } else if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::TriggerOk).is_err() {
+                    } else if CDC_RESPONSE_CHANNEL
+                        .try_send(CdcResponse::TriggerOk)
+                        .is_err()
+                    {
                         // Channel full — CDC task will timeout
                     }
                 }
@@ -528,12 +556,16 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                             // Channel full — CDC task will timeout
                         }
                     } else {
-                        if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::SettingsReadFailed).is_err() {
+                        if CDC_RESPONSE_CHANNEL
+                            .try_send(CdcResponse::SettingsReadFailed)
+                            .is_err()
+                        {
                             // Channel full — CDC task will timeout
                         }
-                        if DISPLAY_CHANNEL.try_send(DisplayEvent::Error(String::from(
-                            "Settings read failed",
-                        ))).is_err() {
+                        if DISPLAY_CHANNEL
+                            .try_send(DisplayEvent::Error(String::from("Settings read failed")))
+                            .is_err()
+                        {
                             // Channel full — display will catch up
                         }
                     }
@@ -546,12 +578,18 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                     if let Some(readback) = scanner.get_scanner_settings().await {
                         let mut shared = SHARED.lock().await;
                         shared.settings = Some(readback);
-                        if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(readback)).is_err() {
+                        if DISPLAY_CHANNEL
+                            .try_send(DisplayEvent::Settings(readback))
+                            .is_err()
+                        {
                             // Channel full — display will catch up
                         }
-                        if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::SetSettingsResult {
-                            bits: readback.bits(),
-                        }).is_err() {
+                        if CDC_RESPONSE_CHANNEL
+                            .try_send(CdcResponse::SetSettingsResult {
+                                bits: readback.bits(),
+                            })
+                            .is_err()
+                        {
                             // Channel full — CDC task will timeout
                         }
                     } else if CDC_RESPONSE_CHANNEL
@@ -605,7 +643,10 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                         shared.scanner_initialized,
                         model_byte,
                     );
-                    if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::ScannerStatus(payload)).is_err() {
+                    if CDC_RESPONSE_CHANNEL
+                        .try_send(CdcResponse::ScannerStatus(payload))
+                        .is_err()
+                    {
                         // Channel full — CDC task will timeout
                     }
                 }
@@ -614,8 +655,8 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                     // layout: docs/DESIGN-cdc-diagnostics.md (async, 10 bytes)
                     let scans = async_shared::DIAG_SCANS_CAPTURED
                         .load(core::sync::atomic::Ordering::Relaxed);
-                    let uart_errors = async_shared::DIAG_UART_ERRORS
-                        .load(core::sync::atomic::Ordering::Relaxed);
+                    let uart_errors =
+                        async_shared::DIAG_UART_ERRORS.load(core::sync::atomic::Ordering::Relaxed);
                     let mut buf = [0u8; 10];
                     buf[0..4].copy_from_slice(&scans.to_le_bytes());
                     buf[4..8].copy_from_slice(&uart_errors.to_le_bytes());
@@ -635,15 +676,21 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                             let type_byte = scanner_utils::payload_type_to_byte(
                                 gm65_scanner::classify_payload(&data),
                             );
-                            if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::ScanData {
-                                data: data.clone(),
-                                type_byte,
-                            }).is_err() {
+                            if CDC_RESPONSE_CHANNEL
+                                .try_send(CdcResponse::ScanData {
+                                    data: data.clone(),
+                                    type_byte,
+                                })
+                                .is_err()
+                            {
                                 // Channel full — CDC task will timeout
                             }
                         }
                         None => {
-                            if CDC_RESPONSE_CHANNEL.try_send(CdcResponse::NoScanData).is_err() {
+                            if CDC_RESPONSE_CHANNEL
+                                .try_send(CdcResponse::NoScanData)
+                                .is_err()
+                            {
                                 // Channel full — CDC task will timeout
                             }
                         }
@@ -670,9 +717,14 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
         }
 
         match embassy_futures::select::select(
-            embassy_time::with_timeout(Duration::from_millis(AUTO_SCAN_READ_TIMEOUT_MS), scanner.read_scan()),
+            embassy_time::with_timeout(
+                Duration::from_millis(AUTO_SCAN_READ_TIMEOUT_MS),
+                scanner.read_scan(),
+            ),
             COMMAND_CHANNEL.receive(),
-        ).await {
+        )
+        .await
+        {
             embassy_futures::select::Either::First(timeout_result) => {
                 match timeout_result {
                     Ok(Some(data)) => {
@@ -682,7 +734,10 @@ async fn run_scanner(uart: async_shared::AsyncUart<'static>) {
                         if SCAN_CHANNEL.try_send(result.clone()).is_err() {
                             // Channel full — CDC task will pick up next cycle
                         }
-                        if DISPLAY_CHANNEL.try_send(DisplayEvent::Scan(result)).is_err() {
+                        if DISPLAY_CHANNEL
+                            .try_send(DisplayEvent::Scan(result))
+                            .is_err()
+                        {
                             // Channel full — display will catch up
                         }
                         {
@@ -766,7 +821,8 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                     let _ = cdc
                         .write_packet(&[Status::Ok.to_byte(), 0, (copy_len + 1) as u8])
                         .await;
-                    let _ = embassy_stm32f469i_disco::send_with_zlp(&mut cdc, &buf[..copy_len + 1]).await;
+                    let _ = embassy_stm32f469i_disco::send_with_zlp(&mut cdc, &buf[..copy_len + 1])
+                        .await;
                     if DISPLAY_CHANNEL
                         .try_send(DisplayEvent::Scan(ScanResult { data: data.clone() }))
                         .is_err()
@@ -839,9 +895,8 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
             if let Ok(result) = SCAN_CHANNEL.try_receive() {
                 let data_str = String::from_utf8_lossy(&result.data);
                 let payload = &result.data;
-                let type_byte = scanner_utils::payload_type_to_byte(
-                    gm65_scanner::classify_payload(payload),
-                );
+                let type_byte =
+                    scanner_utils::payload_type_to_byte(gm65_scanner::classify_payload(payload));
                 let mut msg = String::from("[SCAN] ");
                 msg.push_str(&data_str);
                 msg.push_str("\r\n");
@@ -882,7 +937,10 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                         match frame.command {
                             Command::ScannerStatus => {
                                 log_info!("CMD: SCANNER_STATUS");
-                                if COMMAND_CHANNEL.try_send(HostCommand::ScannerStatusCdc).is_err() {
+                                if COMMAND_CHANNEL
+                                    .try_send(HostCommand::ScannerStatusCdc)
+                                    .is_err()
+                                {
                                     // Channel full — scanner task will process next cycle
                                 }
                                 receive_cdc_response_or_timeout!();
@@ -900,7 +958,10 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                             }
                             Command::ScannerData => {
                                 log_info!("CMD: SCANNER_DATA");
-                                if COMMAND_CHANNEL.try_send(HostCommand::ScannerDataCdc).is_err() {
+                                if COMMAND_CHANNEL
+                                    .try_send(HostCommand::ScannerDataCdc)
+                                    .is_err()
+                                {
                                     // Channel full — scanner task will process next cycle
                                 }
                                 receive_cdc_response_or_timeout!();
@@ -921,8 +982,10 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                                         .await;
                                 } else {
                                     let settings = ScannerSettings::from_bits(payload[0]);
-                                    if COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings)).is_err() {
-                                    }
+                                    if COMMAND_CHANNEL
+                                        .try_send(HostCommand::SetSettings(settings))
+                                        .is_err()
+                                    {}
                                     receive_cdc_response_or_timeout!();
                                 }
                             }
@@ -940,14 +1003,20 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                             }
                             Command::Diagnostic => {
                                 log_info!("CMD: DIAGNOSTIC");
-                                if COMMAND_CHANNEL.try_send(HostCommand::GetDiagnostics).is_err() {
+                                if COMMAND_CHANNEL
+                                    .try_send(HostCommand::GetDiagnostics)
+                                    .is_err()
+                                {
                                     // Channel full — scanner task will process next cycle
                                 }
                                 receive_cdc_response_or_timeout!();
                             }
                             Command::EnterSettings => {
                                 log_info!("CMD: ENTER_SETTINGS");
-                                if COMMAND_CHANNEL.try_send(HostCommand::EnterSettings).is_err() {
+                                if COMMAND_CHANNEL
+                                    .try_send(HostCommand::EnterSettings)
+                                    .is_err()
+                                {
                                     // Channel full — scanner task will process next cycle
                                 }
                                 receive_cdc_response_or_timeout!();
@@ -957,9 +1026,7 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                             // single scanner owner. Defined error, not silence.
                             Command::FactoryReset | Command::ModuleReboot => {
                                 log_info!("CMD: HEAL (sync-only)");
-                                let _ = cdc
-                                    .write_packet(&[Status::Error.to_byte(), 0, 0])
-                                    .await;
+                                let _ = cdc.write_packet(&[Status::Error.to_byte(), 0, 0]).await;
                             }
                             Command::Diagnostic | Command::SelfTest => {
                                 let _ = cdc.write_packet(&[Status::Ok.to_byte(), 0, 0]).await;
@@ -971,7 +1038,6 @@ async fn run_cdc(mut cdc: CdcAcmClass<'static, UsbDriver>) {
                 Ok(_) => {}
                 Err(_) => break,
             }
-
         }
         log_info!("USB: disconnected");
         Timer::after(Duration::from_millis(USB_DISCONNECT_DELAY_MS)).await;
@@ -1054,13 +1120,16 @@ async fn run_touch(
         if let Ok(Some(point)) = touch_ctrl.get_touch() {
             let tx = point.x;
             let ty = point.y;
-            if (i32::from(TOUCH_MARGIN)..=(DISPLAY_MAX_X - i32::from(TOUCH_MARGIN))).contains(&i32::from(tx))
+            if (i32::from(TOUCH_MARGIN)..=(DISPLAY_MAX_X - i32::from(TOUCH_MARGIN)))
+                .contains(&i32::from(tx))
                 && (TOUCH_MARGIN..=(799 - TOUCH_MARGIN)).contains(&ty)
             {
                 touch_int.wait_for_rising_edge().await;
                 Timer::after(Duration::from_millis(TOUCH_DEBOUNCE_MS)).await;
-                if TOUCH_CHANNEL.try_send(TouchEvent::Tap { x: tx, y: ty }).is_err() {
-                }
+                if TOUCH_CHANNEL
+                    .try_send(TouchEvent::Tap { x: tx, y: ty })
+                    .is_err()
+                {}
             }
         }
     }
@@ -1089,8 +1158,7 @@ async fn run_settings_touch() {
                 let in_settings = SHARED.lock().await.in_settings;
 
                 if in_settings {
-                    if (BACK_Y..BACK_Y_END).contains(&y)
-                        && (BACK_X_START..BACK_X_END).contains(&x)
+                    if (BACK_Y..BACK_Y_END).contains(&y) && (BACK_X_START..BACK_X_END).contains(&x)
                     {
                         let mut shared = SHARED.lock().await;
                         shared.in_settings = false;
@@ -1104,8 +1172,7 @@ async fn run_settings_touch() {
                     {
                         let row = ((y - ROW_Y_START) / ROW_SPACING) as usize;
                         let mut shared = SHARED.lock().await;
-                        let mut settings =
-                            shared.settings.unwrap_or(ScannerSettings::default());
+                        let mut settings = shared.settings.unwrap_or(ScannerSettings::default());
 
                         if !scanner_utils::toggle_settings_row(&mut settings, row) {
                             continue;
@@ -1113,7 +1180,10 @@ async fn run_settings_touch() {
 
                         shared.settings = Some(settings);
                         let _ = DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings));
-                        if COMMAND_CHANNEL.try_send(HostCommand::SetSettings(settings)).is_err() {}
+                        if COMMAND_CHANNEL
+                            .try_send(HostCommand::SetSettings(settings))
+                            .is_err()
+                        {}
                     }
                 } else if (HOME_BTN_Y..HOME_BTN_Y_END).contains(&y)
                     && (HOME_BTN_X_START..HOME_BTN_X_END).contains(&x)
@@ -1122,7 +1192,10 @@ async fn run_settings_touch() {
                     shared.in_settings = true;
                     shared.auto_scan = false;
                     let settings = shared.settings.unwrap_or(ScannerSettings::default());
-                    if DISPLAY_CHANNEL.try_send(DisplayEvent::Settings(settings)).is_err() {}
+                    if DISPLAY_CHANNEL
+                        .try_send(DisplayEvent::Settings(settings))
+                        .is_err()
+                    {}
                 }
             }
             Err(_) => {
@@ -1201,12 +1274,12 @@ fn main() -> ! {
     }
 }
 
+#[path = "../bist.rs"]
+mod bist;
 #[path = "../display_utils.rs"]
 mod display_utils;
 #[path = "../scanner_utils.rs"]
 mod scanner_utils;
-#[path = "../bist.rs"]
-mod bist;
 mod display_async {
     include!("../display.rs");
 }

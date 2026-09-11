@@ -15,26 +15,26 @@ pub mod config {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AimSetting {
-    Off     = 0b00,
+    Off = 0b00,
     Reading = 0b01,
-    Always  = 0b10,
+    Always = 0b10,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum LightSetting {
-    Off     = 0b00,
+    Off = 0b00,
     Reading = 0b01,
-    Always  = 0b10,
+    Always = 0b10,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReadMode {
-    Manual     = 0b00,
-    Command    = 0b01,
+    Manual = 0b00,
+    Command = 0b01,
     Continuous = 0b10,
-    Induction  = 0b11,
+    Induction = 0b11,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,8 +50,12 @@ pub struct ScannerSettings {
 impl ScannerSettings {
     pub fn bits(&self) -> u8 {
         let mut val: u8 = 0;
-        if self.always_on { val |= 1 << 7; }
-        if self.buzzer    { val |= 1 << 6; }
+        if self.always_on {
+            val |= 1 << 7;
+        }
+        if self.buzzer {
+            val |= 1 << 6;
+        }
         val |= (self.aim as u8 & 0b11) << 4;
         val |= (self.light as u8 & 0b11) << 2;
         val |= self.read_mode as u8 & 0b11;
@@ -61,22 +65,22 @@ impl ScannerSettings {
     pub fn from_bits(raw: u8) -> Self {
         Self {
             always_on: raw & (1 << 7) != 0,
-            buzzer:    raw & (1 << 6) != 0,
-            aim:       match (raw >> 4) & 0b11 {
+            buzzer: raw & (1 << 6) != 0,
+            aim: match (raw >> 4) & 0b11 {
                 0b00 => AimSetting::Off,
                 0b01 => AimSetting::Reading,
-                _    => AimSetting::Always,
+                _ => AimSetting::Always,
             },
-            light:     match (raw >> 2) & 0b11 {
+            light: match (raw >> 2) & 0b11 {
                 0b00 => LightSetting::Off,
                 0b01 => LightSetting::Reading,
-                _    => LightSetting::Always,
+                _ => LightSetting::Always,
             },
             read_mode: match raw & 0b11 {
                 0b00 => ReadMode::Manual,
                 0b01 => ReadMode::Command,
                 0b10 => ReadMode::Continuous,
-                _    => ReadMode::Induction,
+                _ => ReadMode::Induction,
             },
         }
     }
@@ -87,9 +91,9 @@ impl Default for ScannerSettings {
         // Silent command mode — must equal config::CMD_MODE (0x91).
         Self {
             always_on: true,
-            buzzer:    false,
-            aim:       AimSetting::Reading,
-            light:     LightSetting::Off,
+            buzzer: false,
+            aim: AimSetting::Reading,
+            light: LightSetting::Off,
             read_mode: ReadMode::Command,
         }
     }

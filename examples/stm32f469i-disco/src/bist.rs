@@ -48,22 +48,55 @@ impl Gm65BistResults {
         let mut display_entry = bsp_entries[1];
         display_entry.name = "Display Init";
         [
-            TestEntry { name: bsp_entries[0].name, result: bsp_entries[0].result },
-            TestEntry { name: display_entry.name, result: display_entry.result },
-            TestEntry { name: bsp_entries[2].name, result: bsp_entries[2].result },
-            TestEntry { name: bsp_entries[3].name, result: bsp_entries[3].result },
-            TestEntry { name: bsp_entries[4].name, result: bsp_entries[4].result },
-            TestEntry { name: bsp_entries[5].name, result: bsp_entries[5].result },
-            TestEntry { name: "Scanner UART", result: self.scanner_uart },
-            TestEntry { name: "Scanner Detect", result: self.scanner_detect },
-            TestEntry { name: "USB PHY Reset", result: self.usb_phy_reset },
-            TestEntry { name: bsp_entries[6].name, result: bsp_entries[6].result },
+            TestEntry {
+                name: bsp_entries[0].name,
+                result: bsp_entries[0].result,
+            },
+            TestEntry {
+                name: display_entry.name,
+                result: display_entry.result,
+            },
+            TestEntry {
+                name: bsp_entries[2].name,
+                result: bsp_entries[2].result,
+            },
+            TestEntry {
+                name: bsp_entries[3].name,
+                result: bsp_entries[3].result,
+            },
+            TestEntry {
+                name: bsp_entries[4].name,
+                result: bsp_entries[4].result,
+            },
+            TestEntry {
+                name: bsp_entries[5].name,
+                result: bsp_entries[5].result,
+            },
+            TestEntry {
+                name: "Scanner UART",
+                result: self.scanner_uart,
+            },
+            TestEntry {
+                name: "Scanner Detect",
+                result: self.scanner_detect,
+            },
+            TestEntry {
+                name: "USB PHY Reset",
+                result: self.usb_phy_reset,
+            },
+            TestEntry {
+                name: bsp_entries[6].name,
+                result: bsp_entries[6].result,
+            },
         ]
     }
 
     /// Number of tests that passed.
     pub fn passed_count(&self) -> usize {
-        self.all_entries().iter().filter(|e| e.result == TestResult::Pass).count()
+        self.all_entries()
+            .iter()
+            .filter(|e| e.result == TestResult::Pass)
+            .count()
     }
 
     /// Total number of tests (10: 6 BSP + 3 scanner + 1 LED).

@@ -1,5 +1,5 @@
 use gm65_scanner::{
-    PayloadType, ScannerModel, ScannerSettings, AimSetting, LightSetting, ReadMode,
+    AimSetting, LightSetting, PayloadType, ReadMode, ScannerModel, ScannerSettings,
 };
 
 pub fn model_to_str(model: ScannerModel) -> &'static str {

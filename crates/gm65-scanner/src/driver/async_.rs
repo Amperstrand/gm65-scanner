@@ -16,9 +16,9 @@ use crate::driver::{
     ScannerConfig, ScannerDriver, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 #[cfg(test)]
 use crate::scanner_core::InitAction;
+use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 use embassy_time::{with_timeout, Duration};
 
 const CMD_TIMEOUT: Duration = Duration::from_secs(2);
@@ -192,7 +192,8 @@ impl<UART> Gm65ScannerAsync<UART> {
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
         let cmd = protocol::build_save_settings();
-        let result = self.send_command(&cmd)
+        let result = self
+            .send_command(&cmd)
             .await
             .is_some_and(|r| r != Gm65Response::Invalid);
         #[cfg(feature = "defmt")]
@@ -527,7 +528,10 @@ pub mod hil_tests {
         let _ = scanner.stop_scan().await;
 
         if timed_out {
-            matches!(scanner.state(), ScannerState::Error(ScannerError::Cancelled))
+            matches!(
+                scanner.state(),
+                ScannerState::Error(ScannerError::Cancelled)
+            )
         } else {
             defmt::warn!(
                 "HIL: read_scan_timeout: ambient barcode detected (scanner working, not a failure)"
