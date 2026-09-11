@@ -443,7 +443,9 @@ fn run_main_loop(mut hw: Hardware) -> ! {
         // Self-healing: re-init scanner after repeated failures
         if !hw.continuous_active && consecutive_failures >= 3 && hw.scanner_connected {
             let _ = hw.scanner.init();
-            hw.scanner.enter_continuous_mode();
+            let _ = hw
+                .scanner
+                .start_scanning(gm65_scanner::ScanPolicy::SilentContinuous);
             hw.continuous_active = true;
             consecutive_failures = 0;
             diag.reinit_count += 1;
