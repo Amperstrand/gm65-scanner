@@ -543,3 +543,43 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
   isr_bytes/isr_fires deltas prove module-firmware liveness, watchdog/reinit
   tell the scan-loop story, state=ScanComplete+scan_count>0 with no host
   data = pose or buffer issue, NOT a dead module.
+
+## Session 2026-09-11 (afternoon) — pose was IN; #92 is firmware-side staging
+
+- **Pose stale-alarm**: the handoff said pose out; the gate ran 6/6 first
+  thing. The pose question is always answered by RUNNING the gate, not by
+  trusting yesterday's verdict. `make pose-find` now exists (#99) for the
+  buzzer-assisted re-find + tape procedure (README §pose).
+- **#92 discriminator ANSWERED (soak_diag)**: delivery collapse is
+  FIRMWARE-side staging under sustained load — scan_count climbs while
+  nothing delivers, isr_overrun_errors stay 0, ring_len flips 0↔14,
+  losses are size-biased (≥24B), and the deliveries that land cluster on
+  the 5s retrigger boundary (stop/start flushes the stuck path). Fresh
+  F469 boot delivers the buffered payloads instantly. Next: root-cause
+  the ISR-ring→scan-buffer staging path (scanner_core/buffer read logic).
+- **Async choke class**: after sustained sync load, fresh async boots
+  gate-fail with uart_errors=19 until healed — module carryover state
+  survives F469 re-flashes; only 0x22-from-fresh-boot heals it (retry-once
+  semantics; first attempt from desync can leave model=0).
+- **0xA5 ModuleReboot (0x23) = Tier A NEGATIVE** (#100): sent=1,
+  responsive=0, delivery worsened, choke unchanged. Evidence pack:
+  docs/issue-drafts/2026-09-11-module-reboot-tier-a-negative.md. Boot
+  policy stays blocked on #92.
+- **#93 fixed (daf833a)**: continuous_active was never set (dead gates);
+  now recorded on self-heal + any CDC frame exits continuous mode
+  (exit_continuous_mode). E1 40/40. E5 recovery_ok is owned by #92, not
+  #93 (6s blank trips ONE watchdog today; fresh-boot E5 passes).
+- **Async build was broken at HEAD** (f4a465f added cdc commands without
+  async match arms) — fixed in 6385083; heal 0x22/0x23 answer a defined
+  Status::Error on async.
+- **rig.py diagnostics parse by exact length now** (16B sync / 10B async);
+  the old content heuristic misparsed zero-counter sync boots as async.
+- **New tools**: ur_e2e.py [async|sync] (verify-gate + inter-fragment
+  SetSettings resync; sync still stalls — #92), heal_validate.py (the A/B
+  above), pose_find.py.
+- **Toolchain drift**: clippy 1.98 flags 5 pre-existing errors at HEAD
+  (incompatible_msrv on floor_char_boundary ×2, question_match ×3) — MSRV
+  policy decision pending; fmt drift in display_util.rs likewise
+  pre-existing. Both were clean on the older toolchain that verified HEAD.
+- Bench left as found: sync heal fw restored, module healthy (3/3 verify
+  scans post-0x22-heal), buzzer silent, flock free.
