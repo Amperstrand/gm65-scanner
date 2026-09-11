@@ -97,7 +97,11 @@ decode buzzer. No performance reason to prefer any.
    from E1's tail, not the continuous-mode path. E5 acceptance is owned
    by #92.
 
-3. **CYD payload cap** (above): ≤240B.
+3. **CYD payload cap**: ≤250B per command line — LINE_MAX now covers the
+   worst form `QRP <x> <y> <hex>` (12 + 2·250 = 512; fixed 2026-09-11,
+   #94 — the old `3 + 2·PAYLOAD_MAX` sized only `QR <hex>` and rejected
+   the 250B envelope cell sent via `QRS`, bench-measured as ERR TOOLLONG).
+   Decoding still tops out at 92B/frame regardless (see E2 above).
 4. **0xE9 settings value no longer wedges HEAD** (E6, both firmwares:
    accepted, protocol stayed healthy) — the wedge in the issue draft is
    April-era (74686b6) behavior; the SetSettings result-discarding code

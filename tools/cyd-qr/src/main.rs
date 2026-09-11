@@ -14,7 +14,9 @@
 //!   anything else         ->                      reply: `ERR UNKNOWN|TOOLONG|BADHEX|NOTUTF8|QRFAIL\n`
 //!
 //! Payloads are hex-encoded (8-bit clean) and must be valid UTF-8 (the QR
-//! encoder used here is text-mode; test payloads are ASCII).
+//! encoder used here is text-mode; test payloads are ASCII). Max payload
+//! 250 bytes on every form (`QR`/`QRS`/`QRP`) — LINE_MAX is sized for the
+//! worst line, `QRP <x> <y> <hex>`.
 
 #![no_std]
 #![no_main]
@@ -67,7 +69,10 @@ const QUIET_MODULES: usize = 4; // QR spec quiet zone
 
 // Payload limits (hex on the wire)
 const PAYLOAD_MAX: usize = 250;
-const LINE_MAX: usize = 3 + 2 * PAYLOAD_MAX; // "QR " + hex
+// Worst command line: "QRP 480 320 " (12 chars) + 2*PAYLOAD_MAX hex —
+// "QRS 224 " (8) and "QR " (3) are shorter. The old 3 + 2*PAYLOAD_MAX
+// rejected the 250B envelope cell via QRS (bench 2026-09-10, #94).
+const LINE_MAX: usize = 12 + 2 * PAYLOAD_MAX;
 
 // QR scratch buffers sized for the max version the payloads can reach
 const QR_BUF: usize = Version::MAX.buffer_len();
