@@ -7,6 +7,9 @@ pub mod config {
     /// Decode performance is identical to the buzzer-armed 0xD1 (rig
     /// A/B 2026-09-10, 24/24 scans, same latency) — specter-diy's 0xD1
     /// legacy adds only the beep. Hosts wanting it: SetSettings(0xD1).
+    // GM65: | 6 | buzzer (decode beep) | 1 = beep on every decode |
+    // GM65: | 1:0 | read mode | 00 manual, 01 command, 10 continuous, 11 induction |
+    // GM65: In Command mode (01) the module ACKs ScanEnable writes but never scans.
     pub const CMD_MODE: u8 = 0x91;
     pub const VERSION_NEEDS_RAW: u8 = 0x69;
     pub const RAW_MODE_VALUE: u8 = 0x08;
@@ -48,6 +51,9 @@ pub struct ScannerSettings {
 }
 
 impl ScannerSettings {
+    // GM65: | 7 | always_on | 1 = scanner always powered |
+    // GM65: | 5:4 | aim | 00 off, 01 while reading, 1x always |
+    // GM65: | 3:2 | light | 00 off, 01 while reading, 1x always |
     pub fn bits(&self) -> u8 {
         let mut val: u8 = 0;
         if self.always_on {

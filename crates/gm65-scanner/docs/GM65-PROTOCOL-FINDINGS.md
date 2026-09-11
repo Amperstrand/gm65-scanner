@@ -74,6 +74,29 @@ These are the addresses used by specter-diy. They differ from the datasheet in s
 6. **Set baud rate**: Send 2-byte baud rate command for 115200 (`7E 00 08 02 00 2A 1A 00 AB CD`).
 7. **Reinitialize UART** on host side to 115200 baud.
 
+
+## SETTINGS Register Bit Field (bench-verified 2026-09-10/11)
+
+The `00 00` SETTINGS byte is a bit field, not an opaque mode value. Verified
+on hardware: the rig A/B (fa6dc93) proved bits 6 and 1:0; a micronuts
+integration (2026-09-11) that wrote `0xD2` beeped on every decode — bit 6
+was set — and the silent variant `0x92` behaved identically otherwise.
+
+| Bits | Field | Values |
+|------|-------|--------|
+| 7 | always_on | 1 = scanner always powered |
+| 6 | buzzer (decode beep) | 1 = beep on every decode |
+| 5:4 | aim | 00 off, 01 while reading, 1x always |
+| 3:2 | light | 00 off, 01 while reading, 1x always |
+| 1:0 | read mode | 00 manual, 01 command, 10 continuous, 11 induction |
+
+Consequences (issue #75, bench-verified):
+
+- In Command mode (01) the module ACKs ScanEnable writes but never scans.
+- Continuous mode (10) plus a ScanEnable=1 write is the proven scan path.
+- The decode buzzer is bit 6 — `0xD1` beeps, `0x91` and `0x92` are silent.
+  Decode performance is identical with and without the buzzer.
+
 ## Multi-Baud Rate Probing
 
 The scanner may be at any of these baud rates from a previous session:

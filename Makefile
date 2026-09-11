@@ -97,7 +97,8 @@ spec-check:
 	  --comment-start "// " --comment-continue "//" \
 	  crates/gm65-scanner/src/protocol.rs \
 	  crates/gm65-scanner/src/buffer.rs \
-	  crates/gm65-scanner/src/scanner_core.rs
+	  crates/gm65-scanner/src/scanner_core.rs \
+	  crates/gm65-scanner/src/settings.rs
 
 test-cdc:
 	@source $(FLASH_HELPERS); \
