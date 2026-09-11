@@ -56,6 +56,7 @@ pub mod buffer;
 pub mod decoder;
 pub mod display_util;
 pub mod driver;
+pub mod policy;
 pub mod protocol;
 pub mod scanner_core;
 pub mod settings;
@@ -69,11 +70,13 @@ pub use driver::{
     ScanMode, ScannerConfig, ScannerDriver, ScannerDriverSync, ScannerError, ScannerModel,
     ScannerState, ScannerStatus,
 };
+pub use policy::{bench_baseline_settings, ScanPolicy};
 pub use protocol::{
     build_factory_reset, build_get_setting, build_save_settings, build_set_setting,
     build_trigger_scan, commands, BaudRate as Gm65BaudRate, Gm65Response, Register, RESPONSE_LEN,
     RESPONSE_PREFIX,
 };
+pub use scanner_core::strip_leaked_responses;
 pub use settings::{AimSetting, LightSetting, ReadMode, ScannerSettings};
 
 // Re-export scanner core types

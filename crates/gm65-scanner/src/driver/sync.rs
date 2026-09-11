@@ -223,6 +223,32 @@ where
     /// (bench 2026-09-10). WARNING: the module reboots at its factory 9600
     /// baud and with buzzer-armed default settings — the host must follow
     /// with the baud dance and a full re-init.
+    /// Apply a blessed scan policy (see [`crate::policy::ScanPolicy`]):
+    /// stop, write SETTINGS, then write ScanEnable=1. Sync flavor of the
+    /// async driver's `start_scanning`.
+    pub fn start_scanning(
+        &mut self,
+        policy: crate::policy::ScanPolicy,
+    ) -> Result<(), ScannerError> {
+        if !self.core.is_initialized() {
+            return Err(ScannerError::NotInitialized);
+        }
+        let _ = self.do_stop_scan();
+        for _ in 0..500_000 {
+            core::hint::spin_loop();
+        }
+        let settings_ok = self.set_scanner_settings(policy.settings());
+        for _ in 0..500_000 {
+            core::hint::spin_loop();
+        }
+        let enable_ok = self.set_setting(Register::ScanEnable, 0x01);
+        if settings_ok && enable_ok {
+            Ok(())
+        } else {
+            Err(ScannerError::ConfigFailed)
+        }
+    }
+
     pub fn factory_reset(&mut self) -> bool {
         let cmd = protocol::build_factory_reset();
         let result = self
@@ -343,7 +369,9 @@ where
         while attempts < max_attempts {
             match self.uart.read() {
                 Ok(b) => match self.core.handle_scan_byte(b) {
-                    ScanByteResult::Complete(data) => return Some(data),
+                    ScanByteResult::Complete(data) => {
+                        return Some(crate::scanner_core::strip_leaked_responses(data))
+                    }
                     ScanByteResult::BufferOverflow => return None,
                     ScanByteResult::NeedMore => attempts = 0,
                 },
@@ -413,6 +441,10 @@ where
         self.core.reset_to_ready();
     }
 
+    #[deprecated(
+        since = "0.2.0",
+        note = "use start_scanning(ScanPolicy::SilentContinuous) — policies own the SETTINGS bits"
+    )]
     pub fn enter_continuous_mode(&mut self) {
         self.do_stop_scan();
         for _ in 0..500_000 {

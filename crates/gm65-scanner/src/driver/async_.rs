@@ -16,8 +16,6 @@ use crate::driver::{
     ScannerConfig, ScannerDriver, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
-#[cfg(test)]
-use crate::scanner_core::InitAction;
 use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 use embassy_time::{with_timeout, Duration};
 
@@ -205,6 +203,29 @@ impl<UART> Gm65ScannerAsync<UART> {
     /// register server accepts this even when its decode engine is wedged
     /// (bench 2026-09-10). WARNING: may restore the module's default 9600
     /// baud — the host must be prepared to re-probe/re-configure.
+    /// Apply a blessed scan policy (see [`crate::policy::ScanPolicy`]):
+    /// stop, write SETTINGS, then write ScanEnable=1 — the module needs
+    /// the start signal (bench lesson 68dd5e2, issue #75).
+    pub async fn start_scanning(
+        &mut self,
+        policy: crate::policy::ScanPolicy,
+    ) -> Result<(), ScannerError>
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        if !self.core.is_initialized() {
+            return Err(ScannerError::NotInitialized);
+        }
+        let _ = self.do_stop_scan().await;
+        let settings_ok = self.set_scanner_settings(policy.settings()).await;
+        let enable_ok = self.set_setting(Register::ScanEnable, 0x01).await;
+        if settings_ok && enable_ok {
+            Ok(())
+        } else {
+            Err(ScannerError::ConfigFailed)
+        }
+    }
+
     pub async fn factory_reset(&mut self) -> bool
     where
         UART: embedded_io_async::Write + embedded_io_async::Read,
@@ -320,7 +341,9 @@ impl<UART> Gm65ScannerAsync<UART> {
                     return None;
                 }
                 Ok(_) => match self.core.handle_scan_byte(buf[0]) {
-                    ScanByteResult::Complete(data) => return Some(data),
+                    ScanByteResult::Complete(data) => {
+                        return Some(crate::scanner_core::strip_leaked_responses(data))
+                    }
                     ScanByteResult::BufferOverflow => return None,
                     ScanByteResult::NeedMore => {}
                 },
@@ -790,11 +813,6 @@ mod tests {
 
         fn written_bytes(&self) -> Vec<u8> {
             self.inner.borrow().written.clone()
-        }
-
-        #[cfg(test)]
-        fn load_read_queue(&self, data: &[u8]) {
-            self.inner.borrow_mut().read_queue.extend_from_slice(data);
         }
     }
 

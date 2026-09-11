@@ -11,10 +11,36 @@
 
 extern crate alloc;
 
+use alloc::vec::Vec;
+
 use crate::buffer::ScanBuffer;
 use crate::driver::{ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
 use crate::protocol::Register;
 pub use crate::settings::{config, AimSetting, LightSetting, ReadMode, ScannerSettings};
+
+/// Strip leading leaked register-response frames from scan data.
+///
+/// GM65 register responses (`02 00 00 01 <val> 00 33 31`, protocol.rs
+/// `RESPONSE_PREFIX`) race decodes onto the same wire; a response that
+/// lands between a trigger ACK and a decode is consumed by the scan
+/// buffer and prepends itself to the payload (bench 2026-09-10/11).
+/// Both drivers apply this in their read paths — consumers never see
+/// the leak.
+#[must_use]
+pub fn strip_leaked_responses(mut data: Vec<u8>) -> Vec<u8> {
+    const RESP_LEN: usize = 7;
+    loop {
+        if data.len() >= RESP_LEN
+            && data[0..4] == crate::protocol::RESPONSE_PREFIX
+            && data[5] == 0x33
+            && data[6] == 0x31
+        {
+            data.drain(..RESP_LEN);
+            continue;
+        }
+        return data;
+    }
+}
 
 // ============================================================================
 // Init Sequence Configuration
@@ -652,6 +678,38 @@ impl Default for ScannerCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn strip_removes_leading_response_frames() {
+        let data = vec![0x02, 0x00, 0x00, 0x01, 0x87, 0x33, 0x31, b'u', b'r', b':'];
+        assert_eq!(strip_leaked_responses(data), b"ur:".to_vec());
+    }
+
+    #[test]
+    fn strip_removes_multiple_leading_frames() {
+        let mut data = vec![];
+        for _ in 0..3 {
+            data.extend_from_slice(&[0x02, 0x00, 0x00, 0x01, 0x01, 0x33, 0x31]);
+        }
+        data.extend_from_slice(b"cashuBxx");
+        assert_eq!(strip_leaked_responses(data), b"cashuBxx".to_vec());
+    }
+
+    #[test]
+    fn strip_leaves_clean_data_untouched() {
+        assert_eq!(
+            strip_leaked_responses(b"plain payload".to_vec()),
+            b"plain payload".to_vec()
+        );
+    }
+
+    #[test]
+    fn strip_does_not_touch_embedded_pattern() {
+        let data = b"ax0200".to_vec();
+        assert_eq!(strip_leaked_responses(data.clone()), data);
+    }
+
     use crate::buffer::MAX_SCAN_SIZE;
     use crate::driver::ScanMode;
 

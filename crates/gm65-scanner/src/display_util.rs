@@ -269,7 +269,7 @@ mod tests {
                 continue;
             }
             let words_in_original: Vec<&str> = text.split_whitespace().collect();
-            let is_full_word = words_in_original.iter().any(|w| *w == *line);
+            let is_full_word = words_in_original.contains(line);
             assert!(is_full_word || line.len() <= 10);
         }
     }

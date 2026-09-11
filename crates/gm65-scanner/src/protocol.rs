@@ -94,7 +94,9 @@ pub enum Register {
     BarType = 0x002C,
     /// QR code enable (0x003F). Set to 0x01 to enable QR decoding.
     QrEnable = 0x003F,
-    /// Factory reset (0x00D9). Write 0x55 to reset all settings.
+    /// Function register (0x00D9, write-only): 0x55 reset to defaults,
+    /// 0xA0 mild sleep, 0xA5 deep sleep + module reboot on next UART
+    /// activity (`deep_sleep_reboot`).
     FactoryReset = 0x00D9,
 }
 
