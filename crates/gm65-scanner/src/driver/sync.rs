@@ -220,6 +220,50 @@ where
         result
     }
 
+    /// Factory-reset the module (register 0x00D9 = 0x55). The module's
+    /// register server accepts this even when its decode engine is wedged
+    /// (bench 2026-09-10). WARNING: the module reboots at its factory 9600
+    /// baud and with buzzer-armed default settings — the host must follow
+    /// with the baud dance and a full re-init.
+    pub fn factory_reset(&mut self) -> bool {
+        let cmd = protocol::build_factory_reset();
+        let result = self
+            .send_command(&cmd)
+            .is_some_and(|r| r != Gm65Response::Invalid);
+        #[cfg(feature = "defmt")]
+        defmt::info!("factory_reset: {}", if result { "OK" } else { "FAIL" });
+        result
+    }
+
+    /// Command the module back to 115200 baud (2-byte register 0x002A).
+    /// Must be sent while the host UART is at the module's CURRENT baud
+    /// (9600 after a factory reset). The module switches immediately; the
+    /// ACK may arrive at either rate, so the return value is advisory —
+    /// verify with a full init afterwards.
+    pub fn set_baud_115200(&mut self) -> bool {
+        let cmd = protocol::build_set_setting_2byte(
+            Register::BaudRate.address_bytes(),
+            [0x1A, 0x00],
+        );
+        self.send_command(&cmd)
+            .is_some_and(|r| r != Gm65Response::Invalid)
+    }
+
+    /// Deep-sleep reboot (0xA5 at the reset register, GM65 manual 1.6/function
+    /// zone: "Deep sleep, wake up by UART interrupt; module reboot"). Deeper
+    /// than the factory-reset reboot — clears engine states a factory reset
+    /// leaves behind — while KEEPING saved settings and baud (no dance, no
+    /// boot beep). The host wakes it with any UART traffic and must allow
+    /// reboot time before the next command.
+    pub fn deep_sleep_reboot(&mut self) -> bool {
+        let cmd = protocol::build_set_setting(
+            Register::FactoryReset.address_bytes(),
+            0xA5,
+        );
+        self.send_command(&cmd)
+            .is_some_and(|r| r != Gm65Response::Invalid)
+    }
+
     fn do_init(&mut self) -> Result<ScannerModel, ScannerError> {
         use crate::scanner_core::InitAction;
         let mut action = self.core.init_begin();

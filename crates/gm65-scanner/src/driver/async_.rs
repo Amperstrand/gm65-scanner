@@ -192,12 +192,29 @@ impl<UART> Gm65ScannerAsync<UART> {
         UART: embedded_io_async::Write + embedded_io_async::Read,
     {
         let cmd = protocol::build_save_settings();
+        let result = self.send_command(&cmd)
+            .await
+            .is_some_and(|r| r != Gm65Response::Invalid);
+        #[cfg(feature = "defmt")]
+        defmt::info!("save_settings: {}", if result { "OK" } else { "FAIL" });
+        result
+    }
+
+    /// Factory-reset the module (register 0x00D9 = 0x55). The module's
+    /// register server accepts this even when its decode engine is wedged
+    /// (bench 2026-09-10). WARNING: may restore the module's default 9600
+    /// baud — the host must be prepared to re-probe/re-configure.
+    pub async fn factory_reset(&mut self) -> bool
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        let cmd = protocol::build_factory_reset();
         let result = self
             .send_command(&cmd)
             .await
             .is_some_and(|r| r != Gm65Response::Invalid);
         #[cfg(feature = "defmt")]
-        defmt::info!("save_settings: {}", if result { "OK" } else { "FAIL" });
+        defmt::info!("factory_reset: {}", if result { "OK" } else { "FAIL" });
         result
     }
 

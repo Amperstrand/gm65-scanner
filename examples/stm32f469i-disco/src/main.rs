@@ -619,6 +619,56 @@ fn handle_command(
             Response::with_payload(Status::Ok, &buf)
                 .unwrap_or_else(|| Response::new(Status::Error))
         }
+        Command::ModuleReboot => {
+            // Deep-sleep reboot heal tier 2 (#92): keeps baud + settings
+            // (no dance, no beep), deeper engine reset than factory reset.
+            // Payload: [reboot_sent, responsive_after, model]
+            let sent = scanner.deep_sleep_reboot();
+            cortex_m::asm::delay(180_000_000); // ~1s deep sleep + wake + reboot
+            let responsive = scanner.ping();
+            let model = scanner_utils::model_to_status_byte(
+                scanner.status().model,
+            );
+            let mut buf = [0u8; 3];
+            buf[0] = if sent { 1 } else { 0 };
+            buf[1] = if responsive { 1 } else { 0 };
+            buf[2] = model;
+            Response::with_payload(Status::Ok, &buf)
+                .unwrap_or_else(|| Response::new(Status::Error))
+        }
+        Command::FactoryReset => {
+            // Module heal (#92/#93): factory-reset (register server accepts
+            // it even with a wedged decode engine), then the baud dance —
+            // the module reboots at factory 9600, so scale USART6 BRR down
+            // (x12, runtime-calibrated from the live value), send the
+            // 115200 baud command, restore BRR, full re-init (which also
+            // re-applies silent 0x91 — factory defaults re-arm the buzzer).
+            // Payload: [reset_accepted, reinit_ok, model]
+            let accepted = scanner.factory_reset();
+            cortex_m::asm::delay(90_000_000); // ~0.5s module reboot
+            // SAFETY: sole USART6 owner (single-threaded main loop); BRR
+            // write only changes the baud divisor, briefly, for the dance.
+            let usart6 = unsafe { &*pac::USART6::ptr() };
+            let brr_115200 = usart6.brr().read().bits();
+            // SAFETY: raw divisor write — value derived from the live BRR
+            // (×12 = 115200→9600), no clock-tree assumptions.
+            unsafe { usart6.brr().write(|w| w.bits(brr_115200 * 12)) };
+            cortex_m::asm::delay(900_000); // ~5ms UART settle
+            let _ = scanner.set_baud_115200(); // ACK may arrive at either rate
+            cortex_m::asm::delay(18_000_000); // ~100ms module applies switch
+            unsafe { usart6.brr().write(|w| w.bits(brr_115200)) };
+            cortex_m::asm::delay(900_000);
+            let reinit = scanner.init().is_ok();
+            let model = scanner_utils::model_to_status_byte(
+                scanner.status().model,
+            );
+            let mut buf = [0u8; 3];
+            buf[0] = if accepted { 1 } else { 0 };
+            buf[1] = if reinit { 1 } else { 0 };
+            buf[2] = model;
+            Response::with_payload(Status::Ok, &buf)
+                .unwrap_or_else(|| Response::new(Status::Error))
+        }
     }
 }
 

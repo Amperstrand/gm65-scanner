@@ -24,6 +24,8 @@ pub enum Command {
     EnterSettings = 0x16,
     Diagnostic = 0x20,
     SelfTest = 0x21,
+    FactoryReset = 0x22,
+    ModuleReboot = 0x23,
 }
 
 impl Command {
@@ -38,6 +40,8 @@ impl Command {
             0x16 => Some(Command::EnterSettings),
             0x20 => Some(Command::Diagnostic),
             0x21 => Some(Command::SelfTest),
+            0x22 => Some(Command::FactoryReset),
+            0x23 => Some(Command::ModuleReboot),
             _ => None,
         }
     }
