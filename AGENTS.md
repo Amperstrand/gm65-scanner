@@ -1,5 +1,18 @@
 # Agent Reference
 
+## Modularity contract (owner directive 2026-09-11 — this crate is the single owner of QR-scanner logic)
+
+Every Amperstrand project driving a GM65/M3Y module consumes this crate and
+writes ZERO module lore: `ScanPolicy::start_scanning` owns the SETTINGS bits
+and the proven mode sequence, the drivers' read paths strip leaked register
+responses, and module heal (`deep_sleep_reboot`, `factory_reset`) is crate
+surface — never per-project firmware. Board-level glue (screen settings for
+the F469, CYD, Lilygo S3 class) belongs in the BSP crates, not here and not
+in consumers. When a consumer discovers itself reimplementing any of this,
+that is a bug in this crate: file it, promote the API, deprecate the old
+path in the same commit (see `enter_continuous_mode`). Full lesson:
+bolty-rs docs/lessons-learned.md B28.
+
 ## Architecture Overview
 
 ```mermaid
