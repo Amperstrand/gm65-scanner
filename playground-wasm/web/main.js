@@ -1,13 +1,13 @@
 // gm65-scanner playground harness.
-// wasm-bindgen --target web output must be built into this directory:
-//   cargo build -p playground-wasm --target wasm32-unknown-unknown --release
-//   wasm-bindgen --target web \
-//     ../target/wasm32-unknown-unknown/release/playground_wasm.wasm --out-dir .
-//   python3 -m http.server 8901
+// The device task in wasm owns the driver; this script only sends commands
+// (buttons, canvas taps), feeds scan input (camera/paste), and renders
+// device events into the side wing.
+// Build the wasm-bindgen glue into this directory (see README).
 import init, {
-  pg_boot, pg_init, pg_start_scanning, pg_read_scan, pg_stop_scan,
-  pg_state, pg_status, pg_module_scanning, pg_feed_scan_payload,
-  pg_tx_hex, pg_rx_hex,
+  pg_boot, pg_init, pg_set_on_event, pg_cmd_start, pg_cmd_stop,
+  pg_feed_scan_payload, pg_lcd_tap, pg_state, pg_status,
+  pg_module_scanning, pg_module_settings, pg_tx_hex, pg_rx_hex,
+  pg_ui_tap_targets,
 } from "./playground_wasm.js";
 
 const $ = (id) => document.getElementById(id);
@@ -18,26 +18,6 @@ function log(msg) {
   logEl.scrollTop = 0;
 }
 
-let busy = false;
-async function guarded(name, fn) {
-  if (busy) return;
-  busy = true;
-  // Only driver ops are mutually exclusive. Scan input (Inject, camera)
-  // stays enabled: decodes must land mid-read like a camera would.
-  const ops = document.querySelectorAll("button[data-op]");
-  ops.forEach((b) => (b.disabled = true));
-  try {
-    await fn();
-  } catch (e) {
-    log(`${name} ✗ ${e}`);
-  } finally {
-    busy = false;
-    ops.forEach((b) => (b.disabled = false));
-    refresh();
-  }
-}
-
-let autoLoop = false;
 function refresh() {
   const scanning = pg_module_scanning();
   document.body.classList.toggle("scanning", scanning);
@@ -45,53 +25,52 @@ function refresh() {
   badge.textContent = pg_state();
   badge.classList.toggle("on", scanning);
   $("status").textContent = pg_status();
-  const tx = pg_tx_hex();
-  const rx = pg_rx_hex();
-  $("tx").textContent = tx || "—";
-  $("rx").textContent = rx || "—";
+  $("tx").textContent = pg_tx_hex() || "—";
+  $("rx").textContent = pg_rx_hex() || "—";
 }
 
-async function readOnce() {
-  const got = await pg_read_scan(5000);
-  if (got === null || got === undefined) {
-    log("read_scan: timeout (5s)");
-  } else {
-    $("payload").textContent = got;
-    log(`read_scan ✓ ${got.length} chars`);
+function onEvent(raw) {
+  const ev = JSON.parse(raw);
+  if (ev.type === "log") {
+    log(ev.msg);
+  } else if (ev.type === "scan") {
+    $("payload").textContent = ev.payload;
   }
   refresh();
 }
 
 await init();
 pg_boot();
+pg_set_on_event(onEvent);
+// Expose for the e2e harness and console tinkering.
+window.__pg = { state: pg_state, targets: pg_ui_tap_targets, settings: () => pg_module_settings() };
 log("wasm module loaded");
 refresh();
 
-$("btnInit").onclick = () =>
-  guarded("init", async () => {
-    const model = await pg_init();
-    log(`init ✓ model=${model}`);
-  });
+// --- device LCD touch → pixel coords ---------------------------------------
+$("lcd").addEventListener("click", (e) => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const px = Math.round(((e.clientX - rect.left) / rect.width) * 480);
+  const py = Math.round(((e.clientY - rect.top) / rect.height) * 800);
+  pg_lcd_tap(px, py);
+});
 
-$("btnStart").onclick = () =>
-  guarded("start_scanning", async () => {
-    const p = Number($("policy").value);
-    log(`start_scanning(policy=${p}) → ${await pg_start_scanning(p)}`);
-  });
-
-$("btnStop").onclick = () =>
-  guarded("stop_scan", async () => {
-    log(`stop_scan → ${await pg_stop_scan()}`);
-  });
-
-$("btnRead").onclick = () => guarded("read_scan", readOnce);
-
-$("autoRead").onchange = async (e) => {
-  autoLoop = e.target.checked;
-  while (autoLoop) {
-    await guarded("read_scan", readOnce);
-    if (autoLoop) await new Promise((r) => setTimeout(r, 200));
+// --- host wing --------------------------------------------------------------
+$("btnInit").onclick = async () => {
+  try {
+    await pg_init();
+    log("device task starting");
+  } catch (e) {
+    log(`init ✗ ${e}`);
   }
+};
+
+$("btnStart").onclick = () => {
+  pg_cmd_start(Number($("policy").value));
+};
+
+$("btnStop").onclick = () => {
+  pg_cmd_stop();
 };
 
 $("btnFeed").onclick = () => {
@@ -99,19 +78,18 @@ $("btnFeed").onclick = () => {
   if (!v) return;
   pg_feed_scan_payload(v);
   log(`injected scan payload (${v.length} chars)`);
-  refresh();
 };
 
-// --- camera (BarcodeDetector, Chromium) ------------------------------------
+// --- camera (BarcodeDetector, Chromium) — the module's viewfinder ----------
 let camStream = null;
 let camLoop = false;
 
-$("btnCam").onclick = () =>
-  guarded("camera", async () => {
-    if (!("BarcodeDetector" in window)) {
-      log("camera ✗ BarcodeDetector unavailable in this browser — use paste");
-      return;
-    }
+$("btnCam").onclick = async () => {
+  if (!("BarcodeDetector" in window)) {
+    log("camera ✗ BarcodeDetector unavailable in this browser — use paste");
+    return;
+  }
+  try {
     camStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" },
       audio: false,
@@ -123,20 +101,22 @@ $("btnCam").onclick = () =>
     $("btnCamStop").disabled = false;
     const detector = new BarcodeDetector({ formats: ["qr_code"] });
     camLoop = true;
-    log("camera started — scanning for QR codes");
+    log("camera started — tap Start scan on the device, then aim at a QR");
     (async function loop() {
       while (camLoop) {
         try {
           const codes = await detector.detect(video);
           if (codes.length > 0 && codes[0].rawValue) {
             pg_feed_scan_payload(codes[0].rawValue);
-            log(`camera decoded QR (${codes[0].rawValue.length} chars)`);
           }
         } catch { /* transient */ }
         await new Promise((r) => setTimeout(r, 300));
       }
     })();
-  });
+  } catch (e) {
+    log(`camera ✗ ${e}`);
+  }
+};
 
 $("btnCamStop").onclick = () => {
   camLoop = false;
@@ -148,6 +128,4 @@ $("btnCamStop").onclick = () => {
   log("camera stopped");
 };
 
-setInterval(() => {
-  if (!busy) refresh();
-}, 500);
+setInterval(refresh, 500);
