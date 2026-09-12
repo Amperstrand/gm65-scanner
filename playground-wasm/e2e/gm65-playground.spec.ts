@@ -68,4 +68,22 @@ test("scan round-trip delivers injected payload byte-exact", async ({ page }) =>
     // first 8 payload chars appear as hex in the RX stream
     expect(rx).toContain(byte.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"));
   }
+
+  // The device LCD (mirrored firmware UI) must actually be painted —
+  // the result screen draws a cyan type title, white payload text + QR
+  // field, and black QR modules. Class counts tolerate sparse text.
+  const lcd = await page.evaluate(() => {
+    const c = document.getElementById("lcd") as HTMLCanvasElement;
+    const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+    let cyan = 0;
+    let black = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
+      if (r === 0 && g === 255 && b === 255) cyan++;
+      else if (r < 8 && g < 8 && b < 8) black++;
+    }
+    return { cyan, black };
+  });
+  expect(lcd.cyan).toBeGreaterThan(100);
+  expect(lcd.black).toBeGreaterThan(500);
 });
