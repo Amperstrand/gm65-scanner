@@ -1,0 +1,26 @@
+[package]
+name = "playground-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Browser playground for the gm65-scanner async driver (wasm rehearsal for micronuts-web)"
+
+# Wasm-only crate: on any other target the lib compiles to an empty shell so
+# the host CI battery (`cargo check`/`test`/`clippy -p gm65-scanner`, fmt)
+# is unaffected.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gm65-scanner = { path = "../crates/gm65-scanner", features = ["async"] }
+# `wasm` = JS-timer time driver; `generic-queue-64` = self-contained timer
+# queue. Without it embassy-time links the embassy-executor-integrated queue
+# (`__embassy_time_queue_item_from_waker`) and fails at link time when no
+# embassy-executor is in the graph — the playground's futures are driven by
+# the wasm-bindgen executor instead.
+embassy-time = { version = "0.5.1", features = ["wasm", "generic-queue-64"] }
+embedded-io-async = "0.7"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
