@@ -1,9 +1,19 @@
 # gm65-scanner playground (wasm)
 
+**Live demo: <https://amperstrand.github.io/gm65-scanner/>** — deployed by
+CI on every push to main, gated by a post-deploy Playwright e2e.
+
 Browser playground that runs the **real** `Gm65ScannerAsync` driver in
-wasm32 against a virtual GM65 module. This is the wasm rehearsal for a
-browser micronuts wallet (`micronuts-web`): every seam a browser wallet
-needs is exercised here first —
+wasm32 against a virtual GM65 module, presented as the bench device: an
+STM32F469I-DISCO board whose 480x800 LCD renders the firmware example's
+screens (same theme, layout constants, fonts, payload classification and
+QR mirror), and a GM65 module mock below it whose window IS the camera
+viewfinder, with the aim-laser animation while scanning. Driver controls,
+UART monitors and event log live in the side wing.
+
+This is the wasm rehearsal for a browser micronuts wallet
+(`micronuts-web`): every seam a browser wallet needs is exercised here
+first —
 
 | Seam | Exercised by |
 |---|---|
