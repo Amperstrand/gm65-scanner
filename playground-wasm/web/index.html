@@ -183,10 +183,9 @@
         <button id="btnStart" data-op>Start scanning</button>
         <button id="btnStop" data-op>Stop</button>
       </div>
-      <div class="row">
-        <button id="btnRead" data-op>Read (5s)</button>
-        <label class="hint"><input type="checkbox" id="autoRead" /> auto-loop</label>
-      </div>
+      <div class="hint">The device screen is touch-enabled — tap its rows
+        directly (start/stop, settings). Wing buttons send the same host
+        commands.</div>
       <div class="kv" id="status">—</div>
     </div>
 
@@ -198,9 +197,10 @@
       </div>
       <div class="hint">The camera IS the scanner window on the device. Uses
         BarcodeDetector (Chromium); where unavailable, paste a payload below —
-        both feed the same module seam. Start scanning first, then inject
-        (decodes arrive during the active scan window; a stop discards them,
-        as on hardware).</div>
+        both feed the same module seam. Start scanning first (device tap or
+        wing button): decodes arrive during the active scan window; a stop
+        discards them, as on hardware. The device task keeps a standing read
+        while scanning — any decode lands on the LCD immediately.</div>
       <textarea id="paste" placeholder="paste QR payload here, e.g. cashuA…"></textarea>
       <div class="row" style="margin-top:6px">
         <button id="btnFeed">Inject as scan</button>
