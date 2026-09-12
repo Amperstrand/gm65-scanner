@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gm65-scanner playground</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: #0b0e14; color: #d5d9e0;
+  }
+  header { padding: 10px 16px; border-bottom: 1px solid #1c2230;
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; color: #8ab4ff; }
+  header span { color: #6b7280; font-size: 12px; }
+  main { display: grid; grid-template-columns: 340px 1fr; gap: 14px;
+    padding: 14px 16px; max-width: 1100px; margin: 0 auto; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .card { background: #11151d; border: 1px solid #1c2230; border-radius: 8px;
+    padding: 12px; margin-bottom: 12px; }
+  .card h2 { font-size: 12px; margin: 0 0 8px; color: #8ab4ff;
+    text-transform: uppercase; letter-spacing: .06em; }
+  button { font: inherit; background: #1b2436; color: #d5d9e0;
+    border: 1px solid #2a3652; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #24304a; }
+  button:disabled { opacity: .45; cursor: wait; }
+  button.primary { background: #1c3a6e; border-color: #2a5aa8; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  select, input[type=text], textarea { font: inherit; background: #0b0e14;
+    color: #d5d9e0; border: 1px solid #2a3652; border-radius: 6px; padding: 5px 8px; }
+  textarea { width: 100%; min-height: 54px; resize: vertical; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 12px; border: 1px solid #2a3652; }
+  .badge.on { background: #123524; border-color: #1a5c38; color: #7ee2a8; }
+  .kv { color: #6b7280; font-size: 12px; white-space: pre-wrap; }
+  .hex { font-size: 12px; color: #9aa4b2; word-break: break-all;
+    white-space: pre-wrap; max-height: 170px; overflow-y: auto; }
+  .hex b { color: #e8b45a; font-weight: 400; }
+  #payload { font-size: 16px; color: #7ee2a8; word-break: break-all;
+    min-height: 44px; }
+  #log { font-size: 12px; color: #9aa4b2; max-height: 260px; overflow-y: auto;
+    white-space: pre-wrap; }
+  video { width: 100%; border-radius: 6px; background: #000; }
+  .hint { color: #6b7280; font-size: 11px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>gm65-scanner playground</h1>
+  <span>real async driver · virtual GM65 module · wasm32 + embassy-time/wasm</span>
+  <span id="stateBadge" class="badge">uninitialized</span>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>Driver</h2>
+      <div class="row">
+        <button id="btnInit" class="primary" data-op>Init</button>
+        <select id="policy">
+          <option value="0">SilentContinuous (0x92)</option>
+          <option value="1">BuzzingContinuous (0xD2)</option>
+          <option value="2">SilentCommand (0x91)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="btnStart" data-op>Start scanning</button>
+        <button id="btnStop" data-op>Stop</button>
+      </div>
+      <div class="row">
+        <button id="btnRead" data-op>Read (5s)</button>
+        <label class="hint"><input type="checkbox" id="autoRead" /> auto-loop</label>
+      </div>
+      <div class="kv" id="status">—</div>
+    </div>
+
+    <div class="card">
+      <h2>Camera → module scan input</h2>
+      <video id="video" playsinline muted></video>
+      <div class="row" style="margin-top:8px">
+        <button id="btnCam">Start camera</button>
+        <button id="btnCamStop" disabled>Stop camera</button>
+      </div>
+      <div class="hint">Uses BarcodeDetector (Chromium). Where unavailable,
+        paste a payload below — both paths feed the same module seam.
+        Start scanning first, then inject (like the camera: decodes arrive
+        during the active scan window; a stop discards them, as on hardware).</div>
+      <textarea id="paste" placeholder="paste QR payload here, e.g. cashuA…"></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="btnFeed">Inject as scan</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>Decoded payload</h2>
+      <div id="payload">—</div>
+    </div>
+    <div class="card">
+      <h2>UART monitor</h2>
+      <div class="hint">TX host→module (driver commands) · RX module→host (responses + scan data)</div>
+      <div class="hex"><b>TX</b> <span id="tx">—</span></div>
+      <div class="hex"><b>RX</b> <span id="rx">—</span></div>
+    </div>
+    <div class="card">
+      <h2>Event log</h2>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
