@@ -1190,6 +1190,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-io-async",
  "gm65-scanner",
+ "js-sys",
  "qrcodegen-no-heap",
  "wasm-bindgen",
  "wasm-bindgen-futures",

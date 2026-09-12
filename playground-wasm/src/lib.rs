@@ -26,8 +26,8 @@
 #![cfg(target_arch = "wasm32")]
 
 mod lcd;
+mod ui;
 
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -37,7 +37,7 @@ use std::task::Poll;
 use std::task::Waker;
 
 use gm65_scanner::protocol::Register;
-use gm65_scanner::{Gm65ScannerAsync, ScanPolicy, ScannerDriver};
+use gm65_scanner::Gm65ScannerAsync;
 use wasm_bindgen::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,10 @@ impl Gm65ModuleSim {
 
     fn reg_get(&self, addr: u16) -> u8 {
         self.regs.get(&addr).copied().unwrap_or(0xFF)
+    }
+
+    fn settings_bits(&self) -> u8 {
+        self.regs.get(&0x0000).copied().unwrap_or(0xFF)
     }
 
     fn ack(value: u8) -> Vec<u8> {
@@ -223,6 +227,11 @@ impl VirtualUart {
         self.0.borrow().module.scanning
     }
 
+    /// The module's live SETTINGS register (boot value 0xD1).
+    fn module_settings(&self) -> u8 {
+        self.0.borrow().module.settings_bits()
+    }
+
     fn log_hex(log: &[u8]) -> String {
         const CAP: usize = 256;
         let start = log.len().saturating_sub(CAP);
@@ -282,39 +291,20 @@ impl embedded_io_async::Read for VirtualUart {
 }
 
 // ---------------------------------------------------------------------------
-// Session + JS exports
+// JS exports
+//
+// Architecture (validated against chip-agnostic/sans-IO practice):
+// one device task owns the driver — the embassy "task owns peripheral"
+// pattern; every other entry point (wing buttons, LCD taps, camera decodes)
+// sends commands through woken queues, and state leaves the task only via
+// event callbacks and mirrors. The UART handle is Rc-shared so scan
+// injection never serializes behind driver ops (injecting mid-read is the
+// camera path).
 // ---------------------------------------------------------------------------
 
-struct Session {
-    scanner: Gm65ScannerAsync<VirtualUart>,
-}
-
 thread_local! {
-    static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
-    // JS event entry points (scan inject, UART monitors) must never be
-    // serialized behind driver ops: an async export takes the Session out
-    // for the whole await, so these use an independent handle into the
-    // Rc-shared UART instead. Injecting mid-read is the whole point — the
-    // camera path depends on it.
     static UART: RefCell<Option<VirtualUart>> = const { RefCell::new(None) };
-    static IN_FLIGHT: Cell<bool> = const { Cell::new(false) };
     static LCD: RefCell<lcd::Lcd> = RefCell::new(lcd::Lcd::new());
-    static MODEL: RefCell<String> = const { RefCell::new(String::new()) };
-}
-
-fn take_session() -> Result<Session, JsValue> {
-    let sess = SESSION
-        .with(|s| s.borrow_mut().take())
-        .ok_or_else(|| JsValue::from_str("scanner not initialized — run Init first"));
-    if sess.is_ok() {
-        IN_FLIGHT.with(|b| b.set(true));
-    }
-    sess
-}
-
-fn restore_session(sess: Session) {
-    SESSION.with(|s| *s.borrow_mut() = Some(sess));
-    IN_FLIGHT.with(|b| b.set(false));
 }
 
 fn with_uart<T>(f: impl FnOnce(&VirtualUart) -> T) -> Option<T> {
@@ -324,113 +314,70 @@ fn with_uart<T>(f: impl FnOnce(&VirtualUart) -> T) -> Option<T> {
 #[wasm_bindgen]
 pub fn pg_boot() {
     console_error_panic_hook::set_once();
-    LCD.with(|l| l.borrow_mut().boot());
+    ui::boot_render();
 }
 
-/// Initialize the scanner against the virtual module. Resolves with the
-/// detected model name.
+/// Install the JS event sink: `{"type":"log"|"scan"|"screen", ...}`.
+#[wasm_bindgen]
+pub fn pg_set_on_event(cb: js_sys::Function) {
+    ui::set_on_event(cb);
+}
+
+/// Create the device task: virtual module + real driver, spawn the loop.
 #[wasm_bindgen]
 pub async fn pg_init() -> Result<JsValue, JsValue> {
+    ui::reset_state();
     let uart = VirtualUart::new();
-    let mut scanner = Gm65ScannerAsync::with_default_config(uart.clone());
-    let model = scanner.init().await;
-    match model {
-        Ok(m) => {
-            let name = m.to_string();
-            MODEL.with(|slot| *slot.borrow_mut() = name.clone());
-            UART.with(|u| *u.borrow_mut() = Some(uart));
-            SESSION.with(|s| *s.borrow_mut() = Some(Session { scanner }));
-            LCD.with(|l| l.borrow_mut().home(&name));
-            Ok(JsValue::from_str(&name))
-        }
-        Err(e) => Err(JsValue::from_str(&format!("init failed: {e}"))),
-    }
+    UART.with(|u| *u.borrow_mut() = Some(uart.clone()));
+    let scanner = Gm65ScannerAsync::with_default_config(uart.clone());
+    wasm_bindgen_futures::spawn_local(ui::device_task(scanner, uart));
+    Ok(JsValue::from_str("starting"))
 }
 
-/// Apply a blessed scan policy: 0 = SilentContinuous, 1 = BuzzingContinuous,
-/// 2 = SilentCommand.
+/// Host wing: start scanning with policy 0/1/2 (see ScanPolicy).
 #[wasm_bindgen]
-pub async fn pg_start_scanning(policy: u32) -> Result<JsValue, JsValue> {
-    let (policy, name) = match policy {
-        0 => (ScanPolicy::SilentContinuous, "SilentContinuous"),
-        1 => (ScanPolicy::BuzzingContinuous, "BuzzingContinuous"),
-        _ => (ScanPolicy::SilentCommand, "SilentCommand"),
-    };
-    let mut sess = take_session()?;
-    let res = sess.scanner.start_scanning(policy).await;
-    restore_session(sess);
-    match res {
-        Ok(()) => {
-            LCD.with(|l| l.borrow_mut().scanning(name));
-            Ok(JsValue::from_str("scanning started"))
-        }
-        Err(e) => Err(JsValue::from_str(&format!("start_scanning failed: {e}"))),
-    }
+pub fn pg_cmd_start(policy: u32) {
+    ui::POLICY_IDX.with(|p| p.set(policy));
+    ui::push_cmd(ui::UiCmd::StartScan(policy));
 }
 
-/// Await one scan for up to `timeout_ms`. Resolves with the decoded payload
-/// text, or null on timeout.
+/// Host wing: stop scanning.
 #[wasm_bindgen]
-pub async fn pg_read_scan(timeout_ms: u32) -> JsValue {
-    let sess = match take_session() {
-        Ok(s) => s,
-        Err(_) => return JsValue::NULL,
-    };
-    let (sess, res) = {
-        let mut sess = sess;
-        let dur = embassy_time::Duration::from_millis(timeout_ms as u64);
-        let res = embassy_time::with_timeout(dur, sess.scanner.read_scan()).await;
-        (sess, res)
-    };
-    restore_session(sess);
-    match res {
-        Ok(Some(data)) => {
-            let text = String::from_utf8_lossy(&data).into_owned();
-            LCD.with(|l| l.borrow_mut().result(&text));
-            JsValue::from_str(&text)
-        }
-        _ => JsValue::NULL,
-    }
+pub fn pg_cmd_stop() {
+    ui::push_cmd(ui::UiCmd::StopScan);
 }
 
-/// Stop an ongoing scan.
+/// JS entry for decoded QR text (camera or paste). Delivered as
+/// `payload CRLF` by the module when it is scanning.
 #[wasm_bindgen]
-pub async fn pg_stop_scan() -> JsValue {
-    let sess = match take_session() {
-        Ok(s) => s,
-        Err(_) => return JsValue::from_bool(false),
-    };
-    let (sess, ok) = {
-        let mut sess = sess;
-        let ok = sess.scanner.stop_scan().await;
-        (sess, ok)
-    };
-    restore_session(sess);
-    if ok {
-        let model = MODEL.with(|m| m.borrow().clone());
-        LCD.with(|l| l.borrow_mut().home(&model));
+pub fn pg_feed_scan_payload(payload: &str) {
+    if let Some(u) = with_uart(|u| u.clone()) {
+        u.inject_scan(payload);
     }
-    JsValue::from_bool(ok)
 }
 
-/// Current driver state (Debug format), e.g. `Ready` / `Scanning`.
+/// LCD tap in 480x800 pixel coordinates (JS maps CSS → pixels).
+#[wasm_bindgen]
+pub fn pg_lcd_tap(x: u32, y: u32) {
+    ui::push_tap(x, y);
+}
+
+/// Current screen: boot | home | scanning | result | settings.
 #[wasm_bindgen]
 pub fn pg_state() -> String {
-    let in_flight = IN_FLIGHT.with(|b| b.get());
-    SESSION.with(|s| match s.borrow().as_ref() {
-        Some(sess) => format!("{:?}", sess.scanner.state()),
-        None if in_flight => "busy".to_string(),
-        None => "uninitialized".to_string(),
-    })
+    ui::UI_STATE.with(|s| s.borrow().screen.name()).to_string()
 }
 
-/// Driver status (model, connected, last scan length) as Debug text.
+/// Mirror of device status for the wing panel.
 #[wasm_bindgen]
 pub fn pg_status() -> String {
-    SESSION.with(|s| match s.borrow().as_ref() {
-        Some(sess) => format!("{:?}", sess.scanner.status()),
-        None => String::new(),
-    })
+    let screen = pg_state();
+    let model = ui::UI_STATE.with(|s| s.borrow().model.clone());
+    let scanning = pg_module_scanning();
+    let bits = pg_module_settings();
+    format!(
+        "screen: {screen} · model: {model} · module scanning: {scanning} · SETTINGS: 0x{bits:02X}"
+    )
 }
 
 /// True while the virtual module's scan laser is on.
@@ -439,13 +386,31 @@ pub fn pg_module_scanning() -> bool {
     with_uart(|u| u.is_scanning()).unwrap_or(false)
 }
 
-/// JS entry for decoded QR text (camera or paste). Held pending until the
-/// module is scanning, then delivered as `payload CRLF`.
+/// The module's live SETTINGS register value.
 #[wasm_bindgen]
-pub fn pg_feed_scan_payload(payload: &str) {
-    if let Some(u) = with_uart(|u| u.clone()) {
-        u.inject_scan(payload);
+pub fn pg_module_settings() -> u8 {
+    with_uart(|u| u.module_settings()).unwrap_or(0xFF)
+}
+
+/// Touch targets of the current screen (id, y, h in 480x800 pixels) for
+/// the e2e harness and accessibility tooling.
+#[wasm_bindgen]
+pub fn pg_ui_tap_targets() -> JsValue {
+    let screen = ui::UI_STATE.with(|s| s.borrow().screen);
+    let mut json = format!("{{\"screen\":\"{}\",\"rows\":[", screen.name());
+    for (i, (id, y)) in ui::rows_for(screen).iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push_str(&format!(
+            "{{\"id\":\"{}\",\"y\":{},\"h\":{}}}",
+            id.name(),
+            y,
+            lcd::ROW_H
+        ));
     }
+    json.push_str("]}");
+    JsValue::from_str(&json)
 }
 
 /// Last driver TX bytes (host → module commands), hex.

@@ -9,14 +9,23 @@ use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::PrimitiveStyle;
+use embedded_graphics::primitives::Rectangle;
 use embedded_graphics::text::Text;
 use gm65_scanner::display_util::word_wrap;
+use gm65_scanner::settings::{AimSetting, LightSetting, ReadMode, ScannerSettings};
 use gm65_scanner::{classify_payload, PayloadType};
 use qrcodegen_no_heap::{QrCode, QrCodeEcc, Version};
 use wasm_bindgen::JsCast;
 
+use crate::ui::{rows_for, RowId, Screen, UiState};
+
 pub const W: u32 = 480;
 pub const H: u32 = 800;
+
+pub const ROW_H: i32 = 64;
+pub const ROW_X: i32 = 24;
+pub const ROW_W: i32 = 480 - 48;
 
 mod theme {
     use embedded_graphics::pixelcolor::Rgb888;
@@ -29,12 +38,6 @@ mod theme {
 }
 
 const X_LABEL: i32 = 20;
-const Y_HOME_TITLE: i32 = 80;
-const Y_HOME_READY: i32 = 120;
-const Y_HOME_SCANNER_ROW: i32 = 200;
-const Y_HOME_HELP: i32 = 500;
-const Y_RESULT_TYPE_NAME: i32 = 60;
-const Y_RESULT_START: i32 = 100;
 const WRAP_CHARS: usize = 44;
 
 pub struct Lcd {
@@ -94,82 +97,158 @@ impl Lcd {
         }
     }
 
-    pub fn boot(&mut self) {
+    /// Render the current screen. Row placement mirrors `ui::rows_for`
+    /// (same constants) so hit-testing and drawing cannot drift apart.
+    pub fn render(&mut self, state: &UiState, settings: &ScannerSettings, module_bits: u8) {
         self.fill(theme::BG_DARK);
-        self.text("gm65-scanner", X_LABEL, Y_HOME_TITLE, theme::ACCENT_CYAN);
-        self.text(
-            "wasm playground",
-            X_LABEL,
-            Y_HOME_READY,
-            theme::TEXT_SECONDARY,
-        );
-        self.text(
-            "press INIT on the side",
-            X_LABEL,
-            Y_HOME_HELP,
-            theme::TEXT_SECONDARY,
-        );
-        self.paint();
-    }
-
-    pub fn home(&mut self, model: &str) {
-        self.fill(theme::BG_DARK);
-        self.text("GM65 HOST", X_LABEL, Y_HOME_TITLE, theme::ACCENT_CYAN);
-        self.text("READY", X_LABEL, Y_HOME_READY, theme::SUCCESS);
-        self.text("Scanner:", X_LABEL, Y_HOME_SCANNER_ROW, theme::TEXT_PRIMARY);
-        self.text(model, 140, Y_HOME_SCANNER_ROW, theme::TEXT_PRIMARY);
-        self.text(
-            "START SCANNING",
-            X_LABEL,
-            Y_HOME_HELP,
-            theme::TEXT_SECONDARY,
-        );
-        self.paint();
-    }
-
-    pub fn scanning(&mut self, policy: &str) {
-        self.fill(theme::BG_DARK);
-        self.text("SCANNING", X_LABEL, Y_HOME_TITLE, theme::ACCENT_CYAN);
-        self.text(
-            "aim at a QR code",
-            X_LABEL,
-            Y_HOME_READY,
-            theme::TEXT_SECONDARY,
-        );
-        self.text("policy:", X_LABEL, Y_HOME_SCANNER_ROW, theme::TEXT_PRIMARY);
-        self.text(policy, 140, Y_HOME_SCANNER_ROW, theme::TEXT_PRIMARY);
-        self.text(
-            "waiting for decode...",
-            X_LABEL,
-            Y_HOME_HELP,
-            theme::TEXT_SECONDARY,
-        );
-        self.paint();
-    }
-
-    pub fn result(&mut self, payload: &str) {
-        let ptype = classify_payload(payload.as_bytes());
-        self.fill(theme::BG_DARK);
-        self.text(
-            type_name(&ptype),
-            X_LABEL,
-            Y_RESULT_TYPE_NAME,
-            theme::ACCENT_CYAN,
-        );
-        let mut y = Y_RESULT_START;
-        for line in word_wrap(payload, WRAP_CHARS).iter().take(10) {
-            self.text(line, X_LABEL, y, theme::TEXT_PRIMARY);
-            y += 22;
+        match state.screen {
+            Screen::Boot => {
+                self.text("gm65-scanner", X_LABEL, 80, theme::ACCENT_CYAN);
+                self.text("wasm playground", X_LABEL, 120, theme::TEXT_SECONDARY);
+                if let Some(err) = &state.last_error {
+                    self.text(&format!("init ✗ {err}"), X_LABEL, 200, theme::ERROR);
+                } else {
+                    self.text(
+                        "press INIT on the side",
+                        X_LABEL,
+                        500,
+                        theme::TEXT_SECONDARY,
+                    );
+                }
+            }
+            Screen::Home => {
+                self.text("GM65 HOST", X_LABEL, 60, theme::ACCENT_CYAN);
+                if state.last_error.is_some() {
+                    self.text("INIT FAILED", X_LABEL, 100, theme::ERROR);
+                } else {
+                    self.text("READY", X_LABEL, 100, theme::SUCCESS);
+                }
+                self.text(
+                    &format!("scanner: {}", state.model),
+                    X_LABEL,
+                    120,
+                    theme::TEXT_SECONDARY,
+                );
+                for (id, y) in rows_for(Screen::Home) {
+                    match id {
+                        RowId::Start => self.row(*y, "Start scan", "▶", true),
+                        RowId::SettingsNav => self.row(*y, "Settings", "dry ⚙", false),
+                        _ => {}
+                    }
+                }
+                self.text(
+                    "tap rows · host tools in the wing",
+                    X_LABEL,
+                    740,
+                    theme::TEXT_SECONDARY,
+                );
+            }
+            Screen::Scanning => {
+                self.text("SCANNING", X_LABEL, 60, theme::ACCENT_CYAN);
+                self.text("aim at a QR code", X_LABEL, 100, theme::TEXT_SECONDARY);
+                self.text(
+                    &format!("policy: {}", state.policy_name),
+                    X_LABEL,
+                    120,
+                    theme::TEXT_SECONDARY,
+                );
+                for (id, y) in rows_for(Screen::Scanning) {
+                    if *id == RowId::Stop {
+                        self.row(*y, "Stop", "■", true);
+                    }
+                }
+            }
+            Screen::Result => {
+                let payload = state.payload.as_deref().unwrap_or("");
+                let ptype = classify_payload(payload.as_bytes());
+                self.text(type_name(&ptype), X_LABEL, 50, theme::ACCENT_CYAN);
+                let mut y = 90;
+                for line in word_wrap(payload, WRAP_CHARS).iter().take(8) {
+                    self.text(line, X_LABEL, y, theme::TEXT_PRIMARY);
+                    y += 22;
+                }
+                self.text(
+                    &format!("{} bytes", payload.len()),
+                    X_LABEL,
+                    y + 6,
+                    theme::TEXT_SECONDARY,
+                );
+                self.qr_mirror(payload, 530, 180);
+                for (id, y) in rows_for(Screen::Result) {
+                    if *id == RowId::Back {
+                        self.row(*y, "Back", "←", false);
+                    }
+                }
+            }
+            Screen::Settings => {
+                self.text("SETTINGS (DRY)", X_LABEL, 60, theme::ACCENT_CYAN);
+                self.text(
+                    "writes go to the virtual module only",
+                    X_LABEL,
+                    90,
+                    theme::TEXT_SECONDARY,
+                );
+                let aim = match settings.aim {
+                    AimSetting::Off => "off",
+                    AimSetting::Reading => "reading",
+                    AimSetting::Always => "always",
+                };
+                let light = match settings.light {
+                    LightSetting::Off => "off",
+                    LightSetting::Reading => "reading",
+                    LightSetting::Always => "always",
+                };
+                let mode = match settings.read_mode {
+                    ReadMode::Manual => "manual",
+                    ReadMode::Command => "command",
+                    ReadMode::Continuous => "continuous",
+                    ReadMode::Induction => "induction",
+                };
+                for (id, y) in rows_for(Screen::Settings) {
+                    match id {
+                        RowId::Buzzer => {
+                            self.row(*y, "Buzzer", on_off(settings.buzzer), false);
+                        }
+                        RowId::Aim => self.row(*y, "Aim LED", aim, false),
+                        RowId::Light => self.row(*y, "Light", light, false),
+                        RowId::Mode => self.row(*y, "Read mode", mode, false),
+                        RowId::Back => self.row(*y, "Back", "←", false),
+                        _ => {}
+                    }
+                }
+                self.text(
+                    &format!("SETTINGS = 0x{module_bits:02X}"),
+                    X_LABEL,
+                    760,
+                    theme::TEXT_SECONDARY,
+                );
+            }
         }
-        let len_line = format!("{} bytes", payload.len());
-        self.text(&len_line, X_LABEL, y + 8, theme::TEXT_SECONDARY);
-        self.qr_mirror(payload, 620);
         self.paint();
+    }
+
+    /// A tappable row: bordered box, label left, value right.
+    fn row(&mut self, y: i32, label: &str, value: &str, accent: bool) {
+        let border = if accent {
+            theme::ACCENT_CYAN
+        } else {
+            theme::TEXT_SECONDARY
+        };
+        let _ = Rectangle::new(Point::new(ROW_X, y), Size::new(ROW_W as u32, ROW_H as u32))
+            .into_styled(PrimitiveStyle::with_fill(Rgb888::new(0x10, 0x18, 0x28)))
+            .draw(self);
+        let _ = Rectangle::new(Point::new(ROW_X, y), Size::new(ROW_W as u32, ROW_H as u32))
+            .into_styled(PrimitiveStyle::with_stroke(border, 2))
+            .draw(self);
+        let text_y = y + ROW_H / 2 + 7;
+        self.text(label, ROW_X + 16, text_y, theme::TEXT_PRIMARY);
+        let value_x = ROW_X + ROW_W - 16 - value.chars().count() as i32 * 10;
+        self.text(value, value_x, text_y, theme::ACCENT_CYAN);
     }
 
     /// Mirror the decoded payload as a QR (same encoder + ECC as the
-    /// firmware example's qr_display.rs) in the lower band of the screen.
-    fn qr_mirror(&mut self, payload: &str, top: i32) {
+    /// firmware example's qr_display.rs), sized to fit `max_h` pixels.
+    fn qr_mirror(&mut self, payload: &str, top: i32, max_h: u32) {
         const BUF: usize = 4096;
         let mut temp = [0u8; BUF];
         let mut out = [0u8; BUF];
@@ -189,7 +268,7 @@ impl Lcd {
         let border = 2;
         let total = qr.size() + border * 2;
         let scale = ((W - 40) / total as u32)
-            .min(160 / total.max(1) as u32)
+            .min(max_h / total.max(1) as u32)
             .max(1);
         let scaled = total as u32 * scale;
         let x0 = ((W - scaled) / 2) as i32;
@@ -231,6 +310,14 @@ fn type_name(pt: &PayloadType) -> &'static str {
         PayloadType::Url => "URL",
         PayloadType::PlainText => "Plain Text",
         PayloadType::Binary => "Binary Data",
+    }
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on {
+        "on"
+    } else {
+        "off"
     }
 }
 
