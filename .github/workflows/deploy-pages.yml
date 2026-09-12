@@ -1,0 +1,71 @@
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "playground-wasm/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # wasm-bindgen-cli must match the wasm-bindgen crate version in Cargo.lock
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.128
+      - run: cargo build -p playground-wasm --target wasm32-unknown-unknown --release
+      - run: |
+          wasm-bindgen --target web \
+            target/wasm32-unknown-unknown/release/playground_wasm.wasm \
+            --out-dir _site
+          cp playground-wasm/web/index.html playground-wasm/web/main.js _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  e2e:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: playground-wasm/e2e
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+        working-directory: playground-wasm/e2e
+        env:
+          PLAYGROUND_URL: ${{ needs.deploy.outputs.page_url }}
