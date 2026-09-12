@@ -5,8 +5,33 @@ import { test, expect } from "@playwright/test";
 // init → start_scanning → inject-as-scan mid-read → byte-exact payload.
 const PAYLOAD = "cashuAeyEeV1NUTsWALLETplaygroundE2E";
 
+const DEMO_URL =
+  process.env.PLAYGROUND_URL ?? "https://amperstrand.github.io/gm65-scanner/";
+
+// First deployments of a fresh Pages site 404 for a while after the deploy
+// step reports success — poll until the page is actually interactive.
+// (Also: never goto("/") here — with a subpath baseURL the leading slash
+// resolves to the origin root, not the site.)
+async function open(page: import("@playwright/test").Page) {
+  for (let i = 0; i < 10; i++) {
+    await page
+      .goto(DEMO_URL, { waitUntil: "domcontentloaded" })
+      .catch(() => undefined);
+    if (
+      await page
+        .locator("#btnInit")
+        .isVisible({ timeout: 2_000 })
+        .catch(() => false)
+    ) {
+      return;
+    }
+    await page.waitForTimeout(3_000);
+  }
+  throw new Error("demo page did not become interactive");
+}
+
 test("init detects GM65 and reaches Ready", async ({ page }) => {
-  await page.goto("/");
+  await open(page);
   await page.getByRole("button", { name: "Init" }).click();
   await expect(page.locator("#log")).toContainText("init ✓ model=GM65", {
     timeout: 15_000,
@@ -15,7 +40,7 @@ test("init detects GM65 and reaches Ready", async ({ page }) => {
 });
 
 test("scan round-trip delivers injected payload byte-exact", async ({ page }) => {
-  await page.goto("/");
+  await open(page);
   await page.getByRole("button", { name: "Init" }).click();
   await expect(page.locator("#log")).toContainText("init ✓ model=GM65", {
     timeout: 15_000,
