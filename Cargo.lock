@@ -1187,10 +1187,13 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "embassy-time",
+ "embedded-graphics",
  "embedded-io-async",
  "gm65-scanner",
+ "qrcodegen-no-heap",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
