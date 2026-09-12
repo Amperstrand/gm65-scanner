@@ -39,10 +39,11 @@ async function guarded(name, fn) {
 
 let autoLoop = false;
 function refresh() {
-  const st = pg_state();
+  const scanning = pg_module_scanning();
+  document.body.classList.toggle("scanning", scanning);
   const badge = $("stateBadge");
-  badge.textContent = st;
-  badge.classList.toggle("on", pg_module_scanning());
+  badge.textContent = pg_state();
+  badge.classList.toggle("on", scanning);
   $("status").textContent = pg_status();
   const tx = pg_tx_hex();
   const rx = pg_rx_hex();
@@ -118,6 +119,7 @@ $("btnCam").onclick = () =>
     const video = $("video");
     video.srcObject = camStream;
     await video.play();
+    document.body.classList.add("cam-live");
     $("btnCamStop").disabled = false;
     const detector = new BarcodeDetector({ formats: ["qr_code"] });
     camLoop = true;
@@ -141,6 +143,7 @@ $("btnCamStop").onclick = () => {
   if (camStream) camStream.getTracks().forEach((t) => t.stop());
   camStream = null;
   $("video").srcObject = null;
+  document.body.classList.remove("cam-live");
   $("btnCamStop").disabled = true;
   log("camera stopped");
 };
