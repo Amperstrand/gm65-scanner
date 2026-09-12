@@ -25,6 +25,8 @@
 //! ```
 #![cfg(target_arch = "wasm32")]
 
+mod lcd;
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -296,6 +298,8 @@ thread_local! {
     // camera path depends on it.
     static UART: RefCell<Option<VirtualUart>> = const { RefCell::new(None) };
     static IN_FLIGHT: Cell<bool> = const { Cell::new(false) };
+    static LCD: RefCell<lcd::Lcd> = RefCell::new(lcd::Lcd::new());
+    static MODEL: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 fn take_session() -> Result<Session, JsValue> {
@@ -320,6 +324,7 @@ fn with_uart<T>(f: impl FnOnce(&VirtualUart) -> T) -> Option<T> {
 #[wasm_bindgen]
 pub fn pg_boot() {
     console_error_panic_hook::set_once();
+    LCD.with(|l| l.borrow_mut().boot());
 }
 
 /// Initialize the scanner against the virtual module. Resolves with the
@@ -331,9 +336,12 @@ pub async fn pg_init() -> Result<JsValue, JsValue> {
     let model = scanner.init().await;
     match model {
         Ok(m) => {
+            let name = m.to_string();
+            MODEL.with(|slot| *slot.borrow_mut() = name.clone());
             UART.with(|u| *u.borrow_mut() = Some(uart));
             SESSION.with(|s| *s.borrow_mut() = Some(Session { scanner }));
-            Ok(JsValue::from_str(&m.to_string()))
+            LCD.with(|l| l.borrow_mut().home(&name));
+            Ok(JsValue::from_str(&name))
         }
         Err(e) => Err(JsValue::from_str(&format!("init failed: {e}"))),
     }
@@ -343,16 +351,19 @@ pub async fn pg_init() -> Result<JsValue, JsValue> {
 /// 2 = SilentCommand.
 #[wasm_bindgen]
 pub async fn pg_start_scanning(policy: u32) -> Result<JsValue, JsValue> {
-    let policy = match policy {
-        0 => ScanPolicy::SilentContinuous,
-        1 => ScanPolicy::BuzzingContinuous,
-        _ => ScanPolicy::SilentCommand,
+    let (policy, name) = match policy {
+        0 => (ScanPolicy::SilentContinuous, "SilentContinuous"),
+        1 => (ScanPolicy::BuzzingContinuous, "BuzzingContinuous"),
+        _ => (ScanPolicy::SilentCommand, "SilentCommand"),
     };
     let mut sess = take_session()?;
     let res = sess.scanner.start_scanning(policy).await;
     restore_session(sess);
     match res {
-        Ok(()) => Ok(JsValue::from_str("scanning started")),
+        Ok(()) => {
+            LCD.with(|l| l.borrow_mut().scanning(name));
+            Ok(JsValue::from_str("scanning started"))
+        }
         Err(e) => Err(JsValue::from_str(&format!("start_scanning failed: {e}"))),
     }
 }
@@ -373,7 +384,11 @@ pub async fn pg_read_scan(timeout_ms: u32) -> JsValue {
     };
     restore_session(sess);
     match res {
-        Ok(Some(data)) => JsValue::from_str(&String::from_utf8_lossy(&data)),
+        Ok(Some(data)) => {
+            let text = String::from_utf8_lossy(&data).into_owned();
+            LCD.with(|l| l.borrow_mut().result(&text));
+            JsValue::from_str(&text)
+        }
         _ => JsValue::NULL,
     }
 }
@@ -391,6 +406,10 @@ pub async fn pg_stop_scan() -> JsValue {
         (sess, ok)
     };
     restore_session(sess);
+    if ok {
+        let model = MODEL.with(|m| m.borrow().clone());
+        LCD.with(|l| l.borrow_mut().home(&model));
+    }
     JsValue::from_bool(ok)
 }
 
