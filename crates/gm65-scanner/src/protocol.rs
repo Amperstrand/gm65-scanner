@@ -142,6 +142,33 @@ impl BaudRate {
     }
 }
 
+/// Build the manual's "find baud rate" frame (Appendix A):
+/// `7E 00 07 01 00 2A 02 D8 0F`. The module replies with an 8-byte echo
+/// `02 00 00 02 <code_lo> <code_hi> SS SS` naming its CURRENT baud
+/// (zone-bit codes: 0x0139=9600 ... 0x001A=115200).
+pub fn build_find_baud() -> [u8; 9] {
+    [
+        HEADER[0],
+        HEADER[1],
+        CMD_GET_PARAM,
+        0x01,
+        0x00,
+        0x2A,
+        0x02,
+        0xD8,
+        0x0F,
+    ]
+}
+
+/// Parse an 8-byte find-baud echo into a baud-rate zone-bit code.
+/// Returns None for wrong shape.
+pub fn parse_find_baud_response(data: &[u8]) -> Option<u16> {
+    if data.len() < 6 || data[0..4] != [0x02, 0x00, 0x00, 0x02] {
+        return None;
+    }
+    Some(u16::from_le_bytes([data[4], data[5]]))
+}
+
 /// Build a get-setting command frame (9 bytes).
 ///
 /// Returns a complete command frame that reads the register at `addr`.
@@ -341,6 +368,29 @@ pub mod commands {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn find_baud_roundtrip() {
+        let frame = build_find_baud();
+        assert_eq!(
+            frame,
+            [0x7E, 0x00, 0x07, 0x01, 0x00, 0x2A, 0x02, 0xD8, 0x0F]
+        );
+        // manual table: 9600 -> 02 00 00 02 39 01 SS SS
+        assert_eq!(
+            parse_find_baud_response(&[0x02, 0x00, 0x00, 0x02, 0x39, 0x01, 0x00, 0x00]),
+            Some(0x0139)
+        );
+        assert_eq!(
+            parse_find_baud_response(&[0x02, 0x00, 0x00, 0x02, 0x1A, 0x00, 0x00, 0x00]),
+            Some(0x001A)
+        );
+        assert_eq!(
+            parse_find_baud_response(&[0x02, 0x00, 0x00, 0x01, 0x39, 0x01, 0x00, 0x00]),
+            None
+        );
+        assert_eq!(parse_find_baud_response(&[0x02]), None);
+    }
+
     use super::*;
 
     #[test]

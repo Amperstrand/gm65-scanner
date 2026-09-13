@@ -34,6 +34,7 @@
 //! }
 //! ```
 
+pub mod baud;
 pub mod io;
 mod traits;
 mod types;
@@ -41,6 +42,7 @@ mod types;
 #[cfg(test)]
 mod test_helpers;
 
+pub use baud::{BaudSwitch, NoBaudSwitch};
 pub use traits::{ScannerDriver, ScannerDriverSync};
 pub use types::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
 
