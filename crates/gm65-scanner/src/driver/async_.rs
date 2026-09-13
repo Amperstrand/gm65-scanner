@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 use crate::driver::{
     ScannerConfig, ScannerDriver, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
-use crate::protocol::{self, Gm65Response, Register, RESPONSE_LEN};
+use crate::protocol::{self, BaudRate, Gm65Response, Register, RESPONSE_LEN};
 use crate::scanner_core::{ScanByteResult, ScannerCore, ScannerSettings};
 use embassy_time::{with_timeout, Duration};
 
@@ -203,6 +203,77 @@ impl<UART> Gm65ScannerAsync<UART> {
     /// register server accepts this even when its decode engine is wedged
     /// (bench 2026-09-10). WARNING: may restore the module's default 9600
     /// baud — the host must be prepared to re-probe/re-configure.
+    /// Ask the module its CURRENT baud (manual Appendix A find-baud
+    /// frame; the reply is an 8-byte echo, not the usual 7-byte register
+    /// response). Useful when a heal/factory reset may have moved the
+    /// module off the host's rate — and as a bench probe for whether the
+    /// module auto-bauds on this frame at all.
+    pub async fn find_baud_rate(&mut self) -> Option<BaudRate>
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        let cmd = protocol::build_find_baud();
+        if self.uart_write_all(&cmd).await.is_err() {
+            return None;
+        }
+        let mut resp = [0u8; 8];
+        let mut offset = 0;
+        while offset < resp.len() {
+            match with_timeout(CMD_TIMEOUT, self.uart.read(&mut resp[offset..])).await {
+                Ok(Ok(0)) => return None,
+                Ok(Ok(n)) => offset += n,
+                _ => return None,
+            }
+        }
+        let code = protocol::parse_find_baud_response(&resp)?;
+        [
+            BaudRate::Bps9600,
+            BaudRate::Bps19200,
+            BaudRate::Bps38400,
+            BaudRate::Bps57600,
+            BaudRate::Bps115200,
+        ]
+        .into_iter()
+        .find(|r| r.value() as u16 == code)
+    }
+
+    /// Multi-baud init (#85): plain init, then the factory-baud ladder
+    /// through the host's [`BaudSwitch`](crate::BaudSwitch) hook. See
+    /// `driver/baud.rs` for the sequence.
+    pub async fn init_multi_baud<S: crate::driver::BaudSwitch>(
+        &mut self,
+        switch: &mut S,
+    ) -> Result<ScannerModel, ScannerError>
+    where
+        UART: embedded_io_async::Write + embedded_io_async::Read,
+    {
+        match self.init().await {
+            Ok(model) => return Ok(model),
+            Err(ScannerError::NotDetected) => {}
+            Err(e) => return Err(e),
+        }
+        // Factory-default baud ladder.
+        if !switch.set_baud(9600) {
+            return Err(ScannerError::NotDetected);
+        }
+        match self.init().await {
+            Ok(_) => {
+                // Module answered at 9600: bring it (and the host) to
+                // operating baud, then verify with a full init.
+                let _ = self.set_baud_115200().await;
+                if !switch.set_baud(115200) {
+                    return Err(ScannerError::UartError);
+                }
+                self.init().await
+            }
+            Err(e) => {
+                // Nothing at 9600 either — restore the host and report.
+                let _ = switch.set_baud(115200);
+                Err(e)
+            }
+        }
+    }
+
     /// Apply a blessed scan policy (see [`crate::policy::ScanPolicy`]):
     /// stop, write SETTINGS, then write ScanEnable=1 — the module needs
     /// the start signal (bench lesson 68dd5e2, issue #75).
@@ -803,7 +874,11 @@ mod tests {
     use alloc::vec::Vec;
     use core::cell::RefCell;
 
+    use crate::driver::baud::BaudSwitch as _;
     use crate::driver::test_helpers::{init_response_sequence, success_response, MockInner};
+    use alloc::format;
+    use alloc::vec;
+    use core::cell::Cell;
     use embedded_io_async::Read as _;
     use embedded_io_async::Write as _;
 
@@ -1119,6 +1194,176 @@ mod tests {
             scanner.state(),
             ScannerState::Error(ScannerError::Cancelled)
         ));
+    }
+
+    /// Baull-aware wrapper COMPOSING the existing mock (no re-implemented
+    /// protocol): `dead` never responds (module absent at this baud),
+    /// `live` carries the response sequences. The 2-byte baud register
+    /// write flips the module side to 115200.
+    struct BaudAwareMock {
+        dead: MockAsyncUart,
+        live: MockAsyncUart,
+        baud: Rc<Cell<u32>>,
+        module_at_115200: Rc<Cell<bool>>,
+    }
+
+    impl BaudAwareMock {
+        fn active(&mut self) -> &mut MockAsyncUart {
+            let responds = (self.baud.get() == 9600 && !self.module_at_115200.get())
+                || (self.baud.get() == 115200 && self.module_at_115200.get());
+            if responds {
+                &mut self.live
+            } else {
+                &mut self.dead
+            }
+        }
+    }
+
+    impl Clone for BaudAwareMock {
+        fn clone(&self) -> Self {
+            Self {
+                dead: self.dead.clone(),
+                live: self.live.clone(),
+                baud: Rc::clone(&self.baud),
+                module_at_115200: Rc::clone(&self.module_at_115200),
+            }
+        }
+    }
+
+    impl embedded_io_async::ErrorType for BaudAwareMock {
+        type Error = embedded_io_async::ErrorKind;
+    }
+
+    impl embedded_io_async::Read for BaudAwareMock {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.active().read(buf).await
+        }
+    }
+
+    impl embedded_io_async::Write for BaudAwareMock {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            // 2-byte set command for the baud register (7E 00 08 02 00 2A
+            // 1A 00 AB CD): the module switches to 115200 immediately.
+            if buf.len() >= 10
+                && buf[2] == 0x08
+                && buf[3] == 0x02
+                && buf[4] == 0x00
+                && buf[5] == 0x2A
+                && buf[6] == 0x1A
+            {
+                self.module_at_115200.set(true);
+            }
+            self.active().write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.active().flush().await
+        }
+
+        async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+            if buf.len() >= 10
+                && buf[2] == 0x08
+                && buf[3] == 0x02
+                && buf[4] == 0x00
+                && buf[5] == 0x2A
+                && buf[6] == 0x1A
+            {
+                self.module_at_115200.set(true);
+            }
+            self.active().write_all(buf).await
+        }
+    }
+
+    struct RecordingSwitch {
+        baud: Rc<Cell<u32>>,
+        calls: Rc<RefCell<Vec<u32>>>,
+    }
+
+    impl crate::driver::BaudSwitch for RecordingSwitch {
+        fn set_baud(&mut self, baud: u32) -> bool {
+            self.calls.borrow_mut().push(baud);
+            self.baud.set(baud);
+            true
+        }
+    }
+
+    #[test]
+    fn test_init_multi_baud_ladder() {
+        futures_executor::block_on(async {
+            let baud = Rc::new(Cell::new(115200u32));
+            let module_at_115200 = Rc::new(Cell::new(false));
+            let (b1, l1) = init_response_sequence();
+            let (b2, l2) = init_response_sequence();
+            let mut chunks: Vec<&[u8]> = Vec::new();
+            for buf in [&b1[..l1], &b2[..l2]] {
+                chunks.extend(buf.chunks(7));
+            }
+            let mock = BaudAwareMock {
+                dead: MockAsyncUart::new(),
+                live: MockAsyncUart::with_response_sequence(&chunks),
+                baud: Rc::clone(&baud),
+                module_at_115200: Rc::clone(&module_at_115200),
+            };
+            let mock_clone = mock.clone();
+            let mut scanner = Gm65ScannerAsync::with_default_config(mock);
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let mut switch = RecordingSwitch {
+                baud: Rc::clone(&baud),
+                calls: Rc::clone(&calls),
+            };
+            // phase 1: init at 115200 against a dead module
+            let first = scanner.init().await;
+            assert_eq!(first, Err(ScannerError::NotDetected), "phase1 dead@115200");
+            // phase 2: host down to 9600, init against the live module
+            assert!(switch.set_baud(9600), "phase2 switch");
+            use crate::driver::ScannerDriver as _;
+            let ping_ok = scanner.ping().await;
+            if !ping_ok {
+                let liveq = mock_clone.live.inner.borrow();
+                let deadq = mock_clone.dead.inner.borrow();
+                let msg = format!(
+                    "ping failed: baud={} m115200={} live(pending={} queue={} written={}) dead(written={})",
+                    baud.get(), module_at_115200.get(),
+                    liveq.pending_responses.len(), liveq.read_queue.len(), liveq.written.len(),
+                    deadq.written.len());
+                assert!(ping_ok, "{msg}");
+            }
+            let second = scanner.init().await;
+            assert!(second.is_ok(), "phase2 init@9600 after ping: {second:?}");
+            // phase 3: module to 115200, host follows, verify. The write's
+            // ack is ADVISORY (it can arrive at the new rate the host
+            // cannot hear yet) — assert the effect, not the ack.
+            let _ = scanner.set_baud_115200().await;
+            assert!(module_at_115200.get(), "phase3 flag");
+            assert!(switch.set_baud(115200), "phase3 host baud");
+            let third = scanner.init().await;
+            assert!(third.is_ok(), "phase3 init@115200: {third:?}");
+            assert_eq!(*calls.borrow(), vec![9600, 115200]);
+        });
+    }
+
+    #[test]
+    fn test_init_multi_baud_dead_module_restores_baud() {
+        futures_executor::block_on(async {
+            let baud = Rc::new(Cell::new(115200u32));
+            let mock = BaudAwareMock {
+                dead: MockAsyncUart::new(),
+                live: MockAsyncUart::new(),
+                baud: Rc::clone(&baud),
+                module_at_115200: Rc::new(Cell::new(false)),
+            };
+            let mut scanner = Gm65ScannerAsync::with_default_config(mock);
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let mut switch = RecordingSwitch {
+                baud: Rc::clone(&baud),
+                calls: Rc::clone(&calls),
+            };
+            let result = scanner.init_multi_baud(&mut switch).await;
+            assert_eq!(result, Err(ScannerError::NotDetected));
+            // probed 9600, restored 115200
+            assert_eq!(*calls.borrow(), vec![9600, 115200]);
+            assert_eq!(baud.get(), 115200);
+        });
     }
 
     #[test]
