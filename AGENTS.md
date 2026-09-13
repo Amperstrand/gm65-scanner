@@ -596,3 +596,24 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
   pre-existing. Both were clean on the older toolchain that verified HEAD.
 - Bench left as found: sync heal fw restored, module healthy (3/3 verify
   scans post-0x22-heal), buzzer silent, flock free.
+
+## Module wedge recovery matrix (B29, 2026-09-13)
+
+This crate owns all GM65 module lore. The three wedge classes and their
+recoveries — from micronuts physical-loop session 2026-09-13 (full
+lesson: bolty-rs lessons-learned B29):
+
+| Class | Symptom | Fix | Proven |
+|---|---|---|---|
+| 1 — decode fatigue (#92) | UART ACKs, zero decodes, watchdog climbs | idle time; `ScannerHeal` (0x13, deep-sleep) sometimes; pace scans | soak 2026-09-11 |
+| 2 — settings corruption | init VERIFY fails (register writes ACK but read back wrong) | `ScannerFactoryHeal` (0x14, factory_reset + baud ladder) | firmware boot ladder |
+| 3 — deep wedge (ROM state) | init fails at EVERY step; even 0x14 doesn't restore init; raw UART commands still ACK | **physical board power-cycle only** — unplug both USB + ST-Link 10 s (the module rides the 3.3V rail; ST resets don't depower it) | micronuts 2026-09-13 (0x13 and 0x14 both failed; trigger ACKed) |
+
+**Heal-ladder ceiling**: the factory-heal (0x14) is the deepest SOFTWARE
+recovery. A module that ACKs UART but fails init after 0x14 is class 3 —
+stop retrying software heals and power-cycle the board.
+
+**Session protocol** (every project using this rig): check-in probe
+(bringup.py F1+F2), classify before healing, check-out probe. A session
+that leaves a class-3 wedge must name it — silent handoffs are how
+wedges compound across days.
