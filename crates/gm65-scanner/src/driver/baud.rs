@@ -41,6 +41,7 @@ impl BaudSwitch for NoBaudSwitch {
 /// let (mut scanner, model) = gm65_scanner::init_scanner_multi_baud(uart).await?;
 /// scanner.start_scanning(ScanPolicy::SilentContinuous).await?;
 /// ```
+#[cfg(feature = "async")]
 pub async fn init_scanner_multi_baud<UART>(
     uart: UART,
 ) -> Result<(crate::Gm65ScannerAsync<UART>, crate::ScannerModel), crate::ScannerError>
