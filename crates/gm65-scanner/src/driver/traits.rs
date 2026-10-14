@@ -16,7 +16,6 @@ pub trait ScannerDriverSync {
 
     /// Ping the scanner to check communication.
     /// Returns true if the scanner responds.
-    #[must_use]
     fn ping(&mut self) -> bool;
 
     /// Trigger a scan.
@@ -26,12 +25,10 @@ pub trait ScannerDriverSync {
 
     /// Stop an ongoing scan.
     /// Returns true if the stop command was successful.
-    #[must_use]
     fn stop_scan(&mut self) -> bool;
 
     /// Read scanned data (blocking).
     /// Returns Some(data) if a complete scan was read, None on timeout.
-    #[must_use]
     fn read_scan(&mut self) -> Option<alloc::vec::Vec<u8>>;
 
     /// Non-blocking incremental scan read.
@@ -62,7 +59,6 @@ pub trait ScannerDriver {
 
     /// Ping the scanner to check communication.
     /// Returns true if the scanner responds.
-    #[must_use]
     fn ping(&mut self) -> impl core::future::Future<Output = bool>;
 
     /// Trigger a scan.
@@ -72,12 +68,10 @@ pub trait ScannerDriver {
 
     /// Stop an ongoing scan.
     /// Returns true if the stop command was successful.
-    #[must_use]
     fn stop_scan(&mut self) -> impl core::future::Future<Output = bool>;
 
     /// Read scanned data (async).
     /// Returns Some(data) if a complete scan was read, None on timeout.
-    #[must_use]
     fn read_scan(&mut self) -> impl core::future::Future<Output = Option<alloc::vec::Vec<u8>>>;
 
     /// Get the current scanner state.
