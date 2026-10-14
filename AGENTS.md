@@ -496,6 +496,10 @@ QRs the GM65 scans; `tools/hil` (pytest, bench flock + labgrid place
 `gm65-qr-loopback` + fips-lab boards.toml flash gates) drives both ends.
 `make test-qr-loopback`, `make hil-place`, `make spec-check`. **Green 6/6**
 (2026-09-10): byte-exact roundtrips at 10/45/127B on HEAD async firmware.
+Cross-project bench/labgrid canon (coordinator `.208:20408` via
+`LG_COORDINATOR`, queueing with `reserve --wait`, exclusion domains,
+exporter state) lives in **conwrt-bench `docs/labgrid-coordination.md`**
+— the org-wide single source of truth.
 
 - **Winning render config (matrix experiment 2026-09-10)**: INVERTED (white
   modules on black) + ECC-H + 224px cap (~203px QR) — only inverted cells
