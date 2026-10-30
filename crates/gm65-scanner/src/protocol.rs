@@ -125,6 +125,38 @@ pub enum BaudRate {
 }
 
 impl BaudRate {
+    /// Map a find-baud response zone-bit code to a baud rate (#107).
+    ///
+    /// The find-baud echo names the module's CURRENT baud as a zone-bit
+    /// code — a DIFFERENT encoding from the 1-byte set-register values
+    /// returned by [`BaudRate::value`]: a 9600-baud module answers
+    /// `0x0139` while `BaudRate::Bps9600.value()` is `0x00`, and only
+    /// 115200 (`0x001A`) coincides in both encodings. Table from the
+    /// GM65 user manual (Appendix A/B, query-baud-rate replies):
+    ///
+    /// | Zone code | Baud |
+    /// |-----------|------|
+    /// | `0x09C4` | 1200 (not a `BaudRate` variant) |
+    /// | `0x0271` | 4800 (not a `BaudRate` variant) |
+    /// | `0x0139` | 9600 |
+    /// | `0x00D0` | 14400 (not a `BaudRate` variant) |
+    /// | `0x009C` | 19200 |
+    /// | `0x004E` | 38400 |
+    /// | `0x0034` | 57600 |
+    /// | `0x001A` | 115200 |
+    ///
+    /// Returns `None` for codes outside the supported rates.
+    pub fn from_find_baud_code(code: u16) -> Option<Self> {
+        match code {
+            0x0139 => Some(BaudRate::Bps9600),
+            0x009C => Some(BaudRate::Bps19200),
+            0x004E => Some(BaudRate::Bps38400),
+            0x0034 => Some(BaudRate::Bps57600),
+            0x001A => Some(BaudRate::Bps115200),
+            _ => None,
+        }
+    }
+
     /// Return the 1-byte baud rate code used in set-baud commands.
     pub fn value(&self) -> u8 {
         *self as u8
@@ -389,6 +421,40 @@ mod tests {
             None
         );
         assert_eq!(parse_find_baud_response(&[0x02]), None);
+    }
+
+    #[test]
+    fn find_baud_zone_codes_pin_every_rate() {
+        // Manual Appendix A/B zone-bit table (query-baud-rate replies).
+        assert_eq!(
+            BaudRate::from_find_baud_code(0x0139),
+            Some(BaudRate::Bps9600)
+        );
+        assert_eq!(
+            BaudRate::from_find_baud_code(0x009C),
+            Some(BaudRate::Bps19200)
+        );
+        assert_eq!(
+            BaudRate::from_find_baud_code(0x004E),
+            Some(BaudRate::Bps38400)
+        );
+        assert_eq!(
+            BaudRate::from_find_baud_code(0x0034),
+            Some(BaudRate::Bps57600)
+        );
+        assert_eq!(
+            BaudRate::from_find_baud_code(0x001A),
+            Some(BaudRate::Bps115200)
+        );
+        // Rates the enum does not carry, and garbage.
+        assert_eq!(BaudRate::from_find_baud_code(0x09C4), None); // 1200
+        assert_eq!(BaudRate::from_find_baud_code(0x0271), None); // 4800
+        assert_eq!(BaudRate::from_find_baud_code(0x00D0), None); // 14400
+        assert_eq!(BaudRate::from_find_baud_code(0x0000), None);
+        assert_eq!(BaudRate::from_find_baud_code(0xFFFF), None);
+        // Zone codes are NOT the set-register values (#107): 9600 must
+        // not map via `value()`.
+        assert_ne!(BaudRate::Bps9600.value() as u16, 0x0139);
     }
 
     use super::*;
