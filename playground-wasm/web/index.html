@@ -20,10 +20,14 @@
     margin: 0 auto; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
 
   /* ================= device rig ================= */
-  .rig { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  /* min-width:0 lets the rig column shrink below its content when the
+     viewport is narrower than the device (sub-372px phones); the pcb and
+     module clamp to 100% instead of overflowing (#110). */
+  .rig { display: flex; flex-direction: column; align-items: center; gap: 0;
+    min-width: 0; }
 
   .pcb {
-    width: 340px; background: linear-gradient(160deg, #1d2433 0%, #171d29 60%, #131824 100%);
+    width: 340px; max-width: 100%; background: linear-gradient(160deg, #1d2433 0%, #171d29 60%, #131824 100%);
     border: 2px solid #0d1119; border-radius: 16px;
     box-shadow: inset 0 0 0 1px #2a3450, 0 14px 34px rgba(0,0,0,.55);
     padding: 10px 14px 12px; position: relative;
@@ -63,7 +67,7 @@
   .cable.notes::after { content: "USART6 · PG14/PG9 · 115200"; }
 
   .gm65 {
-    width: 300px; background: linear-gradient(180deg, #303748, #222836);
+    width: 300px; max-width: 100%; background: linear-gradient(180deg, #303748, #222836);
     border: 2px solid #0d1119; border-radius: 10px 10px 14px 14px;
     padding: 10px 12px 12px; position: relative;
     box-shadow: inset 0 0 0 1px #3a4566, 0 10px 22px rgba(0,0,0,.5);
@@ -98,7 +102,7 @@
   .gm65 .foot .tag { border: 1px solid #3a4566; border-radius: 4px; padding: 0 5px; }
 
   /* ================= side wing ================= */
-  .wing { flex: 1 1 380px; max-width: 560px; min-width: 330px; }
+  .wing { flex: 1 1 380px; max-width: 560px; min-width: min(330px, 100%); }
   .card { background: #11151d; border: 1px solid #1c2230; border-radius: 8px;
     padding: 12px; margin-bottom: 12px; }
   .card h2 { font-size: 12px; margin: 0 0 8px; color: #8ab4ff;

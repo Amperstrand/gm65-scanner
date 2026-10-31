@@ -12,7 +12,6 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::PrimitiveStyle;
 use embedded_graphics::primitives::Rectangle;
 use embedded_graphics::text::Text;
-use gm65_scanner::display_util::word_wrap;
 use gm65_scanner::settings::{AimSetting, LightSetting, ReadMode, ScannerSettings};
 use gm65_scanner::{classify_payload, PayloadType};
 use qrcodegen_no_heap::{QrCode, QrCodeEcc, Version};
@@ -161,19 +160,25 @@ impl Lcd {
             Screen::Result => {
                 let payload = state.payload.as_deref().unwrap_or("");
                 let ptype = classify_payload(payload.as_bytes());
+                // Firmware qr_display.rs path: black field, the QR as the
+                // screen's dominant element. The QR encodes the COMPLETE
+                // payload; only the visible label is elided (#110).
+                self.fill(Rgb888::BLACK);
                 self.text(type_name(&ptype), X_LABEL, 50, theme::ACCENT_CYAN);
-                let mut y = 90;
-                for line in word_wrap(payload, WRAP_CHARS).iter().take(8) {
-                    self.text(line, X_LABEL, y, theme::TEXT_PRIMARY);
-                    y += 22;
-                }
+                self.qr_mirror(payload, 88, 648);
                 self.text(
-                    &format!("{} bytes", payload.len()),
+                    &elide_label(payload, WRAP_CHARS),
                     X_LABEL,
-                    y + 6,
-                    theme::TEXT_SECONDARY,
+                    672,
+                    theme::ACCENT_CYAN,
                 );
-                self.qr_mirror(payload, 530, 180);
+                let elided = payload.chars().count() > WRAP_CHARS;
+                let note = if elided {
+                    format!("{} bytes · QR carries the full payload", payload.len())
+                } else {
+                    format!("{} bytes", payload.len())
+                };
+                self.text(&note, X_LABEL, 700, theme::TEXT_SECONDARY);
                 for (id, y) in rows_for(Screen::Result) {
                     if *id == RowId::Back {
                         self.row(*y, "Back", "←", false);
@@ -247,8 +252,11 @@ impl Lcd {
     }
 
     /// Mirror the decoded payload as a QR (same encoder + ECC as the
-    /// firmware example's qr_display.rs), sized to fit `max_h` pixels.
-    fn qr_mirror(&mut self, payload: &str, top: i32, max_h: u32) {
+    /// firmware example's qr_display.rs) filling the band `top..bottom`
+    /// with the firmware's horizontal margin — the scan-result QR gets
+    /// the firmware's full-screen treatment, never a squeezed inset.
+    /// Encodes the COMPLETE payload string; callers elide only labels.
+    fn qr_mirror(&mut self, payload: &str, top: i32, bottom: i32) {
         const BUF: usize = 4096;
         let mut temp = [0u8; BUF];
         let mut out = [0u8; BUF];
@@ -267,12 +275,15 @@ impl Lcd {
         };
         let border = 2;
         let total = qr.size() + border * 2;
-        let scale = ((W - 40) / total as u32)
-            .min(max_h / total.max(1) as u32)
+        let margin_x = 40; // firmware QR_MARGIN_X
+        let avail_w = W - margin_x * 2;
+        let avail_h = (bottom - top).max(0) as u32;
+        let scale = (avail_w / total as u32)
+            .min(avail_h / total.max(1) as u32)
             .max(1);
         let scaled = total as u32 * scale;
         let x0 = ((W - scaled) / 2) as i32;
-        let y0 = top;
+        let y0 = top + (avail_h.saturating_sub(scaled) / 2) as i32;
         // White module field, then dark modules on top.
         let _ = embedded_graphics::primitives::Rectangle::new(
             Point::new(x0, y0),
@@ -299,6 +310,19 @@ impl Lcd {
                 }
             }
         }
+    }
+}
+
+/// Elide a label to `max_chars` on a char boundary (firmware
+/// display_utils::truncate_str semantics), marking the cut with "…".
+/// Display-only — the QR keeps encoding the full payload (#110).
+fn elide_label(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let mut cut: String = s.chars().take(max_chars - 1).collect();
+        cut.push('…');
+        cut
     }
 }
 
