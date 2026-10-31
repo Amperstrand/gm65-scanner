@@ -226,20 +226,15 @@ impl<UART> Gm65ScannerAsync<UART> {
             }
         }
         let code = protocol::parse_find_baud_response(&resp)?;
-        [
-            BaudRate::Bps9600,
-            BaudRate::Bps19200,
-            BaudRate::Bps38400,
-            BaudRate::Bps57600,
-            BaudRate::Bps115200,
-        ]
-        .into_iter()
-        .find(|r| r.value() as u16 == code)
+        // The echo carries a zone-bit code, NOT the set-register value
+        // (0x0139=9600 ... 0x001A=115200) — map it, don't compare it
+        // with `BaudRate::value()` (#107).
+        BaudRate::from_find_baud_code(code)
     }
 
-    /// Multi-baud init (#85): plain init, then the factory-baud ladder
-    /// through the host's [`BaudSwitch`](crate::BaudSwitch) hook. See
-    /// `driver/baud.rs` for the sequence.
+    /// Multi-baud init (#85, #107): plain init, then the recovery baud
+    /// ladder through the host's [`BaudSwitch`](crate::BaudSwitch) hook.
+    /// See `driver/baud.rs` for the sequence.
     pub async fn init_multi_baud<S: crate::driver::BaudSwitch>(
         &mut self,
         switch: &mut S,
@@ -252,26 +247,33 @@ impl<UART> Gm65ScannerAsync<UART> {
             Err(ScannerError::NotDetected) => {}
             Err(e) => return Err(e),
         }
-        // Factory-default baud ladder.
-        if !switch.set_baud(9600) {
-            return Err(ScannerError::NotDetected);
-        }
-        match self.init().await {
-            Ok(_) => {
-                // Module answered at 9600: bring it (and the host) to
-                // operating baud, then verify with a full init.
-                let _ = self.set_baud_115200().await;
-                if !switch.set_baud(115200) {
-                    return Err(ScannerError::UartError);
+        // Recovery ladder: factory-default 9600, then 57600 (M3Y retain
+        // rate — findings doc "Multi-Baud Rate Probing"; #107).
+        for probe in [9600u32, 57600] {
+            if !switch.set_baud(probe) {
+                break;
+            }
+            match self.init().await {
+                Ok(_) => {
+                    // Module answered at `probe`: bring it (and the host)
+                    // to operating baud, then verify with a full init.
+                    let _ = self.set_baud_115200().await;
+                    if !switch.set_baud(115200) {
+                        return Err(ScannerError::UartError);
+                    }
+                    return self.init().await;
                 }
-                self.init().await
-            }
-            Err(e) => {
-                // Nothing at 9600 either — restore the host and report.
-                let _ = switch.set_baud(115200);
-                Err(e)
+                Err(ScannerError::NotDetected) => {}
+                Err(e) => {
+                    // Real fault at this baud — restore the host, report.
+                    let _ = switch.set_baud(115200);
+                    return Err(e);
+                }
             }
         }
+        // Nothing answered anywhere — restore the host and report.
+        let _ = switch.set_baud(115200);
+        Err(ScannerError::NotDetected)
     }
 
     /// Apply a blessed scan policy (see [`crate::policy::ScanPolicy`]):
@@ -1198,18 +1200,20 @@ mod tests {
 
     /// Baull-aware wrapper COMPOSING the existing mock (no re-implemented
     /// protocol): `dead` never responds (module absent at this baud),
-    /// `live` carries the response sequences. The 2-byte baud register
-    /// write flips the module side to 115200.
+    /// `live` carries the response sequences. The module speaks
+    /// `module_baud` until the 2-byte baud register write flips it to
+    /// 115200.
     struct BaudAwareMock {
         dead: MockAsyncUart,
         live: MockAsyncUart,
         baud: Rc<Cell<u32>>,
+        module_baud: u32,
         module_at_115200: Rc<Cell<bool>>,
     }
 
     impl BaudAwareMock {
         fn active(&mut self) -> &mut MockAsyncUart {
-            let responds = (self.baud.get() == 9600 && !self.module_at_115200.get())
+            let responds = (self.baud.get() == self.module_baud && !self.module_at_115200.get())
                 || (self.baud.get() == 115200 && self.module_at_115200.get());
             if responds {
                 &mut self.live
@@ -1219,12 +1223,20 @@ mod tests {
         }
     }
 
+    impl crate::driver::BaudSwitch for BaudAwareMock {
+        fn set_baud(&mut self, baud: u32) -> bool {
+            self.baud.set(baud);
+            true
+        }
+    }
+
     impl Clone for BaudAwareMock {
         fn clone(&self) -> Self {
             Self {
                 dead: self.dead.clone(),
                 live: self.live.clone(),
                 baud: Rc::clone(&self.baud),
+                module_baud: self.module_baud,
                 module_at_115200: Rc::clone(&self.module_at_115200),
             }
         }
@@ -1302,6 +1314,7 @@ mod tests {
                 dead: MockAsyncUart::new(),
                 live: MockAsyncUart::with_response_sequence(&chunks),
                 baud: Rc::clone(&baud),
+                module_baud: 9600,
                 module_at_115200: Rc::clone(&module_at_115200),
             };
             let mock_clone = mock.clone();
@@ -1350,6 +1363,7 @@ mod tests {
                 dead: MockAsyncUart::new(),
                 live: MockAsyncUart::new(),
                 baud: Rc::clone(&baud),
+                module_baud: 9600,
                 module_at_115200: Rc::new(Cell::new(false)),
             };
             let mut scanner = Gm65ScannerAsync::with_default_config(mock);
@@ -1360,8 +1374,118 @@ mod tests {
             };
             let result = scanner.init_multi_baud(&mut switch).await;
             assert_eq!(result, Err(ScannerError::NotDetected));
-            // probed 9600, restored 115200
-            assert_eq!(*calls.borrow(), vec![9600, 115200]);
+            // probed 9600 then 57600, restored 115200 (#107)
+            assert_eq!(*calls.borrow(), vec![9600, 57600, 115200]);
+            assert_eq!(baud.get(), 115200);
+        });
+    }
+
+    #[test]
+    fn test_find_baud_rate_pins_every_zone_code() {
+        // Manual Appendix A/B zone-bit codes, NOT the set-register values:
+        // 9600 answers 0x0139 while Bps9600.value() is 0x00 (#107).
+        let cases: [(u16, BaudRate); 5] = [
+            (0x0139, BaudRate::Bps9600),
+            (0x009C, BaudRate::Bps19200),
+            (0x004E, BaudRate::Bps38400),
+            (0x0034, BaudRate::Bps57600),
+            (0x001A, BaudRate::Bps115200),
+        ];
+        futures_executor::block_on(async {
+            for (code, expected) in cases {
+                let resp = [
+                    0x02,
+                    0x00,
+                    0x00,
+                    0x02,
+                    (code & 0xFF) as u8,
+                    (code >> 8) as u8,
+                    0x00,
+                    0x00,
+                ];
+                let mock = MockAsyncUart::with_responses(&resp);
+                let mut scanner = Gm65ScannerAsync::with_default_config(mock);
+                assert_eq!(
+                    scanner.find_baud_rate().await,
+                    Some(expected),
+                    "zone code {code:#06x}"
+                );
+            }
+            // Unknown code (1200) and garbage map to None.
+            for code in [0x09C4u16, 0xDEAD] {
+                let resp = [
+                    0x02,
+                    0x00,
+                    0x00,
+                    0x02,
+                    (code & 0xFF) as u8,
+                    (code >> 8) as u8,
+                    0x00,
+                    0x00,
+                ];
+                let mock = MockAsyncUart::with_responses(&resp);
+                let mut scanner = Gm65ScannerAsync::with_default_config(mock);
+                assert_eq!(scanner.find_baud_rate().await, None, "code {code:#06x}");
+            }
+        });
+    }
+
+    #[test]
+    fn test_init_multi_baud_m3y_retained_at_57600() {
+        futures_executor::block_on(async {
+            let baud = Rc::new(Cell::new(115200u32));
+            let module_at_115200 = Rc::new(Cell::new(false));
+            let (b1, l1) = init_response_sequence();
+            let (b2, l2) = init_response_sequence();
+            let mut chunks: Vec<&[u8]> = Vec::new();
+            for buf in [&b1[..l1], &b2[..l2]] {
+                chunks.extend(buf.chunks(7));
+            }
+            let mock = BaudAwareMock {
+                dead: MockAsyncUart::new(),
+                live: MockAsyncUart::with_response_sequence(&chunks),
+                baud: Rc::clone(&baud),
+                module_baud: 57600,
+                module_at_115200: Rc::clone(&module_at_115200),
+            };
+            let mut scanner = Gm65ScannerAsync::with_default_config(mock);
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let mut switch = RecordingSwitch {
+                baud: Rc::clone(&baud),
+                calls: Rc::clone(&calls),
+            };
+            let result = scanner.init_multi_baud(&mut switch).await;
+            assert_eq!(result, Ok(ScannerModel::Gm65));
+            // 115200 dead -> 9600 dead -> 57600 answers -> land at 115200
+            assert_eq!(*calls.borrow(), vec![9600, 57600, 115200]);
+            assert!(module_at_115200.get());
+            assert_eq!(baud.get(), 115200);
+        });
+    }
+
+    #[test]
+    fn test_init_scanner_multi_baud_m3y_retained_at_57600() {
+        futures_executor::block_on(async {
+            let baud = Rc::new(Cell::new(115200u32));
+            let module_at_115200 = Rc::new(Cell::new(false));
+            let (b1, l1) = init_response_sequence();
+            let (b2, l2) = init_response_sequence();
+            let mut chunks: Vec<&[u8]> = Vec::new();
+            for buf in [&b1[..l1], &b2[..l2]] {
+                chunks.extend(buf.chunks(7));
+            }
+            let mock = BaudAwareMock {
+                dead: MockAsyncUart::new(),
+                live: MockAsyncUart::with_response_sequence(&chunks),
+                baud: Rc::clone(&baud),
+                module_baud: 57600,
+                module_at_115200: Rc::clone(&module_at_115200),
+            };
+            let (_, model) = crate::driver::baud::init_scanner_multi_baud(mock)
+                .await
+                .expect("ladder recovers the M3Y at 57600");
+            assert_eq!(model, ScannerModel::Gm65);
+            assert!(module_at_115200.get());
             assert_eq!(baud.get(), 115200);
         });
     }

@@ -6,10 +6,10 @@
 //! runtime baud control) and call [`crate::Gm65ScannerAsync::init_multi_baud`]:
 //!
 //! 1. init at the current baud (normal case — module already at 115200)
-//! 2. on `NotDetected`: switch the host to the factory-default 9600 and
-//!    init again (recovers modules whose NVRAM baud drifted or that were
-//!    factory-reset by a heal)
-//! 3. if 9600 answered: command the module to 115200, switch the host up,
+//! 2. on `NotDetected`: walk the recovery ladder — factory-default 9600,
+//!    then 57600 (the M3Y retain rate, `docs/GM65-PROTOCOL-FINDINGS.md`
+//!    "Multi-Baud Rate Probing"; #107) — initing at each step
+//! 3. if a probe answered: command the module to 115200, switch the host up,
 //!    and finish with a full init at operating baud
 
 /// Host hook: switch the underlying UART's baud rate.
@@ -57,33 +57,39 @@ where
         Err(e) => return Err(e),
     }
 
-    // Factory-default baud probe.
-    let (mut uart, ..) = scanner.into_parts();
-    if !uart.set_baud(9600) {
-        return Err(crate::ScannerError::UartError);
-    }
-    let mut scanner = crate::Gm65ScannerAsync::with_default_config(uart);
-    match scanner.init().await {
-        Ok(_) => {
-            // Module answered at 9600: move it (and the UART) to operating
-            // baud and verify with a full init.
-            let _ = scanner.set_baud_115200().await;
-            let (mut uart, ..) = scanner.into_parts();
-            if !uart.set_baud(115200) {
-                return Err(crate::ScannerError::UartError);
-            }
-            let mut scanner = crate::Gm65ScannerAsync::with_default_config(uart);
-            let model = scanner.init().await?;
-            Ok((scanner, model))
-        }
-        Err(e) => {
-            // Nothing at 9600 either — leave the UART at operating baud
-            // and rebuild the scanner so the caller keeps a live handle.
-            let (mut uart, ..) = scanner.into_parts();
+    // Recovery ladder: factory-default 9600, then 57600 (M3Y retain
+    // rate — findings doc "Multi-Baud Rate Probing"; #107).
+    for probe in [9600u32, 57600] {
+        let (mut uart, ..) = scanner.into_parts();
+        if !uart.set_baud(probe) {
+            // Host can't leave the current rate — restore operating baud.
             let _ = uart.set_baud(115200);
-            let scanner = crate::Gm65ScannerAsync::with_default_config(uart);
-            let _ = scanner; // caller receives Err; drop quietly
-            Err(e)
+            return Err(crate::ScannerError::NotDetected);
+        }
+        scanner = crate::Gm65ScannerAsync::with_default_config(uart);
+        match scanner.init().await {
+            Ok(_) => {
+                // Module answered at `probe`: move it (and the UART) to
+                // operating baud and verify with a full init.
+                let _ = scanner.set_baud_115200().await;
+                let (mut uart, ..) = scanner.into_parts();
+                if !uart.set_baud(115200) {
+                    return Err(crate::ScannerError::UartError);
+                }
+                let mut scanner = crate::Gm65ScannerAsync::with_default_config(uart);
+                let model = scanner.init().await?;
+                return Ok((scanner, model));
+            }
+            Err(crate::ScannerError::NotDetected) => {}
+            Err(e) => return Err(e),
         }
     }
+
+    // Nothing answered anywhere — leave the UART at operating baud and
+    // rebuild the scanner so the caller keeps a live handle.
+    let (mut uart, ..) = scanner.into_parts();
+    let _ = uart.set_baud(115200);
+    let scanner = crate::Gm65ScannerAsync::with_default_config(uart);
+    let _ = scanner; // caller receives Err; drop quietly
+    Err(crate::ScannerError::NotDetected)
 }
