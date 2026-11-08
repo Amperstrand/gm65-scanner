@@ -1500,6 +1500,32 @@ mod tests {
     }
 
     #[test]
+    fn test_init_scanner_multi_baud_mid_ladder_fault_restores_baud() {
+        futures_executor::block_on(async {
+            // Codex P2 on #115: module ANSWERS at 9600 but every
+            // register readback is 0x00 — a real fault, not silence.
+            // The free-fn ladder must still hand the scanner back at
+            // OPERATING baud, or a retry re-inits at the stale rate.
+            let baud = Rc::new(Cell::new(115200u32));
+            let zero_frame = success_response(0x00);
+            let scripted: Vec<&[u8]> = (0..24).map(|_| &zero_frame[..]).collect();
+            let mock = BaudAwareMock {
+                dead: MockAsyncUart::new(),
+                live: MockAsyncUart::with_response_sequence(&scripted),
+                baud: Rc::clone(&baud),
+                module_baud: 9600,
+                module_at_115200: Rc::new(Cell::new(false)),
+            };
+            let err = match crate::driver::baud::init_scanner_multi_baud(mock).await {
+                Ok(_) => panic!("misconfigured module must not init"),
+                Err(e) => e,
+            };
+            assert_ne!(err.error, ScannerError::NotDetected);
+            assert_eq!(baud.get(), 115200, "host restored on fault path");
+        });
+    }
+
+    #[test]
     fn test_init_scanner_multi_baud_error_returns_live_scanner_for_retry() {
         futures_executor::block_on(async {
             let baud = Rc::new(Cell::new(115200u32));

@@ -182,7 +182,17 @@ where
                 }
             }
             Err(ScannerError::NotDetected) => {}
-            Err(e) => return Err(InitMultiBaudError { error: e, scanner }),
+            Err(e) => {
+                // Real fault at the probe rate — restore the host to
+                // operating baud before handing the live scanner back,
+                // or a retry succeeds at the stale probe rate and skips
+                // normalization entirely (Codex P2 on #115; the method
+                // twins already restored here).
+                let (mut uart, ..) = scanner.into_parts();
+                let _ = uart.set_baud(115200);
+                let scanner = crate::Gm65ScannerAsync::with_default_config(uart);
+                return Err(InitMultiBaudError { error: e, scanner });
+            }
         }
     }
 
@@ -254,7 +264,13 @@ where
                 }
             }
             Err(ScannerError::NotDetected) => {}
-            Err(e) => return Err(InitMultiBaudError { error: e, scanner }),
+            Err(e) => {
+                // Same restore as the async twin (Codex P2 on #115).
+                let (mut uart, ..) = scanner.into_parts();
+                let _ = uart.set_baud(115200);
+                let scanner = crate::Gm65Scanner::with_default_config(uart);
+                return Err(InitMultiBaudError { error: e, scanner });
+            }
         }
     }
 
