@@ -271,6 +271,47 @@ where
             .is_some_and(|r| r != Gm65Response::Invalid)
     }
 
+    /// Multi-baud init (#85, #107): plain init, then the recovery baud
+    /// ladder — factory-default 9600, then 57600 (the M3Y retain rate) —
+    /// through the host's [`BaudSwitch`](crate::BaudSwitch) hook. Sync
+    /// mirror of `Gm65ScannerAsync::init_multi_baud`; see
+    /// `driver/baud.rs` for the sequence.
+    pub fn init_multi_baud<S: crate::driver::BaudSwitch>(
+        &mut self,
+        switch: &mut S,
+    ) -> Result<ScannerModel, ScannerError> {
+        match self.init() {
+            Ok(model) => return Ok(model),
+            Err(ScannerError::NotDetected) => {}
+            Err(e) => return Err(e),
+        }
+        for probe in [9600u32, 57600] {
+            if !switch.set_baud(probe) {
+                break;
+            }
+            match self.init() {
+                Ok(_) => {
+                    // Module answered at `probe`: bring it (and the host)
+                    // to operating baud, then verify with a full init.
+                    let _ = self.set_baud_115200();
+                    if !switch.set_baud(115200) {
+                        return Err(ScannerError::UartError);
+                    }
+                    return self.init();
+                }
+                Err(ScannerError::NotDetected) => {}
+                Err(e) => {
+                    // Real fault at this baud — restore the host, report.
+                    let _ = switch.set_baud(115200);
+                    return Err(e);
+                }
+            }
+        }
+        // Nothing answered anywhere — restore the host and report.
+        let _ = switch.set_baud(115200);
+        Err(ScannerError::NotDetected)
+    }
+
     /// Deep-sleep reboot (0xA5 at the reset register, GM65 manual 1.6/function
     /// zone: "Deep sleep, wake up by UART interrupt; module reboot"). Deeper
     /// than the factory-reset reboot — clears engine states a factory reset
@@ -732,6 +773,7 @@ pub mod hil_tests {
 mod tests {
     use super::*;
     use alloc::rc::Rc;
+    use alloc::vec;
     use alloc::vec::Vec;
     use core::cell::RefCell;
 
@@ -1132,5 +1174,221 @@ mod tests {
         assert!(scanner.trigger_scan().is_ok());
         assert_eq!(scanner.state(), ScannerState::Scanning);
         assert!(scanner.stop_scan());
+    }
+
+    use core::cell::Cell;
+
+    /// Mirror of the async tests' BaudAwareMock: `dead` never responds,
+    /// `live` carries the scripted sequences, and the module speaks
+    /// `module_baud` until the 2-byte baud register write moves it to
+    /// 115200. Byte-wise embedded-hal-0.2 writes: the command signature
+    /// is detected on the accumulated `written` tail.
+    struct BaudAwareSyncMock {
+        dead: MockUart,
+        live: MockUart,
+        baud: Rc<Cell<u32>>,
+        module_baud: u32,
+        module_at_115200: Rc<Cell<bool>>,
+    }
+
+    impl BaudAwareSyncMock {
+        fn active(&mut self) -> &mut MockUart {
+            let responds = (self.baud.get() == self.module_baud && !self.module_at_115200.get())
+                || (self.baud.get() == 115200 && self.module_at_115200.get());
+            if responds {
+                &mut self.live
+            } else {
+                &mut self.dead
+            }
+        }
+
+        fn check_baud_command(written: &[u8], flag: &Rc<Cell<bool>>) {
+            const SIG: [u8; 5] = [0x08, 0x02, 0x00, 0x2A, 0x1A];
+            if written.len() >= SIG.len() && written[written.len() - SIG.len()..] == SIG {
+                flag.set(true);
+            }
+        }
+    }
+
+    impl Clone for BaudAwareSyncMock {
+        fn clone(&self) -> Self {
+            Self {
+                dead: self.dead.clone(),
+                live: self.live.clone(),
+                baud: Rc::clone(&self.baud),
+                module_baud: self.module_baud,
+                module_at_115200: Rc::clone(&self.module_at_115200),
+            }
+        }
+    }
+
+    impl crate::driver::BaudSwitch for BaudAwareSyncMock {
+        fn set_baud(&mut self, baud: u32) -> bool {
+            self.baud.set(baud);
+            true
+        }
+    }
+
+    impl embedded_hal_02::serial::Write<u8> for BaudAwareSyncMock {
+        type Error = ();
+
+        fn write(&mut self, byte: u8) -> Result<(), nb::Error<Self::Error>> {
+            let flag = Rc::clone(&self.module_at_115200);
+            let active = self.active();
+            let result = active.write(byte);
+            if result.is_ok() {
+                let tail = active.inner.borrow().written.clone();
+                Self::check_baud_command(&tail, &flag);
+            }
+            result
+        }
+
+        fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
+            self.active().flush()
+        }
+    }
+
+    impl embedded_hal_02::serial::Read<u8> for BaudAwareSyncMock {
+        type Error = ();
+
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            self.active().read()
+        }
+    }
+
+    struct RecordingSwitch {
+        baud: Rc<Cell<u32>>,
+        calls: Rc<RefCell<Vec<u32>>>,
+    }
+
+    impl crate::driver::BaudSwitch for RecordingSwitch {
+        fn set_baud(&mut self, baud: u32) -> bool {
+            self.calls.borrow_mut().push(baud);
+            self.baud.set(baud);
+            true
+        }
+    }
+
+    #[test]
+    fn test_crate_root_reexports_multi_baud_surface_sync() {
+        fn assert_baud_switch<T: crate::BaudSwitch>() {}
+        assert_baud_switch::<crate::NoBaudSwitch>();
+        assert_baud_switch::<BaudAwareSyncMock>();
+        // The sync free function resolves at the crate root (#108).
+        let _ = &crate::init_scanner_multi_baud_sync::<BaudAwareSyncMock>;
+    }
+
+    #[test]
+    fn test_init_multi_baud_dead_module_restores_baud_sync() {
+        let baud = Rc::new(Cell::new(115200u32));
+        let mock = BaudAwareSyncMock {
+            dead: MockUart::new(),
+            live: MockUart::new(),
+            baud: Rc::clone(&baud),
+            module_baud: 9600,
+            module_at_115200: Rc::new(Cell::new(false)),
+        };
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut switch = RecordingSwitch {
+            baud: Rc::clone(&baud),
+            calls: Rc::clone(&calls),
+        };
+        let result = scanner.init_multi_baud(&mut switch);
+        assert_eq!(result, Err(ScannerError::NotDetected));
+        assert_eq!(*calls.borrow(), vec![9600, 57600, 115200]);
+        assert_eq!(baud.get(), 115200);
+    }
+
+    #[test]
+    fn test_init_multi_baud_m3y_retained_at_57600_sync() {
+        let baud = Rc::new(Cell::new(115200u32));
+        let module_at_115200 = Rc::new(Cell::new(false));
+        let (b1, l1) = init_response_sequence();
+        let (b2, l2) = init_response_sequence();
+        let mut chunks: Vec<&[u8]> = Vec::new();
+        for buf in [&b1[..l1], &b2[..l2]] {
+            chunks.extend(buf.chunks(7));
+        }
+        let mock = BaudAwareSyncMock {
+            dead: MockUart::new(),
+            live: MockUart::with_response_sequence(&chunks),
+            baud: Rc::clone(&baud),
+            module_baud: 57600,
+            module_at_115200: Rc::clone(&module_at_115200),
+        };
+        let mut scanner = Gm65Scanner::with_default_config(mock);
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut switch = RecordingSwitch {
+            baud: Rc::clone(&baud),
+            calls: Rc::clone(&calls),
+        };
+        let result = scanner.init_multi_baud(&mut switch);
+        assert_eq!(result, Ok(ScannerModel::Gm65));
+        // 115200 dead -> 9600 dead -> 57600 answers -> land at 115200
+        assert_eq!(*calls.borrow(), vec![9600, 57600, 115200]);
+        assert!(module_at_115200.get());
+        assert_eq!(baud.get(), 115200);
+    }
+
+    #[test]
+    fn test_init_scanner_multi_baud_sync_m3y_retained_at_57600() {
+        let baud = Rc::new(Cell::new(115200u32));
+        let module_at_115200 = Rc::new(Cell::new(false));
+        let (b1, l1) = init_response_sequence();
+        let (b2, l2) = init_response_sequence();
+        let mut chunks: Vec<&[u8]> = Vec::new();
+        for buf in [&b1[..l1], &b2[..l2]] {
+            chunks.extend(buf.chunks(7));
+        }
+        let mock = BaudAwareSyncMock {
+            dead: MockUart::new(),
+            live: MockUart::with_response_sequence(&chunks),
+            baud: Rc::clone(&baud),
+            module_baud: 57600,
+            module_at_115200: Rc::clone(&module_at_115200),
+        };
+        let (_, model) = crate::init_scanner_multi_baud_sync(mock)
+            .expect("sync ladder recovers the M3Y at 57600");
+        assert_eq!(model, ScannerModel::Gm65);
+        assert!(module_at_115200.get());
+        assert_eq!(baud.get(), 115200);
+    }
+
+    #[test]
+    fn test_init_scanner_multi_baud_sync_error_returns_live_scanner_for_retry() {
+        let baud = Rc::new(Cell::new(115200u32));
+        let mock = BaudAwareSyncMock {
+            dead: MockUart::new(),
+            live: MockUart::new(),
+            baud: Rc::clone(&baud),
+            module_baud: 9600,
+            module_at_115200: Rc::new(Cell::new(false)),
+        };
+        let mut err = match crate::init_scanner_multi_baud_sync(mock) {
+            Ok(_) => panic!("dead module must not init"),
+            Err(e) => e,
+        };
+        assert_eq!(err.error, ScannerError::NotDetected);
+        assert_eq!(baud.get(), 115200, "host restored to operating baud");
+
+        // The scanner comes back with the error and can run the
+        // ladder again (#108: callers keep a live handle to retry).
+        let calls2 = Rc::new(RefCell::new(Vec::new()));
+        let mut switch2 = RecordingSwitch {
+            baud: Rc::clone(&baud),
+            calls: Rc::clone(&calls2),
+        };
+        assert_eq!(
+            err.scanner.init_multi_baud(&mut switch2),
+            Err(ScannerError::NotDetected)
+        );
+        assert_eq!(*calls2.borrow(), vec![9600, 57600, 115200]);
+
+        let (_uart, state, _data, _model) = err.scanner.into_parts();
+        assert!(matches!(
+            state,
+            ScannerState::Error(ScannerError::NotDetected)
+        ));
     }
 }

@@ -44,6 +44,9 @@ maybe-async = "0.2"
 [dev-dependencies]
 futures-executor = "0.3"
 embedded-graphics = "0.8"
+# Doctests are compiled as separate crates: they can only use dev-deps,
+# and the consumer-pattern example needs the async IO traits on host.
+embedded-io-async = "0.7"
 
 [package.metadata.docs.rs]
 all-features = true

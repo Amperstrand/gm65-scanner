@@ -19,6 +19,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test -p gm65-scanner --lib
+      - name: Run tests (async)
+        run: cargo test -p gm65-scanner --features async --lib
+      - name: Run doctests (async)
+        run: cargo test -p gm65-scanner --features async --doc
 
   check-features:
     name: Check Features

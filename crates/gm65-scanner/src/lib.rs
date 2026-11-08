@@ -66,9 +66,13 @@ pub use decoder::{
     classify_payload, decode_payload, parse_ur_fragment, DecodedPayload, ParsedUrFragment,
     PayloadType, UrDecoder,
 };
+#[cfg(feature = "async")]
+pub use driver::init_scanner_multi_baud;
+#[cfg(feature = "sync")]
+pub use driver::init_scanner_multi_baud_sync;
 pub use driver::{
-    ScanMode, ScannerConfig, ScannerDriver, ScannerDriverSync, ScannerError, ScannerModel,
-    ScannerState, ScannerStatus,
+    BaudSwitch, InitMultiBaudError, NoBaudSwitch, ScanMode, ScannerConfig, ScannerDriver,
+    ScannerDriverSync, ScannerError, ScannerModel, ScannerState, ScannerStatus,
 };
 pub use policy::{bench_baseline_settings, ScanPolicy};
 pub use protocol::{
