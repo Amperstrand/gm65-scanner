@@ -1395,8 +1395,10 @@ mod tests {
     #[test]
     fn test_init_scanner_multi_baud_sync_mid_ladder_fault_restores_baud() {
         let baud = Rc::new(Cell::new(115200u32));
-        let zero_frame = success_response(0x00);
-        let scripted: Vec<&[u8]> = (0..3).map(|_| &zero_frame[..]).collect();
+        let ok_frame = success_response(0x00);
+        let bad_frame = [0x02, 0x00, 0x00, 0x01, 0x00, 0x33, 0x32];
+        let scripted: Vec<&[u8]> =
+            vec![&bad_frame[..], &ok_frame[..], &ok_frame[..], &ok_frame[..]];
         let mock = BaudAwareSyncMock {
             dead: MockUart::new(),
             live: MockUart::with_response_sequence(&scripted),
@@ -1411,6 +1413,12 @@ mod tests {
         // Codex P2 on #115: the probe-rate fault must NOT strand the
         // host at 9600 — the error-owns-scanner contract guarantees
         // operating baud so a retry re-runs the full ladder.
-        assert_eq!(baud.get(), 115200, "host restored; err={:?}", err.error);
+        assert_ne!(err.error, ScannerError::NotDetected);
+        assert_eq!(
+            baud.get(),
+            115200,
+            "host restored on the fault path; err={:?}",
+            err.error
+        );
     }
 }
