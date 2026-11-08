@@ -42,9 +42,15 @@ mod types;
 #[cfg(test)]
 mod test_helpers;
 
-pub use baud::{BaudSwitch, NoBaudSwitch};
+pub use baud::{BaudSwitch, InitMultiBaudError, NoBaudSwitch};
 pub use traits::{ScannerDriver, ScannerDriverSync};
 pub use types::{ScanMode, ScannerConfig, ScannerError, ScannerModel, ScannerState, ScannerStatus};
+
+#[cfg(feature = "sync")]
+pub use baud::init_scanner_multi_baud_sync;
+
+#[cfg(feature = "async")]
+pub use baud::init_scanner_multi_baud;
 
 #[cfg(feature = "sync")]
 mod sync;

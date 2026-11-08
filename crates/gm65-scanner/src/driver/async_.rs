@@ -1491,6 +1491,101 @@ mod tests {
     }
 
     #[test]
+    fn test_init_scanner_multi_baud_mid_ladder_fault_restores_baud() {
+        // Codex P2 on #115: whichever way the probe-baud init fails —
+        // a truncated response sequence or a corrupt frame at any
+        // position — the returned error must leave the host at
+        // operating baud. Sweeping every truncation and corruption
+        // point pins the postcondition without hand-tuning a fixture
+        // to the driver's internal command sequence.
+        let (buf, len) = init_response_sequence();
+        let frames: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+
+        let mut scenarios: Vec<Vec<u8>> = Vec::new();
+        for truncate_at in 0..=frames.len() {
+            scenarios.push(
+                frames[..truncate_at]
+                    .iter()
+                    .flat_map(|f| f.iter().copied())
+                    .collect(),
+            );
+        }
+        for pos in 0..frames.len() {
+            let mut stream: Vec<u8> = frames.iter().flat_map(|f| f.iter().copied()).collect();
+            stream[pos * 7 + 6] ^= 0xFF;
+            scenarios.push(stream);
+        }
+
+        futures_executor::block_on(async {
+            for (i, stream) in scenarios.iter().enumerate() {
+                let baud = Rc::new(Cell::new(115200u32));
+                let scripted: Vec<&[u8]> = stream.chunks(7).collect();
+                let mock = BaudAwareMock {
+                    dead: MockAsyncUart::new(),
+                    live: MockAsyncUart::with_response_sequence(&scripted),
+                    baud: Rc::clone(&baud),
+                    module_baud: 9600,
+                    module_at_115200: Rc::new(Cell::new(false)),
+                };
+                let _ = crate::driver::baud::init_scanner_multi_baud(mock).await;
+                assert_eq!(
+                    baud.get(),
+                    115200,
+                    "postcondition violated at scenario #{i}"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn test_crate_root_reexports_multi_baud_surface() {
+        fn assert_baud_switch<T: crate::BaudSwitch>() {}
+        assert_baud_switch::<crate::NoBaudSwitch>();
+        assert_baud_switch::<BaudAwareMock>();
+        // The advertised free functions resolve at the crate root (#108).
+        let _ = &crate::init_scanner_multi_baud::<BaudAwareMock>;
+    }
+
+    #[test]
+    fn test_init_scanner_multi_baud_error_returns_live_scanner_for_retry() {
+        futures_executor::block_on(async {
+            let baud = Rc::new(Cell::new(115200u32));
+            let mock = BaudAwareMock {
+                dead: MockAsyncUart::new(),
+                live: MockAsyncUart::new(),
+                baud: Rc::clone(&baud),
+                module_baud: 9600,
+                module_at_115200: Rc::new(Cell::new(false)),
+            };
+            let mut err = match crate::driver::baud::init_scanner_multi_baud(mock).await {
+                Ok(_) => panic!("dead module must not init"),
+                Err(e) => e,
+            };
+            assert_eq!(err.error, ScannerError::NotDetected);
+            assert_eq!(baud.get(), 115200, "host restored to operating baud");
+
+            // The scanner comes back with the error and can run the
+            // ladder again (#108: callers keep a live handle to retry).
+            let calls2 = Rc::new(RefCell::new(Vec::new()));
+            let mut switch2 = RecordingSwitch {
+                baud: Rc::clone(&baud),
+                calls: Rc::clone(&calls2),
+            };
+            assert_eq!(
+                err.scanner.init_multi_baud(&mut switch2).await,
+                Err(ScannerError::NotDetected)
+            );
+            assert_eq!(*calls2.borrow(), vec![9600, 57600, 115200]);
+
+            let (_uart, state, _data, _model) = err.scanner.into_parts();
+            assert!(matches!(
+                state,
+                ScannerState::Error(ScannerError::NotDetected)
+            ));
+        });
+    }
+
+    #[test]
     fn test_init_success() {
         futures_executor::block_on(async {
             let (buf, len) = init_response_sequence();
