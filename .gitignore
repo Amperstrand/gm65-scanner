@@ -5,3 +5,4 @@ tools/hil/results/
 tools/hil/.pytest_cache/
 __pycache__/
 .test-report.json
+.opencode/
