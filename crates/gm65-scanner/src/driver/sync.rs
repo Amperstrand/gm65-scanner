@@ -1394,31 +1394,46 @@ mod tests {
 
     #[test]
     fn test_init_scanner_multi_baud_sync_mid_ladder_fault_restores_baud() {
-        let baud = Rc::new(Cell::new(115200u32));
-        let ok_frame = success_response(0x00);
-        let bad_frame = [0x02, 0x00, 0x00, 0x01, 0x00, 0x33, 0x32];
-        let scripted: Vec<&[u8]> =
-            vec![&bad_frame[..], &ok_frame[..], &ok_frame[..], &ok_frame[..]];
-        let mock = BaudAwareSyncMock {
-            dead: MockUart::new(),
-            live: MockUart::with_response_sequence(&scripted),
-            baud: Rc::clone(&baud),
-            module_baud: 9600,
-            module_at_115200: Rc::new(Cell::new(false)),
-        };
-        let err = match crate::init_scanner_multi_baud_sync(mock) {
-            Ok(_) => panic!("misconfigured module must not init"),
-            Err(e) => e,
-        };
-        // Codex P2 on #115: the probe-rate fault must NOT strand the
-        // host at 9600 — the error-owns-scanner contract guarantees
-        // operating baud so a retry re-runs the full ladder.
-        assert_ne!(err.error, ScannerError::NotDetected);
-        assert_eq!(
-            baud.get(),
-            115200,
-            "host restored on the fault path; err={:?}",
-            err.error
-        );
+        // Codex P2 on #115: whichever way the probe-baud init fails —
+        // a truncated response sequence or a corrupt frame at any
+        // position — the returned error must leave the host at
+        // operating baud. Sweeping every truncation and corruption
+        // point pins the postcondition without hand-tuning a fixture
+        // to the driver's internal command sequence.
+        let (buf, len) = init_response_sequence();
+        let frames: Vec<&[u8]> = (0..len).step_by(7).map(|i| &buf[i..i + 7]).collect();
+
+        let mut scenarios: Vec<Vec<u8>> = Vec::new();
+        for truncate_at in 0..=frames.len() {
+            scenarios.push(
+                frames[..truncate_at]
+                    .iter()
+                    .flat_map(|f| f.iter().copied())
+                    .collect(),
+            );
+        }
+        for pos in 0..frames.len() {
+            let mut stream: Vec<u8> = frames.iter().flat_map(|f| f.iter().copied()).collect();
+            stream[pos * 7 + 6] ^= 0xFF;
+            scenarios.push(stream);
+        }
+
+        for (i, stream) in scenarios.iter().enumerate() {
+            let baud = Rc::new(Cell::new(115200u32));
+            let scripted: Vec<&[u8]> = stream.chunks(7).collect();
+            let mock = BaudAwareSyncMock {
+                dead: MockUart::new(),
+                live: MockUart::with_response_sequence(&scripted),
+                baud: Rc::clone(&baud),
+                module_baud: 9600,
+                module_at_115200: Rc::new(Cell::new(false)),
+            };
+            let _ = crate::init_scanner_multi_baud_sync(mock);
+            assert_eq!(
+                baud.get(),
+                115200,
+                "postcondition violated at scenario #{i}"
+            );
+        }
     }
 }
