@@ -605,19 +605,27 @@ exporter state) lives in **conwrt-bench `docs/labgrid-coordination.md`**
 
 This crate owns all GM65 module lore. The three wedge classes and their
 recoveries — from micronuts physical-loop session 2026-09-13 (full
-lesson: bolty-rs lessons-learned B29):
+lesson: bolty-rs lessons-learned B29). CDC command IDs are the crate's
+own (`examples/stm32f469i-disco/src/cdc.rs`): **FactoryReset = 0x22,
+ModuleReboot = 0x23** (0x13/0x14 are GetSettings/SetSettings — an older
+revision of this matrix mislabeled them as heal commands, and heals
+"tried" with those IDs were in fact no-ops that could misclassify a
+module as class-3):
 
 | Class | Symptom | Fix | Proven |
 |---|---|---|---|
-| 1 — decode fatigue (#92) | UART ACKs, zero decodes, watchdog climbs | idle time; `ScannerHeal` (0x13, deep-sleep) sometimes; pace scans | soak 2026-09-11 |
-| 2 — settings corruption | init VERIFY fails (register writes ACK but read back wrong) | `ScannerFactoryHeal` (0x14, factory_reset + baud ladder) | firmware boot ladder |
-| 3 — deep wedge (ROM state) | init fails at EVERY step; even 0x14 doesn't restore init; raw UART commands still ACK | **physical board power-cycle only** — unplug both USB + ST-Link 10 s (the module rides the 3.3V rail; ST resets don't depower it) | micronuts 2026-09-13 (0x13 and 0x14 both failed; trigger ACKed) |
+| 1 — decode fatigue (#92) | UART ACKs, zero decodes, watchdog climbs | idle time; `deep_sleep_reboot()` (CDC **ModuleReboot 0x23**, the 0xA5 deep-sleep tier) sometimes; pace scans | soak 2026-09-11 |
+| 2 — settings corruption | init VERIFY fails (register writes ACK but read back wrong) | `factory_reset()` (CDC **FactoryReset 0x22**) + baud ladder | firmware boot ladder |
+| 3 — deep wedge (ROM state) | init fails at EVERY step; even a real FactoryReset (0x22) doesn't restore init; raw UART commands still ACK | **physical board power-cycle only** — unplug both USB + ST-Link 10 s (the module rides the 3.3V rail; ST resets don't depower it) | micronuts 2026-09-13 (the heal attempts using mislabeled 0x13/0x14 ACKed as settings ops and restored nothing — consistent with GetSettings/SetSettings semantics; trigger ACKed) |
 
-**Heal-ladder ceiling**: the factory-heal (0x14) is the deepest SOFTWARE
-recovery. A module that ACKs UART but fails init after 0x14 is class 3 —
-stop retrying software heals and power-cycle the board.
+**Heal-ladder ceiling**: `factory_reset()` (CDC FactoryReset, 0x22) is
+the deepest SOFTWARE recovery. A module that ACKs UART but fails init
+after a real 0x22 is class 3 — stop retrying software heals and
+power-cycle the board.
 
 **Session protocol** (every project using this rig): check-in probe
-(bringup.py F1+F2), classify before healing, check-out probe. A session
-that leaves a class-3 wedge must name it — silent handoffs are how
-wedges compound across days.
+(`scripts/test_on_device.py --skip-flash` for the on-device battery, or
+`tools/hil/heal_validate.py` when validating heals — there is no
+`bringup.py` in this repo), classify before healing, check-out probe. A
+session that leaves a class-3 wedge must name it — silent handoffs are
+how wedges compound across days.

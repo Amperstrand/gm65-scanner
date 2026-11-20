@@ -324,9 +324,13 @@ pub fn pg_set_on_event(cb: js_sys::Function) {
 }
 
 /// Create the device task: virtual module + real driver, spawn the loop.
+/// Any previously-spawned task is retired first (generation bump) — a
+/// re-Init no longer leaves two tasks competing for the shared queues
+/// against stale VirtualUarts (issue #111).
 #[wasm_bindgen]
 pub async fn pg_init() -> Result<JsValue, JsValue> {
     ui::reset_state();
+    ui::retire_device_tasks();
     let uart = VirtualUart::new();
     UART.with(|u| *u.borrow_mut() = Some(uart.clone()));
     let scanner = Gm65ScannerAsync::with_default_config(uart.clone());
