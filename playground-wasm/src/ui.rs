@@ -11,7 +11,7 @@
 //! 480x800 layout, hit-tested in Rust. Hand-rolled rows (not a GUI crate)
 //! on purpose — firmware parity is the point.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::rc::Rc;
@@ -175,8 +175,49 @@ pub fn reset_state() {
     UI_STATE.with(|s| *s.borrow_mut() = UiState::new());
 }
 
+thread_local! {
+    /// Generation of the CURRENT device task. `pg_init` bumps this before
+    /// spawning a new task; a still-running older task observes the mismatch
+    /// and retires itself within one loop iteration — without this, every
+    /// re-Init left the previous task competing for the shared command/tap
+    /// queues against a stale VirtualUart (issue #111).
+    static DEVICE_TASK_GEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Retire any running device task: the next (or current) task's generation
+/// check fails and it exits. Call BEFORE spawning the replacement.
+pub fn retire_device_tasks() {
+    DEVICE_TASK_GEN.with(|g| g.set(g.get() + 1));
+}
+
+/// JSON string escaping for the event sink: scanned payloads may contain
+/// quotes, backslashes, and control characters — raw interpolation produced
+/// invalid JSON that main.js silently dropped (issue #111).
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn emit(kind: &str, key: &str, value: &str) {
-    let json = format!("{{\"type\":\"{kind}\",\"{key}\":\"{value}\"}}");
+    let json = format!(
+        "{{\"type\":\"{}\",\"{}\":\"{}\"}}",
+        json_escape(kind),
+        json_escape(key),
+        json_escape(value)
+    );
     ON_EVENT.with(|slot| {
         if let Some(cb) = slot.borrow().as_ref() {
             let _ = cb.call1(&JsValue::NULL, &JsValue::from_str(&json));
@@ -229,6 +270,7 @@ fn hit_test(screen: Screen, x: u32, y: u32) -> Option<RowId> {
 // ---------------------------------------------------------------------------
 
 pub async fn device_task(mut scanner: Gm65ScannerAsync<VirtualUart>, uart: VirtualUart) {
+    let my_gen = DEVICE_TASK_GEN.with(Cell::get);
     let model = scanner.init().await;
     match model {
         Ok(m) => {
@@ -250,6 +292,12 @@ pub async fn device_task(mut scanner: Gm65ScannerAsync<VirtualUart>, uart: Virtu
     emit("screen", "screen", current_screen().name());
 
     loop {
+        // Retire if a newer device task was spawned (re-Init): the stale
+        // task must stop competing for the shared queues and its VirtualUart.
+        if my_gen != DEVICE_TASK_GEN.with(Cell::get) {
+            return;
+        }
+
         // 1. Drain taps → commands/screen transitions.
         while let Some((x, y)) = with_shared(|s| s.taps.pop_front()) {
             let screen = current_screen();
